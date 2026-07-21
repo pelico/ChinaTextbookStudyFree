@@ -54,6 +54,19 @@ struct LessonRunnerView: View {
     private var originalTotal: Int { max(1, lesson?.questions.count ?? 1) }
     private var progress: Double { Double(solvedIDs.count) / Double(originalTotal) }
 
+    /// The equipped lesson backdrop, laid over the neutral surface at a reduced
+    /// strength so question text keeps its contrast on every backdrop.
+    @ViewBuilder
+    private var lessonBackground: some View {
+        ZStack {
+            DuoColors.bg
+            if let b = progressStore.equippedBackdropData, !b.stops.isEmpty {
+                LinearGradient(colors: b.stops, startPoint: .top, endPoint: .bottom)
+                    .opacity(b.needsOverlay ? 0.26 : 0.55)
+            }
+        }
+    }
+
     var body: some View {
         Group {
             if lesson != nil, index < queue.count {
@@ -80,7 +93,7 @@ struct LessonRunnerView: View {
             content(q: q)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(DuoColors.bg.ignoresSafeArea())
+        .background(lessonBackground.ignoresSafeArea())
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if phase == .checked, let ok = isCorrect {
                 feedbackPanel(ok: ok, question: q)

@@ -11,6 +11,12 @@ struct RootView: View {
     @State private var siteIndex: SiteIndex?
     @State private var loadError: String?
 
+    /// A purchased dark theme forces dark; otherwise the user's own preference.
+    private var effectiveColorScheme: ColorScheme? {
+        if progressStore.equippedThemeData?.isDark == true { return .dark }
+        return settings.appearance.colorScheme
+    }
+
     var body: some View {
         Group {
             if let siteIndex {
@@ -32,9 +38,14 @@ struct RootView: View {
         // Rounded typeface app-wide: any Text that doesn't specify its own
         // `design:` inherits SF Rounded, so the whole app reads "Duolingo".
         .fontDesign(.rounded)
-        // One opt-in appearance switch (light-first default).
-        .preferredColorScheme(settings.appearance.colorScheme)
+        // One opt-in appearance switch (light-first default); a purchased dark
+        // theme (暗夜模式 / 曜石黑) wins over the preference while equipped.
+        .preferredColorScheme(effectiveColorScheme)
         .tint(DuoColors.primary)
+        .onAppear { progressStore.applyEquippedTheme() }
+        .onChange(of: progressStore.equippedTheme) { _, _ in
+            progressStore.applyEquippedTheme()
+        }
         // First-run onboarding covers the shell until the learner picks a
         // book and a daily goal.
         .overlay {

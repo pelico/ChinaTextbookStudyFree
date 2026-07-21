@@ -1,68 +1,110 @@
 import XCTest
 
-/// Layout regression coverage for Phase 7.
-/// These tests are destination-agnostic: iPhone runs exercise the compact
-/// NavigationStack path, iPad runs exercise the NavigationSplitView path.
+/// Shell / layout coverage.
+/// iPhone runs exercise the compact NavigationStack + bottom tab bar;
+/// iPad runs exercise the NavigationSplitView sidebar.
 final class LayoutUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
 
     @MainActor
-    func testSidebarOnRegularWidth() throws {
+    private func launchApp(extraArgs: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
+        app.launchArguments.append("-uitest")
+        app.launchArguments.append(contentsOf: extraArgs)
         app.launch()
-        XCTAssertTrue(app.navigationBars["课本学习"].waitForExistence(timeout: 5))
-
-        // Attach the launch screenshot unconditionally so we have proof even
-        // when the sidebar isn't present (iPhone compact).
-        attach(name: "shell-launch")
-
-        guard UIDevice.current.userInterfaceIdiom == .pad else {
-            // Nothing more to assert on compact width — that layout is covered
-            // by LessonFlowUITests etc.
-            return
-        }
-
-        // Regular width — the sidebar List renders the rows as cells
-        // (not plain UIButtons). Query them via `cells` and match the label.
-        let reviewCell = app.cells.containing(
-            NSPredicate(format: "label CONTAINS %@", "错题本")
-        ).firstMatch
-        XCTAssertTrue(reviewCell.waitForExistence(timeout: 3),
-                      "sidebar 错题本 row not found on iPad")
-        let achievementsCell = app.cells.containing(
-            NSPredicate(format: "label CONTAINS %@", "成就墙")
-        ).firstMatch
-        XCTAssertTrue(achievementsCell.waitForExistence(timeout: 3))
-
-        // Tap the achievements sidebar entry and verify navigation swap.
-        achievementsCell.tap()
-        XCTAssertTrue(app.navigationBars["成就墙"].waitForExistence(timeout: 3))
-        attach(name: "ipad-split-achievements")
+        return app
     }
 
     @MainActor
     private func attach(name: String) {
-        let snap = XCUIScreen.main.screenshot()
-        let att = XCTAttachment(screenshot: snap)
+        let att = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         att.name = name
         att.lifetime = .keepAlways
         add(att)
     }
 
+    /// Every tab must be reachable from the bottom bar on compact width.
     @MainActor
-    func testDarkModeRenders() throws {
-        let app = XCUIApplication()
-        app.launchArguments.append("-AppleInterfaceStyle")
-        app.launchArguments.append("Dark")
-        app.launch()
-        XCTAssertTrue(app.navigationBars["课本学习"].waitForExistence(timeout: 5))
+    func testBottomTabBarReachesEveryTab() throws {
+        try skipIfIPad()
+        let app = launchApp()
 
-        let snap = XCUIScreen.main.screenshot()
-        let att = XCTAttachment(screenshot: snap)
-        att.name = "dark-mode-home"
-        att.lifetime = .keepAlways
-        add(att)
+        XCTAssertTrue(app.buttons["tab-learn"].waitForExistence(timeout: 15),
+                      "bottom tab bar did not render")
+        attach(name: "shell-launch")
+
+        app.buttons["tab-review"].tap()
+        XCTAssertTrue(app.navigationBars["错题本"].waitForExistence(timeout: 4),
+                      "review tab did not open 错题本")
+
+        app.buttons["tab-shop"].tap()
+        XCTAssertTrue(app.navigationBars["商店"].waitForExistence(timeout: 4),
+                      "shop tab did not open 商店")
+
+        app.buttons["tab-profile"].tap()
+        XCTAssertTrue(app.navigationBars["我的"].waitForExistence(timeout: 4),
+                      "profile tab did not open 我的")
+
+        // Back to the path.
+        app.buttons["tab-learn"].tap()
+        XCTAssertTrue(app.buttons["lesson-row-g1up-u1-kp1"].waitForExistence(timeout: 6),
+                      "learn tab did not return to the path")
+    }
+
+    /// Profile is the entry point to both the achievement wall and settings.
+    @MainActor
+    func testProfileReachesAchievementsAndSettings() throws {
+        try skipIfIPad()
+        let app = launchApp()
+
+        XCTAssertTrue(app.buttons["tab-profile"].waitForExistence(timeout: 15))
+        app.buttons["tab-profile"].tap()
+        XCTAssertTrue(app.navigationBars["我的"].waitForExistence(timeout: 4))
+
+        app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "成就墙")).firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["成就墙"].waitForExistence(timeout: 4),
+                      "profile did not navigate to 成就墙")
+        app.navigationBars.buttons.firstMatch.tap()
+
+        XCTAssertTrue(app.navigationBars["我的"].waitForExistence(timeout: 4))
+        app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "设置")).firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 4),
+                      "profile did not navigate to 设置")
+    }
+
+    /// iPad sidebar exposes the same surfaces as the iPhone tab bar.
+    @MainActor
+    func testSidebarOnRegularWidth() throws {
+        let app = launchApp()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+
+        guard UIDevice.current.userInterfaceIdiom == .pad else {
+            // Compact width is covered by the tab-bar test above.
+            return
+        }
+
+        for label in ["错题本", "商店", "我的", "成就墙"] {
+            let cell = app.cells.containing(NSPredicate(format: "label CONTAINS %@", label)).firstMatch
+            XCTAssertTrue(cell.waitForExistence(timeout: 4), "sidebar row \(label) not found on iPad")
+        }
+
+        app.cells.containing(NSPredicate(format: "label CONTAINS %@", "成就墙")).firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["成就墙"].waitForExistence(timeout: 4))
+        attach(name: "ipad-split-achievements")
+    }
+
+    /// The app owns its appearance (light by default), so dark mode is driven by
+    /// our own preference key rather than the system style.
+    @MainActor
+    func testDarkAppearancePreferenceRenders() throws {
+        try skipIfIPad()
+        // Launch arguments beginning with "-" set NSUserDefaults for this launch.
+        let app = launchApp(extraArgs: ["-cstf.appearance", "dark"])
+
+        XCTAssertTrue(app.buttons["lesson-row-g1up-u1-kp1"].waitForExistence(timeout: 15),
+                      "path home did not render under the dark appearance preference")
+        attach(name: "dark-mode-home")
     }
 }

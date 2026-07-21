@@ -143,7 +143,7 @@ open ChinaTextbookStudy.xcodeproj
 - 域逻辑（SRS / 判分 / 成就 / 宝箱 / 吉祥物）从 `packages/core` 逐文件对译为 Swift
 - 音频：Opus 预转码为 AAC m4a，`AVAudioPlayer` 播放，无第三方解码依赖
 - 数据按书从 GitHub Release 按需下载（首启不需要下完全部 44 本的 ~843MB）
-- 32 个域逻辑单元测试（UI 测试尚未跟进导航改版，见下方「已知遗留」）
+- 32 个域逻辑单元测试 + 10 个 UI 测试（答题闭环、退出确认、标签导航、装扮购买）
 
 **统一设计系统（`DesignSystem/`）**
 
@@ -164,9 +164,14 @@ open ChinaTextbookStudy.xcodeproj
 - 课文/故事支持「朗读全文」逐句高亮跟随，读完奖励经验值
 - 吉祥物「聪聪」（熊猫）以 SwiftUI Canvas 绘制，含呼吸、眨眼与情绪反应
 
+**装扮系统（earn → spend → express 闭环）**
+- 用学习赚来的宝石购买皮肤 / 主题 / 课程背景，购买即装备
+- **皮肤**：11 款配饰（学士帽、圆框眼镜、皇冠、法师帽、宇航员头盔、DJ 耳机…）直接画在聪聪身上，全局生效
+- **主题**：10 套配色通过 `DuoColors.themeOverride` 重绘全局品牌色；深色系主题（暗夜模式 / 曜石黑）自动切换深色外观
+- **课程背景**：8 款渐变作用于答题页，按对比度需要自动降低强度，保证题目始终可读
+- 商店里的每个格子都是**实时预览**：皮肤格是戴着该配饰的聪聪本人，主题格是该主题的真实配色
+
 **已知遗留**
-- 商店可购买并装备皮肤/主题，但装备后尚未真正给吉祥物换装、给全局换配色
-- UI 测试（5 个）仍针对改版前的导航结构，需要重写
 - 连胜提醒推送、每日任务 / 周报暂未实现
 
 更多上架相关细节见 [`apps/mobile/APPSTORE.md`](apps/mobile/APPSTORE.md)。
@@ -250,7 +255,7 @@ ChinaStudyFree/
     │   │   │                           #   Stories / Shop / Profile / Settings / Achievements
     │   │   └── Components/             #   PathMapView / MascotView / BottomTabBar / 反馈与庆祝件
     │   ├── ChinaTextbookStudyTests/    #   32 个域逻辑单元测试
-    │   └── ChinaTextbookStudyUITests/  #   UI 测试（待跟进导航改版）
+    │   └── ChinaTextbookStudyUITests/  #   10 个 UI 测试（答题闭环 / 标签导航 / 装扮购买）
     │
     └── web/                            # Next.js 前端（原 frontend/）
         ├── scripts/
@@ -312,7 +317,7 @@ ChinaStudyFree/
 - [x] 课外故事阅读（语文 188 篇 + 英语 96 篇，含 AI 配图）
 - [x] iOS 端（SwiftUI，iPhone + iPad）
 - [x] iOS 统一设计系统与游戏化学习体验（浅色为主 + 可选深色）
-- [ ] 装扮系统真正生效（购买的皮肤 / 主题应用到界面）
+- [x] 装扮系统闭环（皮肤 / 主题 / 课程背景购买后全局生效）
 - [ ] 道德与法治内容
 - [ ] 题目质量评估与人工审核流程
 - [ ] 离线版 / 校园内网部署包

@@ -1,46 +1,57 @@
 import XCTest
 
-/// Walks the secondary screens and attaches a screenshot of each so the
-/// developer can see the rendered state without manual simulator interaction.
+/// Walks the main surfaces and attaches a screenshot of each, so the rendered
+/// state can be reviewed from the test report without driving the simulator by
+/// hand. Assertions are deliberately light — this is a capture harness.
 final class ScreenshotTests: XCTestCase {
     @MainActor
-    func testCaptureSecondaryScreens() throws {
+    func testCaptureMainScreens() throws {
         try skipIfIPad()
         let app = XCUIApplication()
+        app.launchArguments.append("-uitest")
         app.launch()
-        XCTAssertTrue(app.navigationBars["课本学习"].waitForExistence(timeout: 5))
 
-        attach(name: "01-home")
+        XCTAssertTrue(app.buttons["lesson-row-g1up-u1-kp1"].waitForExistence(timeout: 15),
+                      "path home did not render")
+        attach(name: "01-home-path")
 
-        // Achievements
-        app.buttons["home-achievements"].tap()
-        XCTAssertTrue(app.navigationBars["成就墙"].waitForExistence(timeout: 3))
-        sleep(1)
-        attach(name: "02-achievements")
+        // Start popup over the path.
+        app.buttons["lesson-row-g1up-u1-kp1"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["lesson-start"].waitForExistence(timeout: 5))
+        attach(name: "02-start-popup")
 
-        app.navigationBars.firstMatch.buttons.firstMatch.tap()
-        XCTAssertTrue(app.navigationBars["课本学习"].waitForExistence(timeout: 3))
+        // Lesson runner + feedback panel.
+        app.buttons["lesson-start"].tap()
+        XCTAssertTrue(app.buttons["检查答案"].waitForExistence(timeout: 8))
+        attach(name: "03-lesson-question")
 
-        // Review
-        app.buttons["home-review"].tap()
-        XCTAssertTrue(app.navigationBars["错题本"].waitForExistence(timeout: 3))
-        sleep(1)
-        attach(name: "03-review")
+        app.buttons["tf-对"].firstMatch.tap()
+        app.buttons["检查答案"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["继续"].firstMatch.waitForExistence(timeout: 5))
+        attach(name: "04-lesson-feedback")
 
-        app.navigationBars.firstMatch.buttons.firstMatch.tap()
+        // Leave the lesson.
+        app.buttons["关闭"].firstMatch.tap()
+        app.buttons["退出练习"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["tab-review"].waitForExistence(timeout: 8))
 
-        // Book detail (with stories/reading entries)
-        let firstBook = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "一年级上册")).firstMatch
-        XCTAssertTrue(firstBook.waitForExistence(timeout: 3))
-        firstBook.tap()
-        sleep(1)
-        attach(name: "04-book-detail")
+        // Secondary tabs.
+        app.buttons["tab-review"].tap()
+        XCTAssertTrue(app.navigationBars["错题本"].waitForExistence(timeout: 4))
+        attach(name: "05-review")
+
+        app.buttons["tab-shop"].tap()
+        XCTAssertTrue(app.navigationBars["商店"].waitForExistence(timeout: 4))
+        attach(name: "06-shop")
+
+        app.buttons["tab-profile"].tap()
+        XCTAssertTrue(app.navigationBars["我的"].waitForExistence(timeout: 4))
+        attach(name: "07-profile")
     }
 
     @MainActor
     private func attach(name: String) {
-        let snap = XCUIScreen.main.screenshot()
-        let att = XCTAttachment(screenshot: snap)
+        let att = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         att.name = name
         att.lifetime = .keepAlways
         add(att)

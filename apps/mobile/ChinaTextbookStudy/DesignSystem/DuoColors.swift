@@ -36,14 +36,29 @@ enum DuoColors {
     static let wolf         = Color(hex: 0x777777)
     static let eel          = Color(hex: 0x4B4B4B)
 
-    // MARK: - Semantic aliases
-    static let primary      = feather
-    static let primaryDark  = treeFrog
-    static let primaryLight = maskGreen
+    // MARK: - Equipped UI theme
+    //
+    // A purchased `UiThemeData` (Cosmetics.uiThemes) can repaint the brand
+    // colors app-wide. Surfaces stay on the neutral adaptive tokens so contrast
+    // is guaranteed no matter which theme is on. `nil` = stock Duolingo green.
+    static var themeOverride: UiThemeData?
 
-    static let secondary      = macaw
-    static let secondaryDark  = whale
-    static let secondaryLight = iguana
+    /// Darken a color in HSB — keeps the 3D "ledge" shade in step with a
+    /// themed accent instead of leaving it stuck on the stock blue.
+    static func darken(_ color: Color, by amount: CGFloat = 0.14) -> Color {
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        guard UIColor(color).getHue(&h, saturation: &s, brightness: &b, alpha: &a) else { return color }
+        return Color(UIColor(hue: h, saturation: s, brightness: max(0, b - amount), alpha: a))
+    }
+
+    // MARK: - Semantic aliases (theme-aware)
+    static var primary: Color      { themeOverride?.primary ?? feather }
+    static var primaryDark: Color  { themeOverride?.primaryDark ?? treeFrog }
+    static let primaryLight        = maskGreen
+
+    static var secondary: Color     { themeOverride?.accent ?? macaw }
+    static var secondaryDark: Color { themeOverride.map { darken($0.accent) } ?? whale }
+    static let secondaryLight       = iguana
 
     static let danger     = cardinal
     static let dangerDark = fire

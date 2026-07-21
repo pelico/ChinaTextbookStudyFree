@@ -141,10 +141,9 @@ struct ShopView: View {
                     RoundedRectangle(cornerRadius: Radius.card)
                         .fill(item.rarity.color.opacity(0.16))
                         .frame(width: 108, height: 92)
-                    Image(systemName: cosmeticSymbol(item))
-                        .font(.system(size: 38, weight: .semibold))
-                        .foregroundStyle(item.rarity.color)
+                    cosmeticPreview(item)
                 }
+                .frame(width: 108, height: 92)
                 .overlay(alignment: .topTrailing) {
                     if equipped {
                         Image(systemName: "checkmark.circle.fill")
@@ -184,6 +183,7 @@ struct ShopView: View {
             }
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("cosmetic-\(item.id)")
     }
 
     private func tapCosmetic(_ item: CosmeticItem, owned: Bool, equipped: Bool, affordable: Bool) {
@@ -216,6 +216,49 @@ struct ShopView: View {
         HapticEngine.shared.wrong()
         withAnimation(Motion.reveal) { flash = msg }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { withAnimation { flash = nil } }
+    }
+
+    /// Live preview of what the item actually does — the mascot wearing the
+    /// skin, the theme's own colors, the backdrop's own gradient.
+    @ViewBuilder
+    private func cosmeticPreview(_ item: CosmeticItem) -> some View {
+        switch item.type {
+        case .mascotSkin:
+            MascotView(size: 78, skin: item.id)
+
+        case .uiTheme:
+            if let data = Cosmetics.uiThemes.first(where: { $0.item.id == item.id })?.data {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10).fill(data.bg)
+                    VStack(spacing: 5) {
+                        Capsule().fill(data.primary).frame(width: 46, height: 13)
+                        HStack(spacing: 5) {
+                            Circle().fill(data.accent).frame(width: 13, height: 13)
+                            Capsule().fill(data.primary.opacity(0.35)).frame(width: 28, height: 8)
+                        }
+                    }
+                }
+                .frame(width: 74, height: 60)
+                .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(.black.opacity(0.10), lineWidth: 1) }
+            }
+
+        case .lessonBackdrop:
+            if let data = Cosmetics.lessonBackdrops.first(where: { $0.item.id == item.id })?.data {
+                ZStack {
+                    if data.stops.isEmpty {
+                        RoundedRectangle(cornerRadius: 10).fill(data.bg)
+                    } else {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(LinearGradient(colors: data.stops, startPoint: .top, endPoint: .bottom))
+                    }
+                    Image(systemName: "text.alignleft")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(data.needsOverlay ? .white.opacity(0.85) : DuoColors.eel.opacity(0.45))
+                }
+                .frame(width: 74, height: 60)
+                .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(.black.opacity(0.10), lineWidth: 1) }
+            }
+        }
     }
 
     private func cosmeticSymbol(_ item: CosmeticItem) -> String {

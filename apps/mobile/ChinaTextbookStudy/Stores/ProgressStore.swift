@@ -34,6 +34,21 @@ final class ProgressStore: ObservableObject {
     }
 
     init() {
+        #if DEBUG
+        // UI tests launch with `-uitest` to get a hermetic, deterministic state:
+        // no persisted progress, onboarding already done, seed book selected.
+        if ProcessInfo.processInfo.arguments.contains("-uitest") {
+            var fresh = UserProgress(xp: 0, streak: 0, lastActiveDate: "", completedLessons: [:], mistakesBank: [])
+            fresh.gems = 500
+            fresh.hearts = Self.maxHearts
+            self.progress = fresh
+            self.selectedGrade = 1
+            self.activeBookId = "g1up"
+            self.hasCompletedOnboarding = true
+            return
+        }
+        #endif
+
         if let restored = PersistenceService.read(UserProgress.self, from: Self.progressFile) {
             self.progress = restored
         } else {
@@ -355,6 +370,23 @@ final class ProgressStore: ObservableObject {
         }
         progress = p
         save()
+        applyEquippedTheme()
+    }
+
+    /// The `UiThemeData` behind the equipped theme id (nil for the stock theme).
+    var equippedThemeData: UiThemeData? {
+        Cosmetics.uiThemes.first { $0.item.id == equippedTheme }?.data
+    }
+
+    /// The gradient behind the equipped lesson backdrop (nil for the plain one).
+    var equippedBackdropData: LessonBackdropData? {
+        Cosmetics.lessonBackdrops.first { $0.item.id == equippedBackdrop }?.data
+    }
+
+    /// Push the equipped theme into the design system. Called at launch and
+    /// whenever a theme is equipped.
+    func applyEquippedTheme() {
+        DuoColors.themeOverride = equippedThemeData
     }
 
     /// Award XP for a mistake review (feeds the daily goal + streak, no hearts).
