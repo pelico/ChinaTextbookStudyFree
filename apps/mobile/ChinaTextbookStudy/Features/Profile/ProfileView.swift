@@ -17,6 +17,8 @@ struct ProfileView: View {
                 header
                 statGrid
                 dailyGoalCard
+                DailyQuestsCard(progressStore: progressStore)
+                WeeklyReportCard(progressStore: progressStore)
                 achievementsCard
                 settingsRow
             }

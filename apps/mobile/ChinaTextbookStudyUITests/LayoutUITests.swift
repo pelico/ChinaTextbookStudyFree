@@ -53,6 +53,19 @@ final class LayoutUITests: XCTestCase {
                       "learn tab did not return to the path")
     }
 
+    /// Scroll until the element can actually be tapped — the profile is long
+    /// enough that its lower rows start below the fold.
+    @MainActor
+    private func revealAndTap(_ app: XCUIApplication, _ element: XCUIElement, tries: Int = 6) {
+        var attempts = 0
+        while !element.isHittable && attempts < tries {
+            app.swipeUp()
+            attempts += 1
+        }
+        XCTAssertTrue(element.isHittable, "could not reveal \(element) after \(tries) swipes")
+        element.tap()
+    }
+
     /// Profile is the entry point to both the achievement wall and settings.
     @MainActor
     func testProfileReachesAchievementsAndSettings() throws {
@@ -63,15 +76,41 @@ final class LayoutUITests: XCTestCase {
         app.buttons["tab-profile"].tap()
         XCTAssertTrue(app.navigationBars["我的"].waitForExistence(timeout: 4))
 
-        app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "成就墙")).firstMatch.tap()
+        let achievements = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "成就墙")).firstMatch
+        XCTAssertTrue(achievements.waitForExistence(timeout: 4))
+        revealAndTap(app, achievements)
         XCTAssertTrue(app.navigationBars["成就墙"].waitForExistence(timeout: 4),
                       "profile did not navigate to 成就墙")
         app.navigationBars.buttons.firstMatch.tap()
 
         XCTAssertTrue(app.navigationBars["我的"].waitForExistence(timeout: 4))
-        app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "设置")).firstMatch.tap()
+        let settings = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "设置")).firstMatch
+        XCTAssertTrue(settings.waitForExistence(timeout: 4))
+        revealAndTap(app, settings)
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 4),
                       "profile did not navigate to 设置")
+    }
+
+    /// Profile surfaces the daily quests and the weekly report.
+    @MainActor
+    func testProfileShowsQuestsAndWeeklyReport() throws {
+        try skipIfIPad()
+        let app = launchApp()
+
+        XCTAssertTrue(app.buttons["tab-profile"].waitForExistence(timeout: 15))
+        app.buttons["tab-profile"].tap()
+        XCTAssertTrue(app.navigationBars["我的"].waitForExistence(timeout: 4))
+
+        XCTAssertTrue(app.staticTexts["每日任务"].waitForExistence(timeout: 4),
+                      "daily quests card missing from profile")
+        XCTAssertTrue(app.staticTexts["本周报告"].waitForExistence(timeout: 4),
+                      "weekly report card missing from profile")
+
+        // Fresh state has no progress, so nothing is claimable yet.
+        XCTAssertEqual(app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "quest-claim-")
+        ).count, 0, "no quest should be claimable at zero progress")
+        attach(name: "profile-quests-report")
     }
 
     /// iPad sidebar exposes the same surfaces as the iPhone tab bar.

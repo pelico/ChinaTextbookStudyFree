@@ -143,7 +143,7 @@ open ChinaTextbookStudy.xcodeproj
 - 域逻辑（SRS / 判分 / 成就 / 宝箱 / 吉祥物）从 `packages/core` 逐文件对译为 Swift
 - 音频：Opus 预转码为 AAC m4a，`AVAudioPlayer` 播放，无第三方解码依赖
 - 数据按书从 GitHub Release 按需下载（首启不需要下完全部 44 本的 ~843MB）
-- 32 个域逻辑单元测试 + 10 个 UI 测试（答题闭环、退出确认、标签导航、装扮购买）
+- 38 个单元测试 + 11 个 UI 测试（答题闭环、退出确认、标签导航、装扮购买、每日任务）
 
 **统一设计系统（`DesignSystem/`）**
 
@@ -171,8 +171,13 @@ open ChinaTextbookStudy.xcodeproj
 - **课程背景**：8 款渐变作用于答题页，按对比度需要自动降低强度，保证题目始终可读
 - 商店里的每个格子都是**实时预览**：皮肤格是戴着该配饰的聪聪本人，主题格是该主题的真实配色
 
-**已知遗留**
-- 连胜提醒推送、每日任务 / 周报暂未实现
+**留存机制**
+- **每日任务**：每天 3 个不同类型的任务（赚经验 / 完成小课 / 复习错题 / 读课文），
+  由日期做种子确定性生成——同一天任何时候打开都是同一组，且不需要服务端；
+  完成后可领取宝石奖励
+- **本周报告**：近 7 天经验值柱状图 + 与上周的增减对比，作为离线版的「和自己比」
+- **连胜提醒**：可选的本地通知，每晚 20:00 提醒保住连胜；当天已学习则自动顺延到
+  次日，绝不打扰。默认关闭，在设置里开启时才申请系统授权
 
 更多上架相关细节见 [`apps/mobile/APPSTORE.md`](apps/mobile/APPSTORE.md)。
 
@@ -254,8 +259,8 @@ ChinaStudyFree/
     │   │   ├── Features/               #   Onboarding / Home / Lesson / Review / Reading /
     │   │   │                           #   Stories / Shop / Profile / Settings / Achievements
     │   │   └── Components/             #   PathMapView / MascotView / BottomTabBar / 反馈与庆祝件
-    │   ├── ChinaTextbookStudyTests/    #   32 个域逻辑单元测试
-    │   └── ChinaTextbookStudyUITests/  #   10 个 UI 测试（答题闭环 / 标签导航 / 装扮购买）
+    │   ├── ChinaTextbookStudyTests/    #   38 个单元测试（域逻辑 + 每日任务）
+    │   └── ChinaTextbookStudyUITests/  #   11 个 UI 测试（答题闭环 / 导航 / 装扮 / 任务）
     │
     └── web/                            # Next.js 前端（原 frontend/）
         ├── scripts/
@@ -318,6 +323,7 @@ ChinaStudyFree/
 - [x] iOS 端（SwiftUI，iPhone + iPad）
 - [x] iOS 统一设计系统与游戏化学习体验（浅色为主 + 可选深色）
 - [x] 装扮系统闭环（皮肤 / 主题 / 课程背景购买后全局生效）
+- [x] 留存机制（每日任务 / 本周报告 / 连胜提醒推送）
 - [ ] 道德与法治内容
 - [ ] 题目质量评估与人工审核流程
 - [ ] 离线版 / 校园内网部署包

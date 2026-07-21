@@ -64,7 +64,7 @@ struct MistakeReviewRunnerView: View {
         .onAppear {
             guard !awarded else { return }
             awarded = true
-            progressStore.awardReviewXP(correctCount * xpPerCorrect)
+            progressStore.awardReviewXP(correctCount * xpPerCorrect, reviewedCount: queue.count)
             SFXEngine.shared.play(.complete); HapticEngine.shared.success()
         }
     }

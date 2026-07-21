@@ -305,6 +305,14 @@ struct UserProgress: Codable, Hashable {
     var lifetimeGems: Int?              // total gems ever earned (for achievements)
     var displayName: String?
     var completedReadings: [String]?    // passage/story ids finished (for XP + crown)
+
+    // Daily quests & weekly report
+    var claimedQuests: [String]?        // "YYYY-MM-DD:questId"
+    var xpHistory: [String: Int]?       // YYYY-MM-DD → XP earned that day
+    var dailyDate: String?              // the day the counters below belong to
+    var dailyLessons: Int?
+    var dailyReviews: Int?
+    var dailyReadings: Int?
 }
 
 // ============================================================

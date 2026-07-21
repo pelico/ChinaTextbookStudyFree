@@ -105,16 +105,9 @@ final class ProgressStore: ObservableObject {
         let streakBefore = progress.streak
 
         var p = progress
-        p.xp += xpGain
-
-        // Track daily XP.
-        let today = SRS.todayString(now: now)
-        if p.lastXpDate == today {
-            p.todayXp = (p.todayXp ?? 0) + xpGain
-        } else {
-            p.todayXp = xpGain
-            p.lastXpDate = today
-        }
+        rollDailyIfNeeded(&p, now: now)
+        recordXP(&p, xpGain, now: now)
+        p.dailyLessons = (p.dailyLessons ?? 0) + 1
 
         // Take the best result so a re-run can only improve stars.
         if let prior = p.completedLessons[lessonId] {
@@ -125,6 +118,7 @@ final class ProgressStore: ObservableObject {
         bumpStreak(&p, now: now)
         progress = p
         save()
+        NotificationService.shared.rescheduleStreakReminder(streak: p.streak, studiedToday: true)
 
         return LessonOutcome(
             xpGained: xpGain,
@@ -390,15 +384,16 @@ final class ProgressStore: ObservableObject {
     }
 
     /// Award XP for a mistake review (feeds the daily goal + streak, no hearts).
-    func awardReviewXP(_ amount: Int, now: Date = Date()) {
+    func awardReviewXP(_ amount: Int, reviewedCount: Int = 0, now: Date = Date()) {
         guard amount > 0 else { return }
         var p = progress
-        p.xp += amount
-        let today = SRS.todayString(now: now)
-        if p.lastXpDate == today { p.todayXp = (p.todayXp ?? 0) + amount } else { p.todayXp = amount; p.lastXpDate = today }
+        rollDailyIfNeeded(&p, now: now)
+        recordXP(&p, amount, now: now)
+        p.dailyReviews = (p.dailyReviews ?? 0) + max(0, reviewedCount)
         bumpStreak(&p, now: now)
         progress = p
         save()
+        NotificationService.shared.rescheduleStreakReminder(streak: p.streak, studiedToday: true)
     }
 
     // MARK: - Reading (passages & stories)
@@ -413,12 +408,13 @@ final class ProgressStore: ObservableObject {
         var set = Set(p.completedReadings ?? [])
         guard set.insert(id).inserted else { return }   // already read
         p.completedReadings = Array(set)
-        p.xp += xp
-        let today = SRS.todayString(now: now)
-        if p.lastXpDate == today { p.todayXp = (p.todayXp ?? 0) + xp } else { p.todayXp = xp; p.lastXpDate = today }
+        rollDailyIfNeeded(&p, now: now)
+        recordXP(&p, xp, now: now)
+        p.dailyReadings = (p.dailyReadings ?? 0) + 1
         bumpStreak(&p, now: now)
         progress = p
         save()
+        NotificationService.shared.rescheduleStreakReminder(streak: p.streak, studiedToday: true)
     }
 
     // MARK: - Profile
@@ -467,6 +463,99 @@ final class ProgressStore: ObservableObject {
     }
 
     // MARK: - Internal
+
+    // MARK: - Daily counters, XP history & quests
+
+    /// Roll the per-day counters over when the calendar day changes.
+    private func rollDailyIfNeeded(_ p: inout UserProgress, now: Date) {
+        let today = SRS.todayString(now: now)
+        guard p.dailyDate != today else { return }
+        p.dailyDate = today
+        p.dailyLessons = 0
+        p.dailyReviews = 0
+        p.dailyReadings = 0
+    }
+
+    /// Single place that records earned XP: lifetime, today, and the rolling
+    /// per-day history the weekly report reads.
+    private func recordXP(_ p: inout UserProgress, _ amount: Int, now: Date) {
+        guard amount > 0 else { return }
+        let today = SRS.todayString(now: now)
+        p.xp += amount
+        if p.lastXpDate == today {
+            p.todayXp = (p.todayXp ?? 0) + amount
+        } else {
+            p.todayXp = amount
+            p.lastXpDate = today
+        }
+        var history = p.xpHistory ?? [:]
+        history[today] = (history[today] ?? 0) + amount
+        // Keep the map small — the report only ever looks back two weeks.
+        if history.count > 21 {
+            for key in history.keys.sorted().prefix(history.count - 21) { history.removeValue(forKey: key) }
+        }
+        p.xpHistory = history
+    }
+
+    /// Today's three quests (stable for the calendar day).
+    var todayQuests: [Quest] { Quests.daily(for: SRS.todayString()) }
+
+    /// How far along today's counters are for a given quest.
+    func questProgress(_ quest: Quest, now: Date = Date()) -> Int {
+        let today = SRS.todayString(now: now)
+        guard progress.dailyDate == today else {
+            // Counters belong to a previous day — only XP has its own tracking.
+            return quest.kind == .earnXP ? todayXp : 0
+        }
+        switch quest.kind {
+        case .earnXP:          return todayXp
+        case .finishLessons:   return progress.dailyLessons ?? 0
+        case .reviewMistakes:  return progress.dailyReviews ?? 0
+        case .readTexts:       return progress.dailyReadings ?? 0
+        }
+    }
+
+    func isQuestComplete(_ quest: Quest) -> Bool { questProgress(quest) >= quest.target }
+
+    private func questKey(_ quest: Quest, now: Date = Date()) -> String {
+        "\(SRS.todayString(now: now)):\(quest.id)"
+    }
+
+    func isQuestClaimed(_ quest: Quest) -> Bool {
+        (progress.claimedQuests ?? []).contains(questKey(quest))
+    }
+
+    /// Claim a finished quest's gem reward. Returns false if not claimable.
+    @discardableResult
+    func claimQuest(_ quest: Quest) -> Bool {
+        guard isQuestComplete(quest), !isQuestClaimed(quest) else { return false }
+        var p = progress
+        var claimed = p.claimedQuests ?? []
+        claimed.append(questKey(quest))
+        // Trim old claims so the ledger doesn't grow forever.
+        if claimed.count > 60 { claimed.removeFirst(claimed.count - 60) }
+        p.claimedQuests = claimed
+        progress = p
+        addGems(quest.reward)   // persists
+        return true
+    }
+
+    /// XP earned on each of the last `days` days, oldest first.
+    func recentXP(days: Int = 7, now: Date = Date()) -> [(date: String, xp: Int)] {
+        let history = progress.xpHistory ?? [:]
+        return (0..<days).reversed().map { offset in
+            let key = SRS.dateString(daysFromNow: -offset, now: now)
+            return (key, history[key] ?? 0)
+        }
+    }
+
+    /// Total XP over the 7 days ending `endingDaysAgo` days back.
+    func weeklyTotal(endingDaysAgo: Int = 0, now: Date = Date()) -> Int {
+        let history = progress.xpHistory ?? [:]
+        return (0..<7).reduce(0) { sum, i in
+            sum + (history[SRS.dateString(daysFromNow: -(i + endingDaysAgo), now: now)] ?? 0)
+        }
+    }
 
     private func bumpStreak(_ p: inout UserProgress, now: Date) {
         let today = SRS.todayString(now: now)

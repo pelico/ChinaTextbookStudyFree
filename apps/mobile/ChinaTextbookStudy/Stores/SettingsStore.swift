@@ -48,6 +48,11 @@ final class SettingsStore: ObservableObject {
         didSet { defaults.set(appearance.rawValue, forKey: Keys.appearance) }
     }
 
+    /// Opt-in local streak reminder. Off until the learner enables it.
+    @Published var streakReminderEnabled: Bool {
+        didSet { defaults.set(streakReminderEnabled, forKey: Keys.streakReminder) }
+    }
+
     private let defaults = UserDefaults.standard
 
     private enum Keys {
@@ -55,6 +60,7 @@ final class SettingsStore: ObservableObject {
         static let autoNarrate = "cstf.autoNarrate"
         static let haptic = "cstf.hapticEnabled"
         static let appearance = "cstf.appearance"
+        static let streakReminder = "cstf.streakReminder"
     }
 
     init() {
@@ -65,6 +71,7 @@ final class SettingsStore: ObservableObject {
         // Default: light-first (Duolingo's identity), with opt-in dark.
         let raw = defaults.string(forKey: Keys.appearance) ?? AppAppearance.light.rawValue
         self.appearance = AppAppearance(rawValue: raw) ?? .light
+        self.streakReminderEnabled = defaults.bool(forKey: Keys.streakReminder)
     }
 
     func toggleMute() {

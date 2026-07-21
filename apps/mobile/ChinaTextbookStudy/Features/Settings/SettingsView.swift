@@ -5,6 +5,7 @@ struct SettingsView: View {
     @ObservedObject var progressStore: ProgressStore
     @ObservedObject private var settings = SettingsStore.shared
     @State private var showResetConfirm = false
+    @State private var deniedHint = false
 
     private var appVersion: String {
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
@@ -16,6 +17,7 @@ struct SettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Space.xl) {
                 appearanceSection
+                reminderSection
                 soundSection
                 dataSection
                 aboutSection
@@ -55,6 +57,49 @@ struct SettingsView: View {
                     .buttonStyle(.plain)
                 }
             }
+        }
+    }
+
+    // MARK: - Streak reminder
+
+    private var reminderSection: some View {
+        section("提醒") {
+            VStack(alignment: .leading, spacing: 8) {
+                toggleRow("连胜提醒", icon: "bell.badge.fill", tint: DuoColors.fox, isOn: Binding(
+                    get: { settings.streakReminderEnabled },
+                    set: { wanted in
+                        if wanted {
+                            Task {
+                                let granted = await NotificationService.shared.requestAuthorization()
+                                settings.streakReminderEnabled = granted
+                                if granted {
+                                    NotificationService.shared.rescheduleStreakReminder(
+                                        streak: progressStore.progress.streak,
+                                        studiedToday: progressStore.todayXp > 0
+                                    )
+                                    HapticEngine.shared.success()
+                                } else {
+                                    deniedHint = true
+                                }
+                            }
+                        } else {
+                            settings.streakReminderEnabled = false
+                            NotificationService.shared.cancel()
+                        }
+                    }
+                ))
+                Text(deniedHint
+                     ? "系统未授权通知，请到「设置 › 通知 › 课本学习」中开启。"
+                     : "每晚 20:00 提醒你保住连胜；当天已学习则自动跳过。")
+                    .duoFont(.micro)
+                    .foregroundStyle(deniedHint ? DuoColors.danger : DuoColors.inkSofter)
+                    .padding(.horizontal, 2)
+                    .padding(.bottom, 10)
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 4)
+            .background(DuoColors.surface, in: .rect(cornerRadius: Radius.card))
+            .overlay { RoundedRectangle(cornerRadius: Radius.card).strokeBorder(DuoColors.border, lineWidth: 2) }
         }
     }
 
