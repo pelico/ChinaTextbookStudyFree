@@ -51,13 +51,20 @@
 
 <table>
   <tr>
-    <td align="center"><img src="docs/screenshots/ios/home.jpg" width="190" /><br/><b>学习路径</b></td>
-    <td align="center"><img src="docs/screenshots/ios/feedback.jpg" width="190" /><br/><b>答题反馈</b></td>
-    <td align="center"><img src="docs/screenshots/ios/shop.jpg" width="190" /><br/><b>商店</b></td>
-    <td align="center"><img src="docs/screenshots/ios/profile.jpg" width="190" /><br/><b>我的</b></td>
-    <td align="center"><img src="docs/screenshots/ios/dark.jpg" width="190" /><br/><b>深色模式</b></td>
+    <td align="center"><img src="docs/screenshots/ios/home.jpg" width="180" /><br/><b>学习路径</b></td>
+    <td align="center"><img src="docs/screenshots/ios/feedback.jpg" width="180" /><br/><b>答题反馈</b></td>
+    <td align="center"><img src="docs/screenshots/ios/shop.jpg" width="180" /><br/><b>商店</b></td>
+    <td align="center"><img src="docs/screenshots/ios/profile.jpg" width="180" /><br/><b>我的</b></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/ios/reader.jpg" width="180" /><br/><b>课文听读</b></td>
+    <td align="center"><img src="docs/screenshots/ios/review.jpg" width="180" /><br/><b>错题本</b></td>
+    <td align="center"><img src="docs/screenshots/ios/profile-quests.jpg" width="180" /><br/><b>每日任务 · 周报</b></td>
+    <td align="center"><img src="docs/screenshots/ios/dark.jpg" width="180" /><br/><b>深色模式</b></td>
   </tr>
 </table>
+
+> 全部 12 张界面截图与说明见 [`docs/ios-ux-gallery.html`](docs/ios-ux-gallery.html)（本地打开即可，支持点击放大）。
 
 ---
 

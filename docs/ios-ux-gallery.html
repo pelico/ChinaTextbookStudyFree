@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>课本学习 iOS · UX 截图总览</title>
+<style>
+  :root{
+    --feather:#58CC02; --treefrog:#58A700;
+    --ground:#F4F5F2; --surface:#FFFFFF; --ink:#3F4A3C; --muted:#79806F; --line:#E3E6DE;
+    --ledge:var(--treefrog); --shadow:0 1px 2px rgba(40,50,35,.05); --r:18px;
+    --f-round: ui-rounded, "SF Pro Rounded", "PingFang SC", system-ui, -apple-system, sans-serif;
+    --f-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --ground:#131F24; --surface:#202F36; --ink:#F2F6F7; --muted:#93A7AF; --line:#37464F;
+      --ledge:#3E7C05; --shadow:0 1px 2px rgba(0,0,0,.35);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--f-round);
+       font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1140px;margin:0 auto;padding:48px 24px 80px}
+
+  header{display:flex;flex-direction:column;gap:16px;padding-bottom:28px;border-bottom:2px solid var(--line)}
+  .eyebrow{font-family:var(--f-mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+           color:var(--feather);font-weight:600}
+  h1{margin:0;font-size:clamp(30px,4.6vw,46px);line-height:1.12;font-weight:800;
+     letter-spacing:-.02em;text-wrap:balance}
+  .lede{margin:0;max-width:60ch;color:var(--muted);font-size:17px}
+  .meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+  .chip{font-family:var(--f-mono);font-size:12.5px;color:var(--muted);background:var(--surface);
+        border:1.5px solid var(--line);border-radius:999px;padding:5px 12px;white-space:nowrap}
+  .chip b{color:var(--ink);font-weight:600}
+
+  section{margin-top:52px}
+  .sec-head{display:flex;align-items:baseline;gap:12px;margin-bottom:20px}
+  .sec-head h2{margin:0;font-size:21px;font-weight:800;letter-spacing:-.01em}
+  .sec-head .count{font-family:var(--f-mono);font-size:12.5px;color:var(--muted)}
+  .sec-head .rule{flex:1;height:2px;background:var(--line);border-radius:2px}
+
+  .grid{display:grid;gap:26px;grid-template-columns:repeat(auto-fill,minmax(232px,1fr))}
+  figure{margin:0;display:flex;flex-direction:column;gap:10px}
+  .shot{display:block;width:100%;padding:0;cursor:zoom-in;background:none;border:none;
+        border-radius:var(--r);font:inherit;color:inherit;text-align:left}
+  .shot .frame{border-radius:var(--r);overflow:hidden;background:var(--surface);
+               border:2px solid var(--line);border-bottom:6px solid var(--ledge);
+               box-shadow:var(--shadow);transition:transform .16s ease,border-bottom-width .16s ease}
+  .shot img{display:block;width:100%;height:auto;aspect-ratio:414/900;object-fit:cover}
+  .shot:hover .frame{transform:translateY(-3px);border-bottom-width:9px}
+  .shot:focus-visible{outline:none}
+  .shot:focus-visible .frame{outline:3px solid var(--feather);outline-offset:3px}
+  @media (prefers-reduced-motion: reduce){
+    .shot .frame{transition:none} .shot:hover .frame{transform:none;border-bottom-width:6px}
+  }
+  figcaption{display:flex;flex-direction:column;gap:3px}
+  .cap-t{font-weight:700;font-size:15.5px;letter-spacing:-.01em}
+  .cap-n{font-size:13.5px;color:var(--muted);line-height:1.5}
+
+  footer{margin-top:60px;padding-top:26px;border-top:2px solid var(--line);
+         color:var(--muted);font-size:14px}
+  footer code{font-family:var(--f-mono);font-size:13px;color:var(--ink)}
+
+  .box{position:fixed;inset:0;display:none;place-items:center;z-index:50;
+       background:rgba(11,20,22,.9);padding:24px}
+  .box[open]{display:grid}
+  .box img{max-width:min(430px,92vw);max-height:92vh;border-radius:22px;
+           box-shadow:0 18px 50px rgba(0,0,0,.5)}
+  .box-cap{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+           font-family:var(--f-mono);font-size:13px;color:#E6ECEE;background:rgba(0,0,0,.5);
+           padding:7px 15px;border-radius:999px;white-space:nowrap}
+  .box-x{position:fixed;top:18px;right:18px;width:42px;height:42px;border-radius:50%;
+         border:none;background:rgba(255,255,255,.14);color:#fff;font-size:20px;cursor:pointer;line-height:1}
+  .box-x:hover{background:rgba(255,255,255,.26)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="eyebrow">iPhone 17 模拟器 · 实机截图</span>
+    <h1>课本学习 iOS · UX 截图总览</h1>
+    <p class="lede">
+      全端统一在一套设计系统上：圆体字、2px 描边卡片、立体下沿按钮、品牌绿。
+      以下均为实际运行界面，非设计稿。
+    </p>
+    <div class="meta">
+      <span class="chip">测试 <b>38 单元 · 11 UI</b></span>
+      <span class="chip">主题 <b>浅色为主 · 可选深色</b></span>
+      <span class="chip">吉祥物 <b>熊猫聪聪</b></span>
+    </div>
+  </header>
+
+  <section>
+    <div class="sec-head"><h2>核心学习闭环</h2><span class="count">5 屏</span><span class="rule"></span></div>
+    <div class="grid">
+      <figure><button class="shot" data-cap="首次引导"><span class="frame"><img src="screenshots/ios/onboarding.jpg" alt="首次引导" loading="lazy"></span></button>
+        <figcaption><span class="cap-t">首次引导</span><span class="cap-n">问候 → 选年级课本 → 设定每日目标，新用户不会冷启动落在随机课本上。</span></figcaption></figure>
+      <figure><button class="shot" data-cap="首页 · 学习路径"><span class="frame"><img src="screenshots/ios/home.jpg" alt="首页学习路径" loading="lazy"></span></button>
+        <figcaption><span class="cap-t">首页 · 学习路径</span><span class="cap-n">顶部 HUD：学科、连胜、宝石、爱心、每日目标环；下方蛇形路径与阅读入口。</span></figcaption></figure>
+      <figure><button class="shot" data-cap="开始气泡"><span class="frame"><img src="screenshots/ios/start-popup.jpg" alt="开始气泡" loading="lazy"></span></button>
+        <figcaption><span class="cap-t">开始气泡</span><span class="cap-n">点任意节点弹出，小三角指向节点本身，显示第几节与可得经验。</span></figcaption></figure>
+      <figure><button class="shot" data-cap="答题界面"><span class="frame"><img src="screenshots/ios/lesson.jpg" alt="答题界面" loading="lazy"></span></button>
+        <figcaption><span class="cap-t">答题界面</span><span class="cap-n">未作答时「检查」为禁用灰态；选项卡带 2px 描边与立体下沿。</span></figcaption></figure>
+      <figure><button class="shot" data-cap="答对反馈"><span class="frame"><img src="screenshots/ios/feedback.jpg" alt="答对反馈" loading="lazy"></span></button>
+        <figcaption><span class="cap-t">答对反馈</span><span class="cap-n">卡片变绿带对勾，底部滑出熊猫 + 鼓励语 + 解析 + 朗读。答错则回炉重练。</span></figcaption></figure>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>内容与阅读</h2><span class="count">2 屏</span><span class="rule"></span></div>
+    <div class="grid">
+      <figure><button class="shot" data-cap="课文听读列表"><span class="frame"><img src="screenshots/ios/reading-list.jpg" alt="课文听读列表" loading="lazy"></span></button>
+        <figcaption><span class="cap-t">课文听读列表</span><span class="cap-n">插画卡片、体裁与句数、经验奖励标；读完显示皇冠。</span></figcaption></figure>
+      <figure><button class="shot" data-cap="阅读器"><span class="frame"><img src="screenshots/ios/reader.jpg" alt="阅读器" loading="lazy"></span></button>
+        <figcaption><span class="cap-t">阅读器</span><span class="cap-n">「朗读全文」逐句高亮并自动滚动，舒适排版，读完奖励经验值。</span></figcaption></figure>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>账户 · 商店 · 留存</h2><span class="count">4 屏</span><span class="rule"></span></div>
+    <div class="grid">
+      <figure><button class="shot" data-cap="商店"><span class="frame"><img src="screenshots/ios/shop.jpg" alt="商店" loading="lazy"></span></button>
+        <figcaption><span class="cap-t">商店</span><span class="cap-n">每个格子都是实时预览——皮肤格是戴着该配饰的聪聪本人，主题格是真实配色。</span></figcaption></figure>
+      <figure><button class="shot" data-cap="错题本"><span class="frame"><img src="screenshots/ios/review.jpg" alt="错题本" loading="lazy"></span></button>
+        <figcaption><span class="cap-t">错题本</span><span class="cap-n">熊猫 hero 卡、开始复习并奖励经验、待复习列表。复习不扣爱心。</span></figcaption></figure>
+      <figure><button class="shot" data-cap="我的"><span class="frame"><img src="screenshots/ios/profile.jpg" alt="我的" loading="lazy"></span></button>
+        <figcaption><span class="cap-t">我的</span><span class="cap-n">装备的皮肤直接戴在头像上；连胜 / 经验 / 完成 / 完美四格与每日目标环。</span></figcaption></figure>
+      <figure><button class="shot" data-cap="每日任务 & 本周报告"><span class="frame"><img src="screenshots/ios/profile-quests.jpg" alt="每日任务与本周报告" loading="lazy"></span></button>
+        <figcaption><span class="cap-t">每日任务 &amp; 本周报告</span><span class="cap-n">每天 3 个日期种子生成的任务，可领宝石；近 7 天经验柱状图与上周对比。</span></figcaption></figure>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>主题</h2><span class="count">1 屏</span><span class="rule"></span></div>
+    <div class="grid">
+      <figure><button class="shot" data-cap="深色模式"><span class="frame"><img src="screenshots/ios/dark.jpg" alt="深色模式" loading="lazy"></span></button>
+        <figcaption><span class="cap-t">深色模式</span><span class="cap-n">同一套语义色令牌自动切换，绿色主色与立体质感全保留，无需维护第二套 UI。</span></figcaption></figure>
+    </div>
+  </section>
+
+  <footer>
+    截图源文件位于 <code>docs/screenshots/ios/</code>。重新生成方式：用
+    <code>ChinaTextbookStudyUITests</code> 里的 <code>ScreenshotTests</code>
+    走一遍主要界面，或以 <code>-uitest</code> 启动参数运行 App 后用
+    <code>xcrun simctl io booted screenshot</code> 抓取。
+  </footer>
+</div>
+
+<div class="box" id="box" role="dialog" aria-modal="true" aria-label="放大查看">
+  <button class="box-x" id="boxX" aria-label="关闭">✕</button>
+  <img id="boxImg" alt="">
+  <span class="box-cap" id="boxCap"></span>
+</div>
+
+<script>
+  (function(){
+    var box=document.getElementById('box'), img=document.getElementById('boxImg'),
+        cap=document.getElementById('boxCap'), x=document.getElementById('boxX'), last=null;
+    function open(btn){
+      var src=btn.querySelector('img');
+      img.src=src.getAttribute('src'); img.alt=src.alt; cap.textContent=btn.dataset.cap;
+      box.setAttribute('open',''); last=btn; x.focus();
+    }
+    function close(){ box.removeAttribute('open'); img.removeAttribute('src'); if(last) last.focus(); }
+    document.querySelectorAll('.shot').forEach(function(b){
+      b.addEventListener('click', function(){ open(b); });
+    });
+    x.addEventListener('click', close);
+    box.addEventListener('click', function(e){ if(e.target===box||e.target===img) close(); });
+    document.addEventListener('keydown', function(e){ if(e.key==='Escape'&&box.hasAttribute('open')) close(); });
+  })();
+</script>
+</body>
+</html>
