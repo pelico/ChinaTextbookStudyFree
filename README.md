@@ -27,6 +27,8 @@
 
 ## 📸 功能预览
 
+### Web 端
+
 <table>
   <tr>
     <td align="center"><img src="docs/screenshots/screen-0.png" width="200" /><br/><b>年级选择</b></td>
@@ -42,6 +44,18 @@
     <td align="center"><img src="docs/screenshots/screen-4.png" width="400" /><br/><b>错题回顾</b></td>
     <td align="center"><img src="docs/screenshots/screen-5.png" width="400" /><br/><b>个人中心</b></td>
     <td></td>
+  </tr>
+</table>
+
+### iOS 端
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/ios/home.jpg" width="190" /><br/><b>学习路径</b></td>
+    <td align="center"><img src="docs/screenshots/ios/feedback.jpg" width="190" /><br/><b>答题反馈</b></td>
+    <td align="center"><img src="docs/screenshots/ios/shop.jpg" width="190" /><br/><b>商店</b></td>
+    <td align="center"><img src="docs/screenshots/ios/profile.jpg" width="190" /><br/><b>我的</b></td>
+    <td align="center"><img src="docs/screenshots/ios/dark.jpg" width="190" /><br/><b>深色模式</b></td>
   </tr>
 </table>
 
@@ -125,11 +139,35 @@ open ChinaTextbookStudy.xcodeproj
 在 Xcode 里选 iPhone / iPad 模拟器，Cmd+R 即可运行。App 内置一本数学书（一年级上册 + 第一节课的 TTS 音频）作为离线种子，无需网络就能体验完整流程。
 
 **iOS 端特点：**
-- SwiftUI 原生（非 React Native），支持 iPhone + iPad（iPad 自动三栏布局）
+- SwiftUI 原生（非 React Native），支持 iPhone + iPad（iPad 自动分栏布局）
 - 域逻辑（SRS / 判分 / 成就 / 宝箱 / 吉祥物）从 `packages/core` 逐文件对译为 Swift
 - 音频：Opus 预转码为 AAC m4a，`AVAudioPlayer` 播放，无第三方解码依赖
 - 数据按书从 GitHub Release 按需下载（首启不需要下完全部 44 本的 ~843MB）
-- 32 单元测试 + 5 UI 测试覆盖
+- 32 个域逻辑单元测试（UI 测试尚未跟进导航改版，见下方「已知遗留」）
+
+**统一设计系统（`DesignSystem/`）**
+
+全端共用一套令牌，没有任何页面掉回原生系统控件：
+
+| 令牌 | 内容 |
+|------|------|
+| `DuoColors` | 品牌色 + 语义色（`bg` / `surface` / `border` / `ink`…），**浅色为主、深色为可选**，同一份代码自动适配 |
+| `DuoFont` | 圆体字号角色（display / title / heading / body / caption…），根部统一 `.fontDesign(.rounded)` |
+| `DuoLayout` | `Space` / `Radius` / `Motion` 三组令牌，全局共用一套动效曲线 |
+| `DuoButtonStyle`·`DuoCardStyle` | 标志性的立体「下沿」按压质感 |
+
+**学习体验**
+- 路径即首页：当前节点呼吸动效 + 真实单元进度环，点击弹出开始气泡
+- 答错回炉重练：进度条只在答对时前进，且必定走满；错题自动进入 SRS 错题本
+- 爱心耗尽拦截、退出二次确认、答错震屏与抖卡、每次点选都有触感与音效
+- 结算页连胜与每日达标庆祝；错题复习不扣爱心且奖励经验值
+- 课文/故事支持「朗读全文」逐句高亮跟随，读完奖励经验值
+- 吉祥物「聪聪」（熊猫）以 SwiftUI Canvas 绘制，含呼吸、眨眼与情绪反应
+
+**已知遗留**
+- 商店可购买并装备皮肤/主题，但装备后尚未真正给吉祥物换装、给全局换配色
+- UI 测试（5 个）仍针对改版前的导航结构，需要重写
+- 连胜提醒推送、每日任务 / 周报暂未实现
 
 更多上架相关细节见 [`apps/mobile/APPSTORE.md`](apps/mobile/APPSTORE.md)。
 
@@ -202,14 +240,17 @@ ChinaStudyFree/
     ├── mobile/                         # iOS SwiftUI 端（iPhone + iPad）
     │   ├── project.yml                 #   XcodeGen 项目定义
     │   ├── ChinaTextbookStudy/
-    │   │   ├── App/                    #   SwiftUI @main + NavigationStack/SplitView
+    │   │   ├── App/                    #   SwiftUI @main + NavigationStack/SplitView + 路由
+    │   │   ├── DesignSystem/           #   DuoColors / DuoFont / DuoLayout / Button / Card / Effects
     │   │   ├── Models/                 #   CoreTypes.swift（对译 packages/core/types.ts）
-    │   │   ├── Domain/                 #   SRS / Grade / Achievements / Chest / MascotTriggers
-    │   │   ├── Services/               #   DataLoader / AssetDownloader / AudioPlayer
+    │   │   ├── Domain/                 #   SRS / Grade / Achievements / Chest / Cosmetics / MascotTriggers
+    │   │   ├── Services/               #   DataLoader / AssetDownloader / AudioPlayer / Haptic / SFX
     │   │   ├── Stores/                 #   ProgressStore / SettingsStore（持久化）
-    │   │   ├── Features/               #   Home / Grade / Book / Lesson / Review / …
-    │   │   └── Components/             #   TTSButton / MuteToggle
-    │   └── ChinaTextbookStudyTests/    #   32 单元测试 + 5 UI 测试
+    │   │   ├── Features/               #   Onboarding / Home / Lesson / Review / Reading /
+    │   │   │                           #   Stories / Shop / Profile / Settings / Achievements
+    │   │   └── Components/             #   PathMapView / MascotView / BottomTabBar / 反馈与庆祝件
+    │   ├── ChinaTextbookStudyTests/    #   32 个域逻辑单元测试
+    │   └── ChinaTextbookStudyUITests/  #   UI 测试（待跟进导航改版）
     │
     └── web/                            # Next.js 前端（原 frontend/）
         ├── scripts/
@@ -269,6 +310,9 @@ ChinaStudyFree/
 - [x] 全站 TTS 语音朗读（71,500+ 音频）
 - [x] 课文听读（语文 / 英语，779 篇）
 - [x] 课外故事阅读（语文 188 篇 + 英语 96 篇，含 AI 配图）
+- [x] iOS 端（SwiftUI，iPhone + iPad）
+- [x] iOS 统一设计系统与游戏化学习体验（浅色为主 + 可选深色）
+- [ ] 装扮系统真正生效（购买的皮肤 / 主题应用到界面）
 - [ ] 道德与法治内容
 - [ ] 题目质量评估与人工审核流程
 - [ ] 离线版 / 校园内网部署包
