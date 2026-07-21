@@ -288,6 +288,23 @@ struct UserProgress: Codable, Hashable {
     var lastActiveDate: String  // YYYY-MM-DD
     var completedLessons: [String: LessonResult]
     var mistakesBank: [MistakeEntry]
+
+    // Gamification fields (added in UX overhaul — all optional for backward compat)
+    var hearts: Int?
+    var nextHeartAt: Double?            // Unix ms, nil = no recharge in progress
+    var gems: Int?
+    var todayXp: Int?
+    var lastXpDate: String?             // YYYY-MM-DD
+    var dailyGoal: Int?                 // default 50
+    var claimedChests: [String: Bool]?
+    var equippedMascotSkin: String?
+    var equippedTheme: String?
+    var equippedBackdrop: String?
+    var streakFreezes: Int?
+    var ownedCosmetics: [String]?       // cosmetic ids the user owns
+    var lifetimeGems: Int?              // total gems ever earned (for achievements)
+    var displayName: String?
+    var completedReadings: [String]?    // passage/story ids finished (for XP + crown)
 }
 
 // ============================================================

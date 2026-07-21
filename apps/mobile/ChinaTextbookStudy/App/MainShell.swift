@@ -16,17 +16,22 @@ struct MainShell: View {
     @Environment(\.horizontalSizeClass) private var hSize
     @State private var path: [AppRoute] = []
     @State private var selectedSidebar: SidebarItem? = .home
+    @State private var activeTab: AppTab = .learn
 
     enum SidebarItem: Hashable, Identifiable {
         case home
         case grade(Int)
         case review
+        case shop
+        case profile
         case achievements
         var id: String {
             switch self {
             case .home: return "home"
             case .grade(let g): return "grade-\(g)"
             case .review: return "review"
+            case .shop: return "shop"
+            case .profile: return "profile"
             case .achievements: return "achievements"
             }
         }
@@ -40,26 +45,64 @@ struct MainShell: View {
         }
     }
 
+    /// Whether the tab bar should be hidden (immersive screens).
+    private var hideTabBar: Bool {
+        guard let last = path.last else { return false }
+        switch last {
+        case .lesson, .lessonResult, .reviewRunner, .storyReader, .passageReader, .reading:
+            return true
+        default:
+            return false
+        }
+    }
+
     // MARK: - Compact (iPhone)
 
     @ViewBuilder
     private var compactLayout: some View {
         NavigationStack(path: $path) {
+            compactTabRoot
+                .navigationDestination(for: AppRoute.self) { route in
+                    RouteView(
+                        route: route,
+                        progressStore: progressStore,
+                        downloader: downloader,
+                        siteIndex: siteIndex,
+                        path: $path
+                    )
+                }
+        }
+        // Attach the tab bar as a bottom inset so every child ScrollView
+        // reserves matching space — content never hides behind the bar.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !hideTabBar {
+                BottomTabBar(activeTab: $activeTab, progressStore: progressStore)
+                    .transition(.move(edge: .bottom))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: hideTabBar)
+        .onChange(of: activeTab) { _, _ in
+            // Clear navigation stack when switching tabs.
+            path.removeAll()
+        }
+    }
+
+    @ViewBuilder
+    private var compactTabRoot: some View {
+        switch activeTab {
+        case .learn:
             HomeView(
                 progressStore: progressStore,
                 downloader: downloader,
                 siteIndex: siteIndex,
                 path: $path
             )
-            .navigationDestination(for: AppRoute.self) { route in
-                RouteView(
-                    route: route,
-                    progressStore: progressStore,
-                    downloader: downloader,
-                    siteIndex: siteIndex,
-                    path: $path
-                )
-            }
+        case .review:
+            ReviewView(progressStore: progressStore, path: $path)
+        case .shop:
+            ShopView(progressStore: progressStore)
+        case .profile:
+            ProfileView(progressStore: progressStore, path: $path)
         }
     }
 
@@ -91,8 +134,10 @@ struct MainShell: View {
     private var sidebar: some View {
         List(selection: $selectedSidebar) {
             Section("主菜单") {
-                row(.home, label: "首页", icon: "house.fill", tint: .blue)
-                row(.review, label: "错题本", icon: "exclamationmark.bubble.fill", tint: .orange)
+                row(.home, label: "学习", icon: "house.fill", tint: DuoColors.primary)
+                row(.review, label: "错题本", icon: "book.fill", tint: DuoColors.fox)
+                row(.shop, label: "商店", icon: "bag.fill", tint: DuoColors.beetle)
+                row(.profile, label: "我的", icon: "person.crop.circle.fill", tint: DuoColors.secondary)
                 row(.achievements, label: "成就墙", icon: "rosette", tint: .purple)
             }
             Section("按年级") {
@@ -139,6 +184,10 @@ struct MainShell: View {
             )
         case .review:
             ReviewView(progressStore: progressStore, path: $path)
+        case .shop:
+            ShopView(progressStore: progressStore)
+        case .profile:
+            ProfileView(progressStore: progressStore, path: $path)
         case .achievements:
             AchievementsView(progressStore: progressStore)
         }
@@ -155,8 +204,6 @@ struct RouteView: View {
 
     var body: some View {
         switch route {
-        case .gradePicker:
-            GradePickerView(progressStore: progressStore, path: $path)
         case .bookList(let grade):
             BookListView(grade: grade, siteIndex: siteIndex, path: $path)
         case .bookDetail(let bookId):
@@ -193,6 +240,12 @@ struct RouteView: View {
             PassageListView(bookId: bookId, path: $path)
         case .passageReader(let bookId, let passageId):
             PassageReaderView(bookId: bookId, passageId: passageId)
+        case .shop:
+            ShopView(progressStore: progressStore)
+        case .profile:
+            ProfileView(progressStore: progressStore, path: $path)
+        case .settings:
+            SettingsView(progressStore: progressStore)
         }
     }
 }

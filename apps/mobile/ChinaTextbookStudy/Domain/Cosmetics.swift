@@ -58,7 +58,7 @@ struct LessonBackdropData: Hashable {
 
 enum Cosmetics {
     static let mascotSkins: [CosmeticItem] = [
-        .init(id: "skin_default",    type: .mascotSkin, name: "原版聪聪",    description: "我们最熟悉的小猫头鹰",       cost: 0,   rarity: .common,    starter: true),
+        .init(id: "skin_default",    type: .mascotSkin, name: "原版聪聪",    description: "最经典的熊猫聪聪",           cost: 0,   rarity: .common,    starter: true),
         .init(id: "skin_graduate",   type: .mascotSkin, name: "学士帽",      description: "戴上学士帽的聪聪，学者气质满分", cost: 80,  rarity: .common,    starter: false),
         .init(id: "skin_glasses",    type: .mascotSkin, name: "圆框眼镜",    description: "复古圆框眼镜，文艺青年聪聪",   cost: 100, rarity: .common,    starter: false),
         .init(id: "skin_party",      type: .mascotSkin, name: "派对锥帽",    description: "彩虹色派对帽，每天都是节日",   cost: 150, rarity: .rare,      starter: false),

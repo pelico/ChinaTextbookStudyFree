@@ -1,12 +1,7 @@
 import SwiftUI
 
-/// Walks through the SRS-due mistakes one at a time, scoring each via
-/// `Grade.gradeAnswer` and feeding the result back to `ProgressStore.reviewMistake`
-/// so the Leitner box / cooldown advances.
-///
-/// Structurally similar to LessonRunnerView but distinct enough that
-/// duplicating the ~150 lines keeps both runners simpler than a shared
-/// abstraction would be.
+/// Walks the SRS-due mistakes one at a time — same tactile feel as a lesson,
+/// but no hearts are lost and finishing awards review XP.
 struct MistakeReviewRunnerView: View {
     @ObservedObject var progressStore: ProgressStore
     @Binding var path: [AppRoute]
@@ -17,6 +12,9 @@ struct MistakeReviewRunnerView: View {
     @State private var currentAnswer: String = ""
     @State private var isCorrect: Bool? = nil
     @State private var correctCount: Int = 0
+    @State private var awarded = false
+
+    private let xpPerCorrect = 5
 
     var body: some View {
         Group {
@@ -28,117 +26,119 @@ struct MistakeReviewRunnerView: View {
                 runner
             }
         }
+        .background(DuoColors.bg.ignoresSafeArea())
         .navigationTitle("错题复习")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { MuteToggle() } }
-        .onAppear {
-            if queue.isEmpty {
-                queue = progressStore.dueMistakes
-            }
-        }
+        .onAppear { if queue.isEmpty { queue = progressStore.dueMistakes } }
         .onDisappear { AudioPlayer.shared.stop() }
     }
 
     private var emptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "checkmark.seal.fill").font(.largeTitle).foregroundStyle(.green)
-            Text("没有要复习的错题").font(.headline)
+        VStack(spacing: 14) {
+            MascotView(mood: .proud, size: 96)
+            Text("没有要复习的错题").duoFont(.heading).foregroundStyle(DuoColors.ink)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var summary: some View {
         VStack(spacing: 18) {
-            Image(systemName: "rosette").font(.system(size: 60)).foregroundStyle(.yellow)
-            Text("复习完成！").font(.title.bold())
-            Text("答对 \(correctCount) / \(queue.count)").font(.headline)
-            Button {
-                path.removeLast() // back to ReviewView
-            } label: {
-                Text("返回错题本")
-                    .frame(maxWidth: .infinity).padding(.vertical, 12)
+            MascotView(mood: .proud, size: 110, reactTo: .levelup)
+            Text("复习完成！").duoFont(.title).foregroundStyle(DuoColors.ink)
+            Text("答对 \(correctCount) / \(queue.count)").duoFont(.subhead).foregroundStyle(DuoColors.inkMuted)
+            HStack(spacing: 6) {
+                Image(systemName: "bolt.fill").font(.system(size: 15, weight: .heavy))
+                Text("+\(correctCount * xpPerCorrect) XP").duoNumeral(.subhead)
             }
-            .buttonStyle(.borderedProminent)
-            .padding(.horizontal, 32)
+            .foregroundStyle(DuoColors.secondary)
+            .padding(.horizontal, 16).padding(.vertical, 9)
+            .background(DuoColors.secondary.opacity(0.14), in: .capsule)
+
+            Button("返回错题本") { path.removeLast() }
+                .buttonStyle(ChunkyButtonStyle(.primary))
+                .padding(.horizontal, 32)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
+        .onAppear {
+            guard !awarded else { return }
+            awarded = true
+            progressStore.awardReviewXP(correctCount * xpPerCorrect)
+            SFXEngine.shared.play(.complete); HapticEngine.shared.success()
+        }
     }
 
     private var runner: some View {
         let entry = queue[index]
         let q = entry.question
         return VStack(spacing: 0) {
-            VStack(spacing: 8) {
-                ProgressView(value: Double(index + 1), total: Double(queue.count))
-                Text("\(index + 1) / \(queue.count) · 来自 \(entry.lessonTitle ?? entry.lessonId)")
-                    .font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 14) {
+                Button { path.removeLast() } label: {
+                    Image(systemName: "xmark").font(.system(size: 20, weight: .black)).foregroundStyle(DuoColors.inkMuted).frame(width: 36, height: 36)
+                }
+                StyledProgressBar(progress: Double(index) / Double(max(queue.count, 1)), height: 14, trackColor: DuoColors.surfaceAlt)
+                Text("\(index + 1)/\(queue.count)").duoNumeral(.caption).foregroundStyle(DuoColors.inkMuted)
             }
-            .padding()
+            .padding(.horizontal, 18).padding(.top, 6).padding(.bottom, 10)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 20) {
+                    Text("复习错题").duoFont(.caption).foregroundStyle(DuoColors.fox)
                     HStack(alignment: .top, spacing: 8) {
-                        Text(q.question)
-                            .font(.title3.weight(.semibold))
+                        Text(q.question).duoFont(.subhead, weight: .medium).foregroundStyle(DuoColors.ink)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         TTSButton(path: q.audio?.question)
                     }
-                    QuestionRendererView(
-                        question: q,
-                        answer: currentAnswer,
-                        phase: phase,
-                        isCorrect: isCorrect,
-                        onChange: { currentAnswer = $0 }
-                    )
-                    .id(q.id)
-                    if phase == .checked {
-                        feedback(question: q)
-                    }
+                    QuestionRendererView(question: q, answer: currentAnswer, phase: phase, isCorrect: isCorrect, onChange: { currentAnswer = $0 })
+                        .id(q.id)
                 }
-                .padding()
+                .padding(20)
             }
-
-            Divider()
-            Button {
-                phase == .answering ? check(entry: entry) : advance()
-            } label: {
-                Text(phase == .answering ? "检查答案" : (index + 1 >= queue.count ? "完成复习" : "下一题"))
-                    .frame(maxWidth: .infinity).padding(.vertical, 12)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(phase == .answering && currentAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .padding()
+        }
+        .safeAreaInset(edge: .bottom) {
+            footer(entry: entry, q: q)
         }
     }
 
-    private func feedback(question: Question) -> some View {
-        let ok = isCorrect ?? false
-        return HStack {
-            Image(systemName: ok ? "checkmark.circle.fill" : "xmark.circle.fill")
-                .foregroundStyle(ok ? .green : .red)
-            Text(ok ? "答对了！" : "正确答案：\(question.answer)")
-                .font(.subheadline)
+    @ViewBuilder
+    private func footer(entry: MistakeEntry, q: Question) -> some View {
+        VStack(spacing: 0) {
+            if phase == .checked, let ok = isCorrect {
+                HStack(spacing: 10) {
+                    Image(systemName: ok ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(ok ? DuoColors.primary : DuoColors.danger)
+                    Text(ok ? "答对了！" : "正确答案：\(q.answer)")
+                        .duoFont(.caption).foregroundStyle(ok ? DuoColors.primary : DuoColors.danger)
+                    Spacer()
+                }
+                .padding(.horizontal, 20).padding(.top, 12)
+            }
+            Button {
+                phase == .answering ? check(entry: entry) : advance()
+            } label: {
+                Text(phase == .answering ? "检查" : (index + 1 >= queue.count ? "完成复习" : "下一题"))
+            }
+            .buttonStyle(ChunkyButtonStyle(phase == .answering && currentAnswer.trimmingCharacters(in: .whitespaces).isEmpty ? .disabled : .primary))
+            .disabled(phase == .answering && currentAnswer.trimmingCharacters(in: .whitespaces).isEmpty)
+            .padding(.horizontal, 20).padding(.bottom, 32).padding(.top, 12)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background((ok ? Color.green : Color.red).opacity(0.10), in: .rect(cornerRadius: 12))
+        .background(DuoColors.bg)
     }
 
     private func check(entry: MistakeEntry) {
         let ok = Grade.gradeAnswer(question: entry.question, userAnswer: currentAnswer)
-        phase = .checked
-        isCorrect = ok
-        if ok { correctCount += 1 }
-        progressStore.reviewMistake(
-            lessonId: entry.lessonId,
-            questionId: entry.question.id,
-            isCorrect: ok
-        )
+        withAnimation(Motion.reveal) { phase = .checked; isCorrect = ok }
+        if ok { correctCount += 1; SFXEngine.shared.play(.correct); HapticEngine.shared.correct() }
+        else { SFXEngine.shared.play(.wrong); HapticEngine.shared.wrong() }
+        progressStore.reviewMistake(lessonId: entry.lessonId, questionId: entry.question.id, isCorrect: ok)
     }
 
     private func advance() {
-        index += 1
-        currentAnswer = ""
-        isCorrect = nil
-        phase = .answering
+        SFXEngine.shared.play(.progressTick); HapticEngine.shared.tap()
+        withAnimation(.easeInOut(duration: 0.2)) {
+            index += 1; currentAnswer = ""; isCorrect = nil; phase = .answering
+        }
     }
 }

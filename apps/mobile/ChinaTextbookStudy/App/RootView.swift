@@ -7,6 +7,7 @@ import SwiftUI
 struct RootView: View {
     @StateObject private var progressStore = ProgressStore.shared
     @StateObject private var downloader = AssetDownloader.shared
+    @ObservedObject private var settings = SettingsStore.shared
     @State private var siteIndex: SiteIndex?
     @State private var loadError: String?
 
@@ -20,14 +21,30 @@ struct RootView: View {
                 )
             } else if let loadError {
                 VStack(spacing: 12) {
-                    Text("加载失败").font(.headline)
-                    Text(loadError).font(.footnote).foregroundStyle(.secondary)
+                    Text("加载失败").duoFont(.subhead)
+                    Text(loadError).duoFont(.caption).foregroundStyle(DuoColors.inkMuted)
                 }
                 .padding()
             } else {
                 ProgressView("加载中…")
             }
         }
+        // Rounded typeface app-wide: any Text that doesn't specify its own
+        // `design:` inherits SF Rounded, so the whole app reads "Duolingo".
+        .fontDesign(.rounded)
+        // One opt-in appearance switch (light-first default).
+        .preferredColorScheme(settings.appearance.colorScheme)
+        .tint(DuoColors.primary)
+        // First-run onboarding covers the shell until the learner picks a
+        // book and a daily goal.
+        .overlay {
+            if let siteIndex, !progressStore.hasCompletedOnboarding {
+                OnboardingView(progressStore: progressStore, siteIndex: siteIndex, onDone: {})
+                    .transition(.opacity)
+                    .zIndex(1)
+            }
+        }
+        .animation(.easeInOut(duration: 0.35), value: progressStore.hasCompletedOnboarding)
         .task {
             SeedInstaller.installIfNeeded()
             do {

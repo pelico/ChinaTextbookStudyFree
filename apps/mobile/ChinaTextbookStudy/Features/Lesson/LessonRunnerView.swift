@@ -1,10 +1,15 @@
 import SwiftUI
 
-/// Top-level lesson runner — drives one question at a time through
-/// answering → checked → next, then pushes a result view at the end.
+/// Duolingo-faithful lesson runner:
 ///
-/// Hearts / mascot / combo / sound effects are intentionally deferred to
-/// later phases; this view focuses on the correctness loop + persistence.
+/// - **Top**: [X] [green progress bar] [❤️ N]
+/// - **Instruction**: bold text like "判断对错" / "选择正确答案"
+/// - **Question**: text + TTS button
+/// - **Options**: Duolingo option cards
+/// - **Bottom**: green chunky "检查" button → colored feedback panel with mascot
+///
+/// The progress bar advances **only on correct answers**, and wrong questions are
+/// re-queued to the end so the bar always completes and mistakes get re-practiced.
 struct LessonRunnerView: View {
     let bookId: String
     let lessonId: String
@@ -13,111 +18,278 @@ struct LessonRunnerView: View {
 
     @State private var lesson: Lesson?
     @State private var loadError: String?
+
+    // Runner state — `queue` grows when a wrong answer is re-queued.
+    @State private var queue: [Question] = []
     @State private var index: Int = 0
     @State private var phase: QuestionPhase = .answering
     @State private var currentAnswer: String = ""
     @State private var isCorrect: Bool? = nil
-    @State private var correctCount: Int = 0
-    @State private var attemptedAnyMistakeThisQuestion: Bool = false
+    @State private var solvedIDs: Set<Int> = []
+    @State private var missedIDs: Set<Int> = []
+    @State private var combo: Int = 0
+    @State private var maxCombo: Int = 0
+    @State private var attemptedThisQuestion = false
+
+    // Feedback presentation
+    @State private var mascotMood: MascotMood = .happy
+    @State private var feedbackReaction: MascotReaction? = nil
+    @State private var feedbackBubble: String = ""
+    @State private var feedbackTitleText: String = ""
+    @State private var showCombo = false
+    @State private var comboDisplayValue = 0
+    @State private var xpFloaters: [XPFloatItem] = []
+
+    // Gates & effects
+    @State private var showQuitConfirm = false
+    @State private var showOutOfHearts = false
+    @State private var wrongFlash = 0
+
     @ObservedObject private var settings = SettingsStore.shared
     @ObservedObject private var audioPlayer = AudioPlayer.shared
 
+    private struct XPFloatItem: Identifiable { let id = UUID(); let amount: Int }
     enum QuestionPhase { case answering, checked }
+
+    private var originalTotal: Int { max(1, lesson?.questions.count ?? 1) }
+    private var progress: Double { Double(solvedIDs.count) / Double(originalTotal) }
 
     var body: some View {
         Group {
-            if let lesson, !lesson.questions.isEmpty {
-                runner(lesson: lesson)
+            if lesson != nil, index < queue.count {
+                runner(question: queue[index])
             } else if let loadError {
-                VStack(spacing: 12) {
-                    Text("加载失败").font(.headline)
-                    Text(loadError).font(.footnote).foregroundStyle(.secondary)
+                VStack(spacing: Space.m) {
+                    Text("加载失败").duoFont(.heading)
+                    Text(loadError).duoFont(.caption).foregroundStyle(DuoColors.inkMuted)
                 }
                 .padding()
             } else {
-                ProgressView()
+                ProgressView().tint(DuoColors.primary)
             }
         }
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) { MuteToggle() }
-        }
+        .navigationBarHidden(true)
         .task { load() }
         .onDisappear { audioPlayer.stop() }
     }
 
     @ViewBuilder
-    private func runner(lesson: Lesson) -> some View {
-        let q = lesson.questions[index]
+    private func runner(question q: Question) -> some View {
         VStack(spacing: 0) {
-            // Header: progress bar + title
-            VStack(spacing: 8) {
-                ProgressView(value: Double(index + 1), total: Double(lesson.questions.count))
-                Text("\(index + 1) / \(lesson.questions.count) · \(lesson.title)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            header
+            content(q: q)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(DuoColors.bg.ignoresSafeArea())
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if phase == .checked, let ok = isCorrect {
+                feedbackPanel(ok: ok, question: q)
+            } else {
+                checkFooter(question: q)
             }
-            .padding()
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    HStack(alignment: .top, spacing: 8) {
-                        Text(q.question)
-                            .font(.title3.weight(.semibold))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        TTSButton(path: q.audio?.question)
-                    }
-
-                    QuestionRendererView(
-                        question: q,
-                        answer: currentAnswer,
-                        phase: phase,
-                        isCorrect: isCorrect,
-                        onChange: { newValue in
-                            currentAnswer = newValue
-                        }
-                    )
-                    .id(q.id)  // reset child state on question change
-
-                    if phase == .checked {
-                        feedbackBlock(question: q)
-                    }
-                }
-                .padding()
-            }
-            .onChange(of: q.id) { _, _ in autoNarrate(q) }
-            .onAppear { autoNarrate(q) }
-
-            footer(question: q, lesson: lesson)
+        }
+        .overlay { floaters }
+        .overlay { comboOverlay }
+        .overlay { FullScreenFlash(color: DuoColors.danger, trigger: wrongFlash) }
+        .overlay { if showOutOfHearts { outOfHeartsGate } }
+        .confirmationDialog("退出后本节进度将丢失", isPresented: $showQuitConfirm, titleVisibility: .visible) {
+            Button("退出练习", role: .destructive) { path.removeLast() }
+            Button("继续学习", role: .cancel) {}
         }
     }
 
-    private func feedbackBlock(question: Question) -> some View {
-        let ok = isCorrect ?? false
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: ok ? "checkmark.circle.fill" : "xmark.circle.fill")
-                    .foregroundStyle(ok ? .green : .red)
-                Text(ok ? "答对啦！" : "答错了")
-                    .font(.headline)
-                    .foregroundStyle(ok ? .green : .red)
-                Spacer()
-                TTSButton(path: question.audio?.explanation, size: 16)
+    // MARK: - Header: [X] [progress] [❤️]
+
+    private var header: some View {
+        HStack(spacing: 14) {
+            Button {
+                if index > 0 || phase == .checked || !solvedIDs.isEmpty {
+                    HapticEngine.shared.tap()
+                    showQuitConfirm = true
+                } else {
+                    path.removeLast()
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 20, weight: .black))
+                    .foregroundStyle(DuoColors.inkMuted)
+                    .frame(width: 36, height: 36)
             }
-            if !ok {
-                Text("正确答案：\(question.answer)")
-                    .font(.subheadline)
+            .accessibilityLabel("关闭")
+
+            StyledProgressBar(progress: progress, height: 16, trackColor: DuoColors.surfaceAlt)
+
+            HStack(spacing: 3) {
+                Image(systemName: "heart.fill")
+                    .font(.system(size: 16, weight: .heavy))
+                    .foregroundStyle(progressStore.hearts > 0 ? DuoColors.danger : DuoColors.inkSofter)
+                    .symbolEffect(.bounce, value: progressStore.hearts)
+                Text("\(progressStore.hearts)")
+                    .duoNumeral(.body)
+                    .foregroundStyle(progressStore.hearts > 0 ? DuoColors.danger : DuoColors.inkSofter)
             }
-            if !question.explanation.isEmpty {
-                Text(question.explanation)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
+            .accessibilityIdentifier("lesson-hearts")
         }
-        .padding()
+        .padding(.horizontal, 18)
+        .padding(.top, 6)
+        .padding(.bottom, 10)
+    }
+
+    // MARK: - Question content
+
+    private func content(q: Question) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Space.xl) {
+                Text(instructionText(q.type))
+                    .duoFont(.heading)
+                    .foregroundStyle(DuoColors.ink)
+                    .padding(.top, 6)
+
+                HStack(alignment: .top, spacing: 10) {
+                    Text(q.question)
+                        .duoFont(.subhead, weight: .medium)
+                        .foregroundStyle(DuoColors.inkMuted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .lineSpacing(4)
+                    TTSButton(path: q.audio?.question)
+                }
+
+                QuestionRendererView(
+                    question: q,
+                    answer: currentAnswer,
+                    phase: phase,
+                    isCorrect: isCorrect,
+                    onChange: { currentAnswer = $0 }
+                )
+                .id("\(q.id)-\(index)")
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
+        }
+        .onChange(of: index) { _, _ in autoNarrate(q) }
+        .onAppear { autoNarrate(q) }
+    }
+
+    // MARK: - Overlays
+
+    @ViewBuilder private var floaters: some View {
+        ForEach(xpFloaters) { f in
+            XPFloaterView(amount: f.amount) { xpFloaters.removeAll { $0.id == f.id } }
+        }
+    }
+
+    @ViewBuilder private var comboOverlay: some View {
+        if showCombo {
+            ComboOverlayView(combo: comboDisplayValue)
+                .onAppear {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { showCombo = false }
+                }
+        }
+    }
+
+    // MARK: - Instruction text
+
+    private func instructionText(_ type: QuestionType) -> String {
+        switch type {
+        case .trueFalse:     return "判断对错"
+        case .choice:        return "选择正确答案"
+        case .fillBlank:     return "填写答案"
+        case .calculation:   return "计算结果"
+        case .fillBlankText: return "填写答案"
+        case .wordOrder:     return "组成正确的句子"
+        case .matching:      return "将配对连线"
+        case .wordProblem:   return "解答应用题"
+        }
+    }
+
+    // MARK: - Feedback panel (mascot + accent title + big CTA)
+
+    private func feedbackPanel(ok: Bool, question: Question) -> some View {
+        let accent = ok ? DuoColors.primary : DuoColors.danger
+        let surface = accent.opacity(0.12)
+
+        return VStack(alignment: .leading, spacing: 14) {
+            Rectangle()
+                .fill(DuoColors.border)
+                .frame(height: 2)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 4)
+
+            HStack(alignment: .center, spacing: 12) {
+                MascotView(mood: mascotMood, size: 54, reactTo: feedbackReaction, reactKey: index + 1)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(feedbackTitleText.isEmpty ? (ok ? "正确" : "答错了") : feedbackTitleText)
+                        .duoFont(.heading)
+                        .foregroundStyle(accent)
+                    if !ok {
+                        Text("正确答案：\(question.answer)")
+                            .duoFont(.caption)
+                            .foregroundStyle(accent)
+                    } else if !feedbackBubble.isEmpty {
+                        Text(feedbackBubble)
+                            .duoFont(.caption)
+                            .foregroundStyle(accent.opacity(0.85))
+                    }
+                }
+                Spacer()
+            }
+
+            if !question.explanation.isEmpty {
+                HStack(alignment: .top, spacing: 8) {
+                    Text(question.explanation)
+                        .duoFont(.body)
+                        .foregroundStyle(DuoColors.inkMuted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    TTSButton(path: question.audio?.explanation, size: 16)
+                }
+            }
+
+            Button { proceed(question: question) } label: { Text(ok ? "继续" : "知道了") }
+                .buttonStyle(ChunkyButtonStyle(ok ? .primary : .danger))
+                .padding(.top, 2)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 16)
+        .padding(.bottom, 36)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background((ok ? Color.green : Color.red).opacity(0.10),
-                    in: .rect(cornerRadius: 14))
+        .background(surface)
+        .background(DuoColors.bg)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    // MARK: - Check footer
+
+    private func checkFooter(question: Question) -> some View {
+        let empty = currentAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return Button { check(question: question) } label: { Text("检查") }
+            .buttonStyle(ChunkyButtonStyle(empty ? .disabled : .primary))
+            .disabled(empty)
+            .accessibilityIdentifier("检查答案")
+            .padding(.horizontal, 20)
+            .padding(.bottom, 36)
+            .padding(.top, 14)
+            .background(DuoColors.bg)
+    }
+
+    // MARK: - Out-of-hearts gate
+
+    private var outOfHeartsGate: some View {
+        OutOfHeartsGate(
+            progressStore: progressStore,
+            onRefill: {
+                if progressStore.buyHeartRefill(cost: 350) {
+                    HapticEngine.shared.success()
+                    SFXEngine.shared.play(.unlock)
+                    showOutOfHearts = false
+                    advance()
+                } else {
+                    HapticEngine.shared.wrong()
+                }
+            },
+            onQuit: { path.removeLast() }
+        )
+        .transition(.opacity)
     }
 
     private func autoNarrate(_ q: Question) {
@@ -126,94 +298,171 @@ struct LessonRunnerView: View {
         audioPlayer.play(path: path, settings: settings)
     }
 
-    private func footer(question: Question, lesson: Lesson) -> some View {
-        VStack(spacing: 12) {
-            Divider()
-            HStack {
-                if phase == .answering {
-                    Button {
-                        check(question: question, lessonTitle: lesson.title)
-                    } label: {
-                        Text("检查答案")
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(currentAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                } else {
-                    Button {
-                        advance(lesson: lesson)
-                    } label: {
-                        Text(index + 1 >= lesson.questions.count ? "完成本节" : "下一题")
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-            }
-            .padding(.horizontal)
-            .padding(.bottom, 8)
-        }
-    }
-
     // MARK: - Actions
 
-    private func check(question: Question, lessonTitle: String) {
+    private func check(question: Question) {
         let ok = Grade.gradeAnswer(question: question, userAnswer: currentAnswer)
-        phase = .checked
-        isCorrect = ok
-        if ok {
-            if !attemptedAnyMistakeThisQuestion {
-                correctCount += 1
-            }
-        } else {
-            attemptedAnyMistakeThisQuestion = true
-            progressStore.recordMistake(
-                lessonId: lessonId,
-                lessonTitle: lessonTitle,
-                question: question
-            )
+        feedbackTitleText = pickTitle(ok: ok)
+
+        withAnimation(Motion.reveal) {
+            phase = .checked
+            isCorrect = ok
         }
+
+        if ok {
+            solvedIDs.insert(question.id)
+            combo += 1; maxCombo = max(maxCombo, combo)
+            SFXEngine.shared.play(.correct); HapticEngine.shared.correct()
+            xpFloaters.append(XPFloatItem(amount: 10))
+            if [3, 5, 10].contains(combo) { comboDisplayValue = combo; showCombo = true }
+        } else {
+            attemptedThisQuestion = true
+            missedIDs.insert(question.id)
+            combo = 0
+            queue.append(question)                       // re-practice later
+            SFXEngine.shared.play(.wrong); HapticEngine.shared.wrong()
+            SFXEngine.shared.play(.heartLoss); HapticEngine.shared.heartLoss()
+            wrongFlash += 1
+            progressStore.loseHeart()
+            progressStore.recordMistake(lessonId: lessonId, lessonTitle: lesson?.title, question: question)
+        }
+
+        let ctx = MascotTriggerContext(
+            isCorrect: ok,
+            isPerfectSession: missedIDs.isEmpty,
+            attemptCount: attemptedThisQuestion ? 2 : 1,
+            remainingHearts: progressStore.hearts, combo: combo, maxCombo: maxCombo,
+            index: solvedIDs.count, total: originalTotal, totalCorrectInSession: solvedIDs.count
+        )
+        mascotMood = MascotTriggers.decideMood(ctx)
+        feedbackReaction = MascotTriggers.decideReaction(ctx)
+        feedbackBubble = ok ? MascotTriggers.pickBubble(mood: mascotMood) : ""
     }
 
-    private func advance(lesson: Lesson) {
-        if index + 1 >= lesson.questions.count {
+    /// Called by the feedback panel's continue button. Gates on hearts.
+    private func proceed(question: Question) {
+        if !isCorrectValue && progressStore.hearts == 0 {
+            withAnimation(.easeOut(duration: 0.2)) { showOutOfHearts = true }
+            return
+        }
+        advance()
+    }
+
+    private var isCorrectValue: Bool { isCorrect ?? false }
+
+    private func advance() {
+        SFXEngine.shared.play(.progressTick); HapticEngine.shared.tap()
+        guard let lesson else { return }
+        if solvedIDs.count >= originalTotal || index + 1 >= queue.count {
             finish(lesson: lesson)
         } else {
-            index += 1
-            currentAnswer = ""
-            isCorrect = nil
-            phase = .answering
-            attemptedAnyMistakeThisQuestion = false
+            withAnimation(.easeInOut(duration: 0.2)) {
+                index += 1
+                currentAnswer = ""
+                isCorrect = nil
+                phase = .answering
+                attemptedThisQuestion = false
+            }
         }
     }
 
     private func finish(lesson: Lesson) {
-        let total = lesson.questions.count
+        let correctCount = originalTotal - missedIDs.count
+        let accuracy = Double(correctCount) / Double(originalTotal)
+        let outcome = progressStore.completeLesson(lessonId: lessonId, accuracy: accuracy, questionCount: originalTotal)
         let result = LessonRunResult(
-            bookId: bookId,
-            lessonId: lessonId,
-            lessonTitle: lesson.title,
-            questionCount: total,
-            correctCount: correctCount
+            bookId: bookId, lessonId: lessonId, lessonTitle: lesson.title,
+            questionCount: originalTotal, correctCount: correctCount, outcome: outcome
         )
-        progressStore.completeLesson(
-            lessonId: lessonId,
-            accuracy: result.accuracy,
-            questionCount: total
-        )
-        // Replace the runner with the result so back doesn't re-enter the lesson.
-        path.removeLast()
-        path.append(.lessonResult(result))
+        path.removeLast(); path.append(.lessonResult(result))
     }
 
-    // MARK: - Loading
+    private func pickTitle(ok: Bool) -> String {
+        let pool = ok
+            ? ["太棒了！", "完美！", "做得好！", "天才！", "继续保持！", "漂亮！"]
+            : ["答错了", "差一点", "加油", "没关系", "下次就对！"]
+        return pool.randomElement() ?? (ok ? "正确" : "答错了")
+    }
 
     private func load() {
         do {
-            self.lesson = try DataLoader.shared.loadLesson(bookId: bookId, lessonId: lessonId)
+            let l = try DataLoader.shared.loadLesson(bookId: bookId, lessonId: lessonId)
+            self.lesson = l
+            self.queue = l.questions
         } catch {
             self.loadError = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
         }
+    }
+}
+
+// MARK: - Out-of-hearts gate
+
+/// Blocking modal shown when the learner runs out of hearts mid-lesson.
+/// Offers a gem refill or an exit, plus a live recharge countdown.
+private struct OutOfHeartsGate: View {
+    @ObservedObject var progressStore: ProgressStore
+    let onRefill: () -> Void
+    let onQuit: () -> Void
+
+    private let refillCost = 350
+    @State private var tick = Date()
+    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.55).ignoresSafeArea()
+
+            VStack(spacing: Space.l) {
+                Image(systemName: "heart.slash.fill")
+                    .font(.system(size: 60, weight: .heavy))
+                    .foregroundStyle(DuoColors.danger)
+
+                Text("心心用完了")
+                    .duoFont(.title)
+                    .foregroundStyle(DuoColors.ink)
+
+                if let next = progressStore.nextHeartAt {
+                    VStack(spacing: 2) {
+                        Text("下一颗心还需")
+                            .duoFont(.caption)
+                            .foregroundStyle(DuoColors.inkMuted)
+                        Text(countdown(to: next))
+                            .duoNumeral(.title)
+                            .foregroundStyle(DuoColors.danger)
+                    }
+                }
+
+                VStack(spacing: 10) {
+                    Button(action: onRefill) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "diamond.fill").font(.system(size: 14, weight: .heavy))
+                            Text("用宝石补满  \(refillCost)")
+                        }
+                    }
+                    .buttonStyle(ChunkyButtonStyle(progressStore.gems >= refillCost ? .secondary : .disabled))
+                    .disabled(progressStore.gems < refillCost)
+
+                    Button("退出练习", action: onQuit)
+                        .buttonStyle(ChunkyButtonStyle(.ghost))
+                }
+            }
+            .padding(Space.xl)
+            .frame(maxWidth: 340)
+            .background(DuoColors.surface, in: .rect(cornerRadius: Radius.large))
+            .overlay {
+                RoundedRectangle(cornerRadius: Radius.large)
+                    .strokeBorder(DuoColors.border, lineWidth: 2)
+            }
+            .padding(24)
+        }
+        .onReceive(timer) { _ in
+            tick = Date()
+            progressStore.tickHeartRecharge()
+        }
+    }
+
+    private func countdown(to date: Date) -> String {
+        let remaining = max(0, date.timeIntervalSince(tick))
+        return String(format: "%d:%02d", Int(remaining) / 60, Int(remaining) % 60)
     }
 }

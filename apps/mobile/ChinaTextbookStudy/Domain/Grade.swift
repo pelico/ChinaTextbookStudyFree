@@ -122,6 +122,12 @@ enum Grade {
         return out
     }
 
+    /// Public accessor so the matching question UI can validate pairs live
+    /// against the exact same parse the grader uses.
+    static func matchingPairs(_ s: String) -> [String: String] {
+        parseMatchingAnswer(s)
+    }
+
     private static func parseMatchingAnswer(_ s: String) -> [String: String] {
         var cleaned = s.trimmingCharacters(in: .whitespacesAndNewlines)
         cleaned = cleaned.replacingOccurrences(of: "，", with: ",")

@@ -48,12 +48,14 @@ final class LessonFlowUITests: XCTestCase {
         XCTAssertTrue(checkButton.waitForExistence(timeout: 5),
                       "lesson runner did not render check button")
 
-        // Audio wiring: the question's TTS speaker button + the navbar mute toggle
-        // should both be present (the seed bundle ships m4a for g1up-u1-kp1).
+        // Audio wiring: the question's TTS speaker button should be present
+        // (the seed bundle ships m4a for g1up-u1-kp1).
         XCTAssertTrue(app.buttons["tts-play"].firstMatch.waitForExistence(timeout: 2),
                       "TTSButton not visible — seed audio missing or path resolution broken")
-        XCTAssertTrue(app.buttons["mute-toggle"].firstMatch.waitForExistence(timeout: 2),
-                      "MuteToggle not visible in lesson runner toolbar")
+        // Hearts display visible in custom Duolingo-style header
+        // Query by the close X button which is in the same custom header row.
+        XCTAssertTrue(app.buttons["关闭"].firstMatch.waitForExistence(timeout: 2),
+                      "Close button not visible in lesson runner header")
     }
 
     @MainActor

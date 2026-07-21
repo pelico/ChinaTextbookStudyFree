@@ -1,7 +1,31 @@
-import Foundation
+import SwiftUI
 import Combine
 
-/// Persistent user preferences (mute, autoplay TTS, etc.).
+/// User-facing appearance preference. `.system` follows the device setting;
+/// `.light` / `.dark` pin the app to one theme (Duolingo-style opt-in dark).
+enum AppAppearance: String, CaseIterable, Identifiable {
+    case system, light, dark
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .system: return "跟随系统"
+        case .light:  return "浅色"
+        case .dark:   return "深色"
+        }
+    }
+
+    /// Value to hand to `.preferredColorScheme` (nil = follow system).
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light:  return .light
+        case .dark:   return .dark
+        }
+    }
+}
+
+/// Persistent user preferences (mute, autoplay TTS, appearance, etc.).
 /// State is mirrored to UserDefaults so the values are available
 /// synchronously at app launch.
 @MainActor
@@ -16,17 +40,31 @@ final class SettingsStore: ObservableObject {
         didSet { defaults.set(autoNarrate, forKey: Keys.autoNarrate) }
     }
 
+    @Published var hapticEnabled: Bool {
+        didSet { defaults.set(hapticEnabled, forKey: Keys.haptic) }
+    }
+
+    @Published var appearance: AppAppearance {
+        didSet { defaults.set(appearance.rawValue, forKey: Keys.appearance) }
+    }
+
     private let defaults = UserDefaults.standard
 
     private enum Keys {
         static let muted = "cstf.muted"
         static let autoNarrate = "cstf.autoNarrate"
+        static let haptic = "cstf.hapticEnabled"
+        static let appearance = "cstf.appearance"
     }
 
     init() {
         self.isMuted = defaults.bool(forKey: Keys.muted)
         // Default ON — auto-narration is the whole point of the audio bundle.
         self.autoNarrate = defaults.object(forKey: Keys.autoNarrate) as? Bool ?? true
+        self.hapticEnabled = defaults.object(forKey: Keys.haptic) as? Bool ?? true
+        // Default: light-first (Duolingo's identity), with opt-in dark.
+        let raw = defaults.string(forKey: Keys.appearance) ?? AppAppearance.light.rawValue
+        self.appearance = AppAppearance(rawValue: raw) ?? .light
     }
 
     func toggleMute() {

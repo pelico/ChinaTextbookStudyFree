@@ -34,15 +34,8 @@ struct BookDetailView: View {
                     Text("这本书还没下载").font(.headline)
                     Text(loadError).font(.footnote).foregroundStyle(.secondary)
                     if let entry = downloader.manifest?.books.first(where: { $0.bookId == bookId }) {
-                        Button {
-                            Task {
-                                try? await downloader.ensureBookDownloaded(entry)
-                                load()
-                            }
-                        } label: {
-                            Label("下载这本", systemImage: "arrow.down.circle.fill")
-                        }
-                        .buttonStyle(.borderedProminent)
+                        BookDownloadCard(entry: entry, downloader: downloader) { load() }
+                            .padding(.horizontal, 24)
                     }
                 }
                 .padding()
@@ -56,80 +49,75 @@ struct BookDetailView: View {
     }
 
     private func content(outline: Outline) -> some View {
-        List {
-            Section {
+        ZStack(alignment: .top) {
+            DuoColors.darkBg.ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                // Side entries (stories/reading) at top — dark themed
                 HStack(spacing: 12) {
-                    sideEntry(label: "课文听读", icon: "text.book.closed", tint: .blue) {
+                    sideEntry(label: "课文听读", icon: "text.book.closed.fill", tint: DuoColors.secondary) {
                         path.append(.reading(bookId: bookId))
                     }
-                    sideEntry(label: "课外故事", icon: "book.closed", tint: .purple) {
+                    sideEntry(label: "课外故事", icon: "book.closed.fill", tint: DuoColors.beetle) {
                         path.append(.stories(bookId: bookId))
                     }
                 }
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
-            }
-            ForEach(Array(groupedByUnit(outline: outline).enumerated()), id: \.offset) { _, group in
-                Section {
-                    ForEach(group.rows) { row in
-                        Button {
-                            path.append(.lesson(bookId: bookId, lessonId: row.id))
-                        } label: {
-                            lessonRowView(row)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("lesson-row-\(row.id)")
-                    }
-                } header: {
-                    Text("第\(group.unitNumber)单元 · \(group.unitTitle)")
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+
+                // Snake-shaped PathMap
+                PathMapView(lessons: buildPathNodes()) { node in
+                    path.append(.lesson(bookId: bookId, lessonId: node.id))
                 }
             }
         }
-        .listStyle(.insetGrouped)
     }
 
     private func sideEntry(label: String, icon: String, tint: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(spacing: 6) {
-                Image(systemName: icon).font(.title3).foregroundStyle(tint)
-                Text(label).font(.caption.bold())
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(tint)
+                Text(label)
+                    .font(.system(size: 14, weight: .heavy))
+                    .foregroundStyle(DuoColors.darkInk)
             }
-            .frame(maxWidth: .infinity, minHeight: 60)
-            .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 12))
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .background(DuoColors.darkSurface, in: .rect(cornerRadius: 14))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14)
+                    .strokeBorder(DuoColors.darkSurfaceAlt, lineWidth: 2)
+            }
         }
         .buttonStyle(.plain)
     }
 
-    private func lessonRowView(_ row: LessonRow) -> some View {
-        let stars = progressStore.stars(for: row.id) ?? 0
-        let isDone = stars > 0
-        return HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(isDone ? Color.green.opacity(0.18) : Color(.tertiarySystemFill))
-                Text("\(row.kpIndex + 1)")
-                    .font(.headline.bold())
-                    .foregroundStyle(isDone ? .green : .primary)
+    /// Convert lesson rows into PathMapNodes with status (completed/current/locked).
+    private func buildPathNodes() -> [PathMapNode] {
+        var foundCurrent = false
+        return lessons.map { row in
+            let stars = progressStore.stars(for: row.id) ?? 0
+            let isCompleted = stars > 0
+            let status: LessonStatus
+            if isCompleted {
+                status = .completed
+            } else if !foundCurrent {
+                status = .current
+                foundCurrent = true
+            } else {
+                status = .locked
             }
-            .frame(width: 44, height: 44)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(row.title).font(.subheadline.bold())
-                Text("\(row.questionCount) 题")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer()
-            if isDone {
-                HStack(spacing: 2) {
-                    ForEach(0..<3, id: \.self) { i in
-                        Image(systemName: i < stars ? "star.fill" : "star")
-                            .font(.caption2)
-                            .foregroundStyle(.yellow)
-                    }
-                }
-            }
-            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+            return PathMapNode(
+                id: row.id,
+                title: row.title,
+                unitNumber: row.unitNumber,
+                unitTitle: row.unitTitle,
+                status: status,
+                stars: stars
+            )
         }
-        .padding(.vertical, 4)
     }
 
     // MARK: - Loading
@@ -166,19 +154,4 @@ struct BookDetailView: View {
         return rows
     }
 
-    private struct UnitGroup {
-        let unitNumber: Int
-        let unitTitle: String
-        let rows: [LessonRow]
-    }
-
-    private func groupedByUnit(outline: Outline) -> [UnitGroup] {
-        outline.units.map { u in
-            UnitGroup(
-                unitNumber: u.unitNumber,
-                unitTitle: u.title,
-                rows: lessons.filter { $0.unitNumber == u.unitNumber }
-            )
-        }
-    }
 }

@@ -1,8 +1,6 @@
 import SwiftUI
 
-/// Read-only achievement wall — port of apps/web/src/components/AchievementWall.tsx (subset).
-/// Groups badges by category, shows a progress bar for locked ones, and a bright
-/// foil background for unlocked ones.
+/// Achievement wall — badges grouped by category with tiered progress bars.
 struct AchievementsView: View {
     @ObservedObject var progressStore: ProgressStore
 
@@ -11,16 +9,12 @@ struct AchievementsView: View {
 
     private static let categoryOrder: [AchievementCategory] = [.milestone, .streak, .perfection, .review, .shop]
     private static let categoryLabels: [AchievementCategory: String] = [
-        .milestone: "里程碑",
-        .streak: "连续学习",
-        .perfection: "完美",
-        .review: "复习",
-        .shop: "商店",
+        .milestone: "里程碑", .streak: "连续学习", .perfection: "完美", .review: "复习", .shop: "商店",
     ]
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: Space.xl) {
                 summary
                 ForEach(Self.categoryOrder, id: \.self) { cat in
                     let items = Achievements.all.filter { $0.category == cat }
@@ -29,8 +23,9 @@ struct AchievementsView: View {
                     }
                 }
             }
-            .padding()
+            .padding(20)
         }
+        .background(DuoColors.bg.ignoresSafeArea())
         .navigationTitle("成就墙")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -38,27 +33,27 @@ struct AchievementsView: View {
     private var summary: some View {
         let unlocked = unlockedIds.count
         let total = Achievements.all.count
-        return HStack {
+        return HStack(spacing: 14) {
+            ZStack {
+                Circle().fill(DuoColors.bee.opacity(0.16)).frame(width: 56, height: 56)
+                Image(systemName: "rosette").font(.system(size: 28, weight: .heavy)).foregroundStyle(DuoColors.bee)
+            }
             VStack(alignment: .leading, spacing: 4) {
-                Text("已解锁 \(unlocked) / \(total)").font(.title3.bold())
-                Text("继续学习解锁更多").font(.caption).foregroundStyle(.secondary)
+                Text("已解锁 \(unlocked) / \(total)").duoFont(.heading).foregroundStyle(DuoColors.ink)
+                StyledProgressBar(progress: Double(unlocked) / Double(max(total, 1)), height: 10, trackColor: DuoColors.surfaceAlt)
             }
             Spacer()
-            ProgressView(value: Double(unlocked), total: Double(max(total, 1)))
-                .progressViewStyle(.circular)
-                .controlSize(.large)
         }
-        .padding()
-        .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 14))
+        .padding(16)
+        .background(DuoColors.surface, in: .rect(cornerRadius: Radius.card))
+        .overlay { RoundedRectangle(cornerRadius: Radius.card).strokeBorder(DuoColors.border, lineWidth: 2) }
     }
 
     private func section(title: String, items: [Achievement]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title).font(.headline)
+            Text(title).duoFont(.caption).tracking(1).foregroundStyle(DuoColors.inkMuted)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
-                ForEach(items, id: \.id) { ach in
-                    badge(ach)
-                }
+                ForEach(items, id: \.id) { ach in badge(ach) }
             }
         }
     }
@@ -67,36 +62,30 @@ struct AchievementsView: View {
         let isUnlocked = unlockedIds.contains(ach.id)
         let progress = ach.progress(snapshot)
         let frac = min(1.0, Double(progress) / Double(max(ach.goal, 1)))
-        let tint = Color(red: Double((ach.colorHex >> 16) & 0xFF) / 255,
-                         green: Double((ach.colorHex >> 8) & 0xFF) / 255,
-                         blue: Double(ach.colorHex & 0xFF) / 255)
+        let tint = Color(hex: UInt32(ach.colorHex))
         return VStack(spacing: 8) {
             Image(systemName: ach.iconKey.symbolName)
-                .font(.system(size: 36))
+                .font(.system(size: 34, weight: .semibold))
                 .foregroundStyle(isUnlocked ? .white : tint.opacity(0.5))
                 .frame(width: 64, height: 64)
-                .background(isUnlocked ? tint : Color(.tertiarySystemFill), in: .circle)
-            Text(ach.name).font(.subheadline.bold())
+                .background(isUnlocked ? tint : DuoColors.surfaceAlt, in: .circle)
+            Text(ach.name).duoFont(.caption).foregroundStyle(DuoColors.ink)
             Text(ach.description)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .duoFont(.micro)
+                .foregroundStyle(DuoColors.inkMuted)
                 .multilineTextAlignment(.center)
                 .lineLimit(2, reservesSpace: true)
             if isUnlocked {
-                Text("已解锁")
-                    .font(.caption2.bold())
-                    .foregroundStyle(.green)
+                Text("已解锁").duoFont(.micro).foregroundStyle(DuoColors.primary)
             } else {
-                ProgressView(value: frac)
-                    .tint(tint)
-                Text("\(progress) / \(ach.goal)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                StyledProgressBar(progress: frac, height: 6, fillColor: tint, trackColor: DuoColors.surfaceAlt)
+                Text("\(progress) / \(ach.goal)").duoFont(.micro).foregroundStyle(DuoColors.inkMuted)
             }
         }
         .padding(12)
         .frame(maxWidth: .infinity)
-        .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 14))
+        .background(DuoColors.surface, in: .rect(cornerRadius: Radius.card))
+        .overlay { RoundedRectangle(cornerRadius: Radius.card).strokeBorder(DuoColors.border, lineWidth: 2) }
         .accessibilityIdentifier("ach-\(ach.id)")
     }
 }

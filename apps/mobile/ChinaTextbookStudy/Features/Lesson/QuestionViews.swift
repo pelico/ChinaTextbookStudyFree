@@ -1,12 +1,10 @@
 import SwiftUI
 
-/// All 6 question type views + the dispatcher that picks one — port of
-/// apps/web/src/components/question/*.tsx (subset).
+/// All 6 question type views + the dispatcher that picks one.
 ///
-/// Each sub-view is a controlled component: parent owns `answer` and
-/// `phase` (.answering | .checked); child calls `onChange` with the
-/// stringified answer. This exactly mirrors the web QuestionRenderer
-/// contract so logic can be swapped 1:1 against `Grade.gradeAnswer`.
+/// Each sub-view is a controlled component: the parent owns `answer` and
+/// `phase` (.answering | .checked); the child calls `onChange` with the
+/// stringified answer, mirroring `Grade.gradeAnswer` exactly.
 
 // MARK: - Dispatcher
 
@@ -20,13 +18,13 @@ struct QuestionRendererView: View {
     var body: some View {
         switch question.type {
         case .choice:
-            ChoiceQuestionView(question: question, answer: answer, phase: phase, onChange: onChange)
+            ChoiceQuestionView(question: question, answer: answer, phase: phase, isCorrect: isCorrect, onChange: onChange)
         case .trueFalse:
-            TrueFalseQuestionView(question: question, answer: answer, phase: phase, onChange: onChange)
+            TrueFalseQuestionView(question: question, answer: answer, phase: phase, isCorrect: isCorrect, onChange: onChange)
         case .fillBlank, .calculation, .wordProblem:
-            FillBlankQuestionView(question: question, answer: answer, phase: phase, onChange: onChange, keyboard: .decimalPad)
+            FillBlankQuestionView(question: question, answer: answer, phase: phase, isCorrect: isCorrect, onChange: onChange, keyboard: .decimalPad)
         case .fillBlankText:
-            FillBlankQuestionView(question: question, answer: answer, phase: phase, onChange: onChange, keyboard: .default)
+            FillBlankQuestionView(question: question, answer: answer, phase: phase, isCorrect: isCorrect, onChange: onChange, keyboard: .default)
         case .wordOrder:
             WordOrderQuestionView(question: question, answer: answer, phase: phase, onChange: onChange)
         case .matching:
@@ -41,53 +39,73 @@ private struct ChoiceQuestionView: View {
     let question: Question
     let answer: String
     let phase: LessonRunnerView.QuestionPhase
+    let isCorrect: Bool?
     let onChange: (String) -> Void
 
+    @State private var shakeTrigger = 0
+
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 12) {
             ForEach(Array(question.options.enumerated()), id: \.offset) { i, opt in
                 let letter = letterFor(i)
                 let isSelected = answer.uppercased() == letter
+                let state = cardState(letter: letter, isSelected: isSelected)
+
                 Button {
-                    if phase == .answering {
-                        onChange(letter)
-                        if let optAudio = question.audio?.options?[safe: i] ?? nil {
-                            AudioPlayer.shared.play(path: optAudio)
-                        }
+                    guard phase == .answering else { return }
+                    HapticEngine.shared.tap()
+                    SFXEngine.shared.play(.tap)
+                    withAnimation(Motion.press) { onChange(letter) }
+                    if let optAudio = question.audio?.options?[safe: i] ?? nil {
+                        AudioPlayer.shared.play(path: optAudio)
                     }
                 } label: {
                     HStack(spacing: 12) {
-                        ZStack {
-                            Circle()
-                                .fill(isSelected ? Color.accentColor : Color(.tertiarySystemFill))
-                            Text(letter)
-                                .font(.headline.bold())
-                                .foregroundStyle(isSelected ? Color.white : .primary)
-                        }
-                        .frame(width: 32, height: 32)
                         Text(opt)
                             .multilineTextAlignment(.leading)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                        checkMark(for: state)
                     }
-                    .padding()
-                    .background(
-                        isSelected ? Color.accentColor.opacity(0.12) : Color(.secondarySystemBackground),
-                        in: .rect(cornerRadius: 14)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14)
-                            .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
-                    )
+                    .optionCard(state: state)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(OptionCardButtonStyle(state: state))
                 .disabled(phase == .checked)
+                .modifier(ShakeEffect(animatableData: CGFloat(state == .wrong ? shakeTrigger : 0)))
             }
         }
+        .onChange(of: phase) { _, newPhase in
+            if newPhase == .checked, isCorrect == false {
+                withAnimation(.linear(duration: 0.4)) { shakeTrigger += 1 }
+            }
+        }
+    }
+
+    private func cardState(letter: String, isSelected: Bool) -> OptionCardState {
+        guard phase == .checked else { return isSelected ? .selected : .default }
+        if Grade.gradeAnswer(question: question, userAnswer: letter) { return .correct }
+        if isSelected { return .wrong }
+        return .disabled
     }
 
     private func letterFor(_ i: Int) -> String {
         guard let scalar = Unicode.Scalar(65 + i) else { return "?" }
         return String(scalar)
+    }
+}
+
+@ViewBuilder
+private func checkMark(for state: OptionCardState) -> some View {
+    switch state {
+    case .correct:
+        Image(systemName: "checkmark.circle.fill")
+            .font(.system(size: 22, weight: .bold))
+            .foregroundStyle(DuoColors.primary)
+    case .wrong:
+        Image(systemName: "xmark.circle.fill")
+            .font(.system(size: 22, weight: .bold))
+            .foregroundStyle(DuoColors.danger)
+    default:
+        EmptyView()
     }
 }
 
@@ -97,31 +115,50 @@ private struct TrueFalseQuestionView: View {
     let question: Question
     let answer: String
     let phase: LessonRunnerView.QuestionPhase
+    let isCorrect: Bool?
     let onChange: (String) -> Void
+
+    @State private var shakeTrigger = 0
 
     var body: some View {
         HStack(spacing: 16) {
-            tile(label: "对", value: "对", tint: .green)
-            tile(label: "错", value: "错", tint: .red)
+            tile(label: "对", value: "对", icon: "checkmark.circle.fill")
+            tile(label: "错", value: "错", icon: "xmark.circle.fill")
+        }
+        .onChange(of: phase) { _, newPhase in
+            if newPhase == .checked, isCorrect == false {
+                withAnimation(.linear(duration: 0.4)) { shakeTrigger += 1 }
+            }
         }
     }
 
-    private func tile(label: String, value: String, tint: Color) -> some View {
+    private func tile(label: String, value: String, icon: String) -> some View {
         let isSelected = answer == value
+        let state = tfCardState(value: value, isSelected: isSelected)
         return Button {
-            if phase == .answering { onChange(value) }
+            guard phase == .answering else { return }
+            HapticEngine.shared.tap()
+            SFXEngine.shared.play(.tap)
+            withAnimation(Motion.press) { onChange(value) }
         } label: {
-            VStack {
-                Image(systemName: value == "对" ? "checkmark.circle.fill" : "xmark.circle.fill")
-                    .font(.system(size: 40))
-                Text(label).font(.title3.bold())
+            VStack(spacing: 8) {
+                Image(systemName: icon).font(.system(size: 36))
+                Text(label).duoFont(.subhead)
             }
-            .foregroundStyle(isSelected ? .white : tint)
             .frame(maxWidth: .infinity, minHeight: 110)
-            .background(isSelected ? tint : tint.opacity(0.12), in: .rect(cornerRadius: 18))
+            .optionCard(state: state)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(OptionCardButtonStyle(state: state))
         .disabled(phase == .checked)
+        .modifier(ShakeEffect(animatableData: CGFloat(state == .wrong ? shakeTrigger : 0)))
+        .accessibilityIdentifier("tf-\(value)")
+    }
+
+    private func tfCardState(value: String, isSelected: Bool) -> OptionCardState {
+        guard phase == .checked else { return isSelected ? .selected : .default }
+        if Grade.gradeAnswer(question: question, userAnswer: value) { return .correct }
+        if isSelected { return .wrong }
+        return .disabled
     }
 }
 
@@ -131,21 +168,68 @@ private struct FillBlankQuestionView: View {
     let question: Question
     let answer: String
     let phase: LessonRunnerView.QuestionPhase
+    let isCorrect: Bool?
     let onChange: (String) -> Void
     let keyboard: UIKeyboardType
+
+    @State private var shakeTrigger = 0
+
+    private var state: OptionCardState {
+        guard phase == .checked else { return answer.isEmpty ? .default : .selected }
+        return (isCorrect ?? false) ? .correct : .wrong
+    }
 
     var body: some View {
         TextField(
             keyboard == .default ? "在这里作答" : "输入数字",
-            text: Binding(get: { answer }, set: onChange)
+            text: Binding(get: { answer }, set: onChange),
+            prompt: Text(keyboard == .default ? "在这里作答" : "输入数字")
+                .foregroundStyle(DuoColors.inkSofter)
         )
         .keyboardType(keyboard)
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
-        .font(.title3)
-        .padding()
-        .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 14))
+        .font(.system(size: 20, weight: .heavy, design: .rounded))
+        .foregroundStyle(fieldForeground)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 18)
+        .background(fieldBackground, in: .rect(cornerRadius: Radius.card))
+        .overlay {
+            RoundedRectangle(cornerRadius: Radius.card)
+                .strokeBorder(fieldBorder, lineWidth: state == .default ? 2 : 2.5)
+        }
+        .modifier(ShakeEffect(animatableData: CGFloat(shakeTrigger)))
         .disabled(phase == .checked)
+        .animation(Motion.reveal, value: state)
+        .onChange(of: phase) { _, newPhase in
+            if newPhase == .checked, isCorrect == false {
+                withAnimation(.linear(duration: 0.4)) { shakeTrigger += 1 }
+            }
+        }
+    }
+
+    private var fieldBackground: Color {
+        switch state {
+        case .correct: return DuoColors.primary.opacity(0.15)
+        case .wrong:   return DuoColors.danger.opacity(0.15)
+        case .selected: return DuoColors.secondary.opacity(0.10)
+        default:       return DuoColors.surface
+        }
+    }
+    private var fieldBorder: Color {
+        switch state {
+        case .correct: return DuoColors.primary
+        case .wrong:   return DuoColors.danger
+        case .selected: return DuoColors.secondary
+        default:       return DuoColors.border
+        }
+    }
+    private var fieldForeground: Color {
+        switch state {
+        case .correct: return DuoColors.primary
+        case .wrong:   return DuoColors.danger
+        default:       return DuoColors.ink
+        }
     }
 }
 
@@ -158,33 +242,46 @@ private struct WordOrderQuestionView: View {
     let onChange: (String) -> Void
 
     @State private var picked: [Int] = []
+    @Namespace private var ns
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Picked area
-            FlowRow {
-                ForEach(picked, id: \.self) { i in
-                    chip(text: question.options[i], filled: true) {
-                        if phase == .answering { unpick(i) }
+        VStack(alignment: .leading, spacing: 14) {
+            // Answer line — underline placeholders + picked chips that fly in.
+            ZStack(alignment: .topLeading) {
+                VStack(alignment: .leading, spacing: 36) {
+                    ForEach(0..<2, id: \.self) { _ in
+                        Rectangle()
+                            .fill(DuoColors.border)
+                            .frame(height: 2)
+                            .frame(maxWidth: .infinity)
                     }
                 }
-                if picked.isEmpty {
-                    Text("点击下方的词语组成句子").foregroundStyle(.secondary).font(.footnote)
+                .padding(.top, 32)
+                .padding(.horizontal, 4)
+
+                FlowRow {
+                    ForEach(picked, id: \.self) { i in
+                        chip(text: question.options[i], filled: true) {
+                            if phase == .answering { unpick(i) }
+                        }
+                        .matchedGeometryEffect(id: i, in: ns)
+                    }
                 }
+                .frame(minHeight: 72, alignment: .topLeading)
             }
-            .frame(minHeight: 56, alignment: .topLeading)
-            .padding()
-            .background(Color(.tertiarySystemFill), in: .rect(cornerRadius: 14))
+            .frame(minHeight: 120, alignment: .top)
 
-            Divider()
-
-            // Remaining shelf
+            // Shelf — unpicked chips; picked slots leave a dim ghost so the
+            // shelf doesn't reflow as tiles fly up.
             FlowRow {
                 ForEach(question.options.indices, id: \.self) { i in
-                    if !picked.contains(i) {
+                    if picked.contains(i) {
+                        chipGhost(text: question.options[i])
+                    } else {
                         chip(text: question.options[i], filled: false) {
                             if phase == .answering { pick(i) }
                         }
+                        .matchedGeometryEffect(id: i, in: ns)
                     }
                 }
             }
@@ -195,26 +292,41 @@ private struct WordOrderQuestionView: View {
         }
     }
 
-    private func pick(_ i: Int) { picked.append(i) }
-    private func unpick(_ i: Int) { picked.removeAll { $0 == i } }
+    private func pick(_ i: Int) {
+        HapticEngine.shared.tap(); SFXEngine.shared.play(.tap)
+        withAnimation(Motion.reveal) { picked.append(i) }
+    }
+    private func unpick(_ i: Int) {
+        HapticEngine.shared.tap(); SFXEngine.shared.play(.tap)
+        withAnimation(Motion.reveal) { picked.removeAll { $0 == i } }
+    }
 
     private func chip(text: String, filled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(text)
-                .font(.body.bold())
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(
-                    filled ? Color.accentColor : Color(.secondarySystemBackground),
-                    in: .capsule
-                )
-                .foregroundStyle(filled ? .white : .primary)
+                .duoFont(.subhead)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .foregroundStyle(filled ? DuoColors.primary : DuoColors.ink)
+                .background(DuoColors.surface, in: .capsule)
+                .overlay {
+                    Capsule().strokeBorder(filled ? DuoColors.primary : DuoColors.border, lineWidth: 2)
+                }
         }
         .buttonStyle(.plain)
     }
+
+    private func chipGhost(text: String) -> some View {
+        Text(text)
+            .duoFont(.subhead)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .foregroundStyle(.clear)
+            .background(DuoColors.surfaceAlt.opacity(0.5), in: .capsule)
+    }
 }
 
-// MARK: - Matching
+// MARK: - Matching (flash-green-and-vanish)
 
 private struct MatchingQuestionView: View {
     let question: Question
@@ -222,11 +334,16 @@ private struct MatchingQuestionView: View {
     let phase: LessonRunnerView.QuestionPhase
     let onChange: (String) -> Void
 
-    @State private var pairs: [String: String] = [:]   // "A" → "1"
+    @State private var pairs: [String: String] = [:]     // "A" → "1" (confirmed correct)
+    @State private var matched: Set<String> = []          // left keys resolved & hidden
     @State private var activeLeft: String? = nil
+    @State private var flashWrong: (left: String, right: String)? = nil
+    @State private var shakeTrigger = 0
 
     private let leftKeys = ["A", "B", "C", "D"]
     private let rightKeys = ["1", "2", "3", "4"]
+
+    private var correctMap: [String: String] { Grade.matchingPairs(question.answer) }
 
     var body: some View {
         let leftItems = Array(question.options.prefix(4))
@@ -236,70 +353,101 @@ private struct MatchingQuestionView: View {
             VStack(spacing: 10) {
                 ForEach(leftKeys.indices, id: \.self) { i in
                     let key = leftKeys[i]
-                    let mate = pairs[key]
-                    Button {
-                        if phase == .answering { tapLeft(key) }
-                    } label: {
-                        matchTile(label: leftItems[safe: i] ?? "",
-                                  badge: mate.map { "→ \($0)" } ?? key,
-                                  active: activeLeft == key,
-                                  paired: mate != nil)
+                    if !matched.contains(key) {
+                        Button { if phase == .answering { tapLeft(key) } } label: {
+                            matchTile(label: leftItems[safe: i] ?? "", side: .left, key: key)
+                        }
+                        .buttonStyle(.plain)
+                        .modifier(ShakeEffect(animatableData: CGFloat(flashWrong?.left == key ? shakeTrigger : 0)))
+                    } else {
+                        matchedGhost()
                     }
-                    .buttonStyle(.plain)
                 }
             }
             VStack(spacing: 10) {
                 ForEach(rightKeys.indices, id: \.self) { i in
                     let key = rightKeys[i]
-                    let mateLeft = pairs.first { $0.value == key }?.key
-                    Button {
-                        if phase == .answering { tapRight(key) }
-                    } label: {
-                        matchTile(label: rightItems[safe: i] ?? "",
-                                  badge: mateLeft.map { "← \($0)" } ?? key,
-                                  active: false,
-                                  paired: mateLeft != nil)
+                    let ownerLeft = matched.first { matched.contains($0) && correctMap[$0] == key }
+                    if ownerLeft == nil {
+                        Button { if phase == .answering { tapRight(key) } } label: {
+                            matchTile(label: rightItems[safe: i] ?? "", side: .right, key: key)
+                        }
+                        .buttonStyle(.plain)
+                        .modifier(ShakeEffect(animatableData: CGFloat(flashWrong?.right == key ? shakeTrigger : 0)))
+                    } else {
+                        matchedGhost()
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }
-        .onChange(of: pairs) { _, _ in
-            let text = leftKeys.compactMap { k in pairs[k].map { "\(k)-\($0)" } }.joined(separator: ",")
-            if text != answer { onChange(text) }
-        }
     }
 
+    private enum Side { case left, right }
+
     private func tapLeft(_ key: String) {
-        if pairs[key] != nil { pairs.removeValue(forKey: key); activeLeft = nil; return }
-        activeLeft = key
+        HapticEngine.shared.tap(); SFXEngine.shared.play(.tap)
+        activeLeft = (activeLeft == key) ? nil : key
     }
 
     private func tapRight(_ key: String) {
         guard let left = activeLeft else { return }
-        // Remove any prior assignment of this right key
-        pairs = pairs.filter { $0.value != key }
-        pairs[left] = key
-        activeLeft = nil
+        if correctMap[left] == key {
+            // Correct pair — flash green, then vanish both tiles.
+            HapticEngine.shared.correct(); SFXEngine.shared.play(.tap)
+            pairs[left] = key
+            withAnimation(Motion.reveal) {
+                _ = matched.insert(left)
+                activeLeft = nil
+            }
+            if matched.count == leftKeys.count { commitAllMatched() }
+        } else {
+            // Wrong — flash red + shake, then deselect.
+            HapticEngine.shared.wrong()
+            flashWrong = (left, key)
+            withAnimation(.linear(duration: 0.4)) { shakeTrigger += 1 }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                flashWrong = nil
+                activeLeft = nil
+            }
+        }
     }
 
-    private func matchTile(label: String, badge: String, active: Bool, paired: Bool) -> some View {
-        HStack(spacing: 8) {
-            Text(badge)
-                .font(.caption.bold())
-                .foregroundStyle(.white)
-                .padding(.horizontal, 8).padding(.vertical, 4)
-                .background(paired ? Color.green : (active ? Color.accentColor : Color.secondary), in: .capsule)
-            Text(label)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(10)
-        .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(active ? Color.accentColor : Color.clear, lineWidth: 2)
-        )
+    /// When every pair is matched, hand the grader the canonical string.
+    private func commitAllMatched() {
+        let text = leftKeys.compactMap { k in correctMap[k].map { "\(k)-\($0)" } }.joined(separator: ",")
+        onChange(text)
+    }
+
+    private func matchedGhost() -> some View {
+        RoundedRectangle(cornerRadius: Radius.card)
+            .fill(DuoColors.surfaceAlt.opacity(0.4))
+            .frame(maxWidth: .infinity)
+            .frame(height: 52)
+            .overlay {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 16, weight: .heavy))
+                    .foregroundStyle(DuoColors.primary.opacity(0.6))
+            }
+    }
+
+    private func matchTile(label: String, side: Side, key: String) -> some View {
+        let isActive = side == .left && activeLeft == key
+        let isWrong = (side == .left && flashWrong?.left == key) || (side == .right && flashWrong?.right == key)
+        let border: Color = isWrong ? DuoColors.danger : (isActive ? DuoColors.secondary : DuoColors.border)
+        let fill: Color = isWrong ? DuoColors.danger.opacity(0.14) : (isActive ? DuoColors.secondary.opacity(0.12) : DuoColors.surface)
+        return Text(label)
+            .duoFont(.subhead)
+            .foregroundStyle(DuoColors.ink)
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .frame(minHeight: 52)
+            .background(fill, in: .rect(cornerRadius: Radius.card))
+            .overlay {
+                RoundedRectangle(cornerRadius: Radius.card)
+                    .strokeBorder(border, lineWidth: isActive || isWrong ? 2.5 : 2)
+            }
+            .animation(Motion.press, value: isActive)
     }
 }
 
@@ -309,14 +457,10 @@ private extension Array {
     subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
 }
 
-/// Minimal flow-row layout for chip rows in WordOrderQuestionView.
+/// Minimal flow-row layout for chip rows.
 struct FlowRow<Content: View>: View {
     @ViewBuilder var content: Content
-    var body: some View {
-        // SwiftUI's built-in HStack wraps lines with .lineLimit, so we approximate
-        // with a simple WrappingHStack via Layout.
-        WrappingHStack { content }
-    }
+    var body: some View { WrappingHStack { content } }
 }
 
 private struct WrappingHStack: Layout {

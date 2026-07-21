@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// Mistake bank — lists every entry in the SRS scheduler.
-/// Tapping "开始复习" enters a runner that walks every due mistake.
+/// Mistake bank hub — a hero card that launches review, plus the due list.
 struct ReviewView: View {
     @ObservedObject var progressStore: ProgressStore
     @Binding var path: [AppRoute]
@@ -12,83 +11,73 @@ struct ReviewView: View {
 
         ScrollView {
             VStack(spacing: 16) {
-                summaryCard(due: due.count, total: all.count)
-
-                if due.isEmpty {
-                    emptyState(allCount: all.count)
-                } else {
-                    Button {
-                        path.append(.reviewRunner)
-                    } label: {
-                        Text("\(due.count > 1 ? "复习 \(due.count) 道题" : "复习 1 道题")")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("review-start")
-
-                    VStack(spacing: 8) {
+                hero(due: due.count, total: all.count)
+                if !due.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("待复习").duoFont(.caption).tracking(1).foregroundStyle(DuoColors.inkMuted)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         ForEach(due, id: \.question.id) { entry in
                             mistakeRow(entry)
                         }
                     }
                 }
             }
-            .padding()
+            .padding(20)
         }
+        .background(DuoColors.bg.ignoresSafeArea())
         .navigationTitle("错题本")
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private func summaryCard(due: Int, total: Int) -> some View {
-        HStack(spacing: 16) {
-            stat(value: "\(due)", label: "今日待复习", tint: .orange)
-            stat(value: "\(total)", label: "总错题数", tint: .blue)
-        }
-    }
+    private func hero(due: Int, total: Int) -> some View {
+        VStack(spacing: 16) {
+            MascotView(mood: due > 0 ? .think : .proud, size: 96)
 
-    private func stat(value: String, label: String, tint: Color) -> some View {
-        VStack(spacing: 4) {
-            Text(value).font(.title.bold()).foregroundStyle(tint)
-            Text(label).font(.caption).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 14)
-        .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 14))
-    }
-
-    private func emptyState(allCount: Int) -> some View {
-        VStack(spacing: 12) {
-            Image(systemName: allCount == 0 ? "checkmark.seal.fill" : "moon.zzz.fill")
-                .font(.largeTitle)
-                .foregroundStyle(allCount == 0 ? .green : .secondary)
-            Text(allCount == 0 ? "目前没有错题" : "今天的复习已经完成 🎉")
-                .font(.headline)
-            if allCount > 0 {
-                Text("剩余 \(allCount) 道题在 SRS 排程中等待")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            if due > 0 {
+                Text("有 \(due) 道题等你复习").duoFont(.heading).foregroundStyle(DuoColors.ink)
+                Text("复习错题不掉血，还能赚经验值").duoFont(.caption).foregroundStyle(DuoColors.inkMuted)
+                Button { path.append(.reviewRunner) } label: { Text("开始复习  +\(due * 5) XP") }
+                    .buttonStyle(ChunkyButtonStyle(.primary))
+                    .accessibilityIdentifier("review-start")
+            } else {
+                Text(total == 0 ? "还没有错题" : "今天的复习完成啦！").duoFont(.heading).foregroundStyle(DuoColors.ink)
+                Text(total == 0 ? "答错的题目会自动收进这里" : "\(total) 道题在记忆排程中等待")
+                    .duoFont(.caption).foregroundStyle(DuoColors.inkMuted)
             }
+
+            HStack(spacing: 24) {
+                miniStat(value: due, label: "今日待复习", tint: DuoColors.fox)
+                miniStat(value: total, label: "错题总数", tint: DuoColors.secondary)
+            }
+            .padding(.top, 4)
         }
-        .padding(40)
         .frame(maxWidth: .infinity)
-        .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 16))
+        .padding(20)
+        .background(DuoColors.surface, in: .rect(cornerRadius: Radius.large))
+        .overlay { RoundedRectangle(cornerRadius: Radius.large).strokeBorder(DuoColors.border, lineWidth: 2) }
+    }
+
+    private func miniStat(value: Int, label: String, tint: Color) -> some View {
+        VStack(spacing: 2) {
+            Text("\(value)").duoNumeral(.title).foregroundStyle(tint)
+            Text(label).duoFont(.micro).foregroundStyle(DuoColors.inkMuted)
+        }
     }
 
     private func mistakeRow(_ entry: MistakeEntry) -> some View {
         HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(entry.question.question)
-                    .font(.subheadline)
-                    .lineLimit(2)
-                Text("Box \(entry.box ?? 1) · 来自 \(entry.lessonTitle ?? entry.lessonId)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            ZStack {
+                Circle().fill(DuoColors.fox.opacity(0.16)).frame(width: 38, height: 38)
+                Text("\(entry.box ?? 1)").duoNumeral(.caption).foregroundStyle(DuoColors.fox)
             }
-            Spacer()
+            VStack(alignment: .leading, spacing: 3) {
+                Text(entry.question.question).duoFont(.body).foregroundStyle(DuoColors.ink).lineLimit(2)
+                Text("来自 \(entry.lessonTitle ?? entry.lessonId)").duoFont(.micro).foregroundStyle(DuoColors.inkMuted).lineLimit(1)
+            }
+            Spacer(minLength: 0)
         }
         .padding(12)
-        .background(Color(.tertiarySystemBackground), in: .rect(cornerRadius: 10))
+        .background(DuoColors.surface, in: .rect(cornerRadius: Radius.card))
+        .overlay { RoundedRectangle(cornerRadius: Radius.card).strokeBorder(DuoColors.border, lineWidth: 2) }
     }
 }

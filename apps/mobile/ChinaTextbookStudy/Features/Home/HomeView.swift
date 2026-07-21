@@ -1,142 +1,874 @@
 import SwiftUI
 
-/// Top-level home screen — equivalent to apps/web/src/app/HomeClient.tsx (subset).
-/// Shows XP / streak / a "continue learning" jump and a "pick grade" entry.
+/// Duolingo-style home: the learning path IS the home screen.
+///
+/// Top: dark stats strip (book-flag / streak / gems / hearts).
+/// Middle: unit section banner + PathMap.
+/// Overlay: green "current lesson" callout anchored to the active node.
+/// Toolbar: flag button opens a sheet to switch book/grade.
 struct HomeView: View {
     @ObservedObject var progressStore: ProgressStore
     @ObservedObject var downloader: AssetDownloader
     let siteIndex: SiteIndex
     @Binding var path: [AppRoute]
 
+    @State private var showBookPicker = false
+    @State private var outline: Outline?
+    @State private var pathNodes: [PathMapNode] = []
+    @State private var loadError: String?
+
+    private var activeBook: Book? {
+        if let id = progressStore.activeBookId {
+            return siteIndex.books.first(where: { $0.id == id })
+        }
+        // Default: first book of selected grade, or first book overall
+        let grade = progressStore.selectedGrade
+        if grade > 0 {
+            return siteIndex.books.first(where: { $0.grade == grade }) ?? siteIndex.books.first
+        }
+        return siteIndex.books.first
+    }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                statsCard
-                quickLinks
-                gradePicker
-                continueLearning
+        ZStack(alignment: .top) {
+            DuoColors.darkBg.ignoresSafeArea()
+
+            if let book = activeBook {
+                pathContent(book: book)
+            } else {
+                emptyState
             }
-            .padding(20)
         }
-        .navigationTitle("课本学习")
-        .navigationBarTitleDisplayMode(.large)
+        .toolbar(.hidden, for: .navigationBar)
+        .sheet(isPresented: $showBookPicker) {
+            BookPickerSheet(
+                siteIndex: siteIndex,
+                progressStore: progressStore,
+                downloader: downloader,
+                isPresented: $showBookPicker,
+                onPick: { bookId in
+                    progressStore.setActiveBook(bookId)
+                    reloadOutline()
+                }
+            )
+            .presentationDetents([.large])
+        }
+        .onAppear { reloadOutline() }
+        .onChange(of: progressStore.activeBookId) { _, _ in reloadOutline() }
     }
 
-    private var quickLinks: some View {
-        HStack(spacing: 12) {
-            quickTile(title: "错题本", icon: "exclamationmark.bubble.fill", tint: .orange) {
-                path.append(.review)
-            }
-            .accessibilityIdentifier("home-review")
-            quickTile(title: "成就墙", icon: "rosette", tint: .purple) {
-                path.append(.achievements)
-            }
-            .accessibilityIdentifier("home-achievements")
-        }
-    }
+    // MARK: - Main path layout
 
-    private func quickTile(title: String, icon: String, tint: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack {
-                Image(systemName: icon).font(.title3).foregroundStyle(tint)
-                Text(title).font(.subheadline.bold())
+    @ViewBuilder
+    private func pathContent(book: Book) -> some View {
+        VStack(spacing: 0) {
+            // Top stats strip
+            HomeStatsStrip(
+                book: book,
+                progressStore: progressStore,
+                onFlagTap: { showBookPicker = true }
+            )
+            .padding(.horizontal, 14)
+            .padding(.top, 8)
+            .padding(.bottom, 12)
+
+            // Hairline separating the fixed HUD from the scrolling path.
+            Rectangle().fill(DuoColors.border).frame(height: 1)
+
+            // Reading & stories entry (per active book).
+            HStack(spacing: 10) {
+                sideEntry("课文听读", icon: "text.book.closed.fill", tint: DuoColors.secondary) {
+                    path.append(.reading(bookId: book.id))
+                }
+                sideEntry("课外故事", icon: "book.closed.fill", tint: DuoColors.beetle) {
+                    path.append(.stories(bookId: book.id))
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+            .padding(.bottom, 2)
+
+            if outline != nil {
+                PathMapView(lessons: pathNodes) { node in
+                    path.append(.lesson(bookId: book.id, lessonId: node.id))
+                }
+                .id(book.id)   // re-instantiate on book switch so scroll resets
+            } else if let err = loadError {
+                VStack(spacing: 12) {
+                    Spacer()
+                    Image(systemName: "tray.and.arrow.down")
+                        .font(.largeTitle)
+                        .foregroundStyle(DuoColors.darkInkMuted)
+                    Text("这本书还没下载")
+                        .font(.headline)
+                        .foregroundStyle(DuoColors.darkInk)
+                    Text(err)
+                        .font(.footnote)
+                        .foregroundStyle(DuoColors.darkInkMuted)
+                    if let entry = downloader.manifest?.books.first(where: { $0.bookId == book.id }) {
+                        BookDownloadCard(entry: entry, downloader: downloader) { reloadOutline() }
+                            .padding(.horizontal, 24)
+                    }
+                    Spacer()
+                }
+                .padding()
+            } else {
                 Spacer()
-                Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                ProgressView().tint(DuoColors.primary)
+                Spacer()
             }
-            .padding(14)
-            .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 14))
+        }
+    }
+
+    private func sideEntry(_ label: String, icon: String, tint: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon).font(.system(size: 16, weight: .bold)).foregroundStyle(tint)
+                Text(label).duoFont(.caption).foregroundStyle(DuoColors.ink)
+            }
+            .frame(maxWidth: .infinity, minHeight: 42)
+            .background(DuoColors.surface, in: .rect(cornerRadius: Radius.control))
+            .overlay { RoundedRectangle(cornerRadius: Radius.control).strokeBorder(DuoColors.border, lineWidth: 2) }
         }
         .buttonStyle(.plain)
     }
 
-    private var statsCard: some View {
-        HStack(spacing: 16) {
-            statTile(value: "\(progressStore.progress.xp)", label: "总经验", icon: "bolt.fill", tint: .yellow)
-            statTile(value: "\(progressStore.progress.streak)", label: "连续天数", icon: "flame.fill", tint: .orange)
-            statTile(value: "\(progressStore.totalCompletedLessons)", label: "已完成", icon: "checkmark.seal.fill", tint: .green)
+    @ViewBuilder
+    private var emptyState: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            MascotView(mood: .wave, size: 120)
+            Text("挑一本书开始学习吧")
+                .font(.title3.weight(.heavy))
+                .foregroundStyle(DuoColors.darkInk)
+            Button("选择课本") { showBookPicker = true }
+                .buttonStyle(ChunkyButtonStyle(.primary))
+                .padding(.horizontal, 40)
+            Spacer()
         }
     }
 
-    private func statTile(value: String, label: String, icon: String, tint: Color) -> some View {
-        VStack(spacing: 6) {
-            Image(systemName: icon).font(.title2).foregroundStyle(tint)
-            Text(value).font(.title2.bold())
-            Text(label).font(.caption).foregroundStyle(.secondary)
+    // MARK: - Data loading
+
+    private func reloadOutline() {
+        guard let book = activeBook else {
+            outline = nil
+            pathNodes = []
+            return
+        }
+        // Ensure active book id is persisted
+        if progressStore.activeBookId != book.id {
+            progressStore.setActiveBook(book.id)
+        }
+        do {
+            let o = try DataLoader.shared.loadOutline(bookId: book.id)
+            outline = o
+            pathNodes = buildPathNodes(outline: o, bookId: book.id)
+            loadError = nil
+        } catch {
+            outline = nil
+            pathNodes = []
+            loadError = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        }
+    }
+
+    private func buildPathNodes(outline: Outline, bookId: String) -> [PathMapNode] {
+        var rows: [PathMapNode] = []
+        var foundCurrent = false
+        for unit in outline.units {
+            for (i, kp) in unit.knowledgePoints.enumerated() {
+                let lessonId = "\(bookId)-u\(unit.unitNumber)-kp\(i + 1)"
+                let stars = progressStore.stars(for: lessonId) ?? 0
+                let isCompleted = stars > 0
+                let status: LessonStatus
+                if isCompleted {
+                    status = .completed
+                } else if !foundCurrent {
+                    status = .current
+                    foundCurrent = true
+                } else {
+                    status = .locked
+                }
+                rows.append(PathMapNode(
+                    id: lessonId,
+                    title: kp.name,
+                    unitNumber: unit.unitNumber,
+                    unitTitle: unit.title,
+                    status: status,
+                    stars: stars
+                ))
+            }
+        }
+        return rows
+    }
+}
+
+// MARK: - Top stats strip (flag / streak / gems / hearts)
+
+private struct HomeStatsStrip: View {
+    let book: Book
+    @ObservedObject var progressStore: ProgressStore
+    let onFlagTap: () -> Void
+
+    @State private var activeSheet: StatSheet?
+
+    private enum StatSheet: Identifiable {
+        case streak, gems, hearts
+        var id: Int { hashValue }
+    }
+
+    var body: some View {
+        HStack(spacing: 18) {
+            // Flag / book badge
+            Button(action: onFlagTap) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Subjects.resolve(book: book).accent)
+                        .frame(width: 34, height: 26)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.black.opacity(0.3), lineWidth: 1.5)
+                        }
+                    Text(Subjects.resolve(book: book).label)
+                        .font(.system(size: 12, weight: .heavy))
+                        .foregroundStyle(.white)
+                }
+            }
+            .buttonStyle(.plain)
+
+            Button { activeSheet = .streak } label: {
+                statItem(
+                    icon: Image(systemName: "flame.fill"),
+                    value: "\(progressStore.progress.streak)",
+                    color: progressStore.progress.streak > 0 ? DuoColors.fox : DuoColors.darkInkSofter
+                )
+            }
+            .buttonStyle(.plain)
+
+            Button { activeSheet = .gems } label: {
+                statItem(
+                    icon: Image(systemName: "diamond.fill"),
+                    value: "\(progressStore.gems)",
+                    color: DuoColors.secondary
+                )
+            }
+            .buttonStyle(.plain)
+
+            Button { activeSheet = .hearts } label: {
+                statItem(
+                    icon: Image(systemName: "heart.fill"),
+                    value: "\(progressStore.hearts)",
+                    color: DuoColors.danger
+                )
+            }
+            .buttonStyle(.plain)
+
+            Spacer(minLength: 8)
+
+            // Daily-goal ring — today's XP toward the goal (tap to adjust).
+            DailyGoalRingView(progressStore: progressStore, size: 46)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 14)
-        .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 16))
+        .sheet(item: $activeSheet) { sheet in
+            Group {
+                switch sheet {
+                case .streak: StreakDetailSheet(progressStore: progressStore)
+                case .gems:   GemShopSheet(progressStore: progressStore)
+                case .hearts: HeartDetailSheet(progressStore: progressStore)
+                }
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
     }
 
-    private var gradePicker: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("选择年级").font(.headline)
-            Button {
-                path.append(.gradePicker)
-            } label: {
-                HStack {
-                    Image(systemName: "books.vertical.fill").foregroundStyle(.blue)
-                    if progressStore.selectedGrade > 0 {
-                        Text("当前：\(progressStore.selectedGrade)年级")
-                    } else {
-                        Text("挑一个年级开始学习")
+    @ViewBuilder
+    private func statItem(icon: Image, value: String, color: Color) -> some View {
+        HStack(spacing: 5) {
+            icon
+                .font(.system(size: 18, weight: .heavy))
+                .foregroundStyle(color)
+            Text(value)
+                .font(.system(size: 17, weight: .heavy))
+                .foregroundStyle(color)
+                .monospacedDigit()
+        }
+    }
+}
+
+// MARK: - Streak sheet
+
+private struct StreakDetailSheet: View {
+    @ObservedObject var progressStore: ProgressStore
+    @Environment(\.dismiss) private var dismiss
+
+    private let freezeCost = 200
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 22) {
+                VStack(spacing: 8) {
+                    ZStack {
+                        Circle()
+                            .fill(DuoColors.fox.opacity(0.18))
+                            .frame(width: 112, height: 112)
+                        Image(systemName: "flame.fill")
+                            .font(.system(size: 66, weight: .heavy))
+                            .foregroundStyle(DuoColors.fox)
+                    }
+
+                    Text("\(progressStore.progress.streak)")
+                        .font(.system(size: 54, weight: .black))
+                        .foregroundStyle(DuoColors.darkInk)
+                        .monospacedDigit()
+
+                    Text(progressStore.progress.streak > 0 ? "天连胜" : "开始你的连胜")
+                        .font(.system(size: 16, weight: .heavy))
+                        .foregroundStyle(DuoColors.darkInkMuted)
+                }
+                .padding(.top, 8)
+
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "snowflake")
+                            .font(.system(size: 28, weight: .heavy))
+                            .foregroundStyle(DuoColors.secondary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("连胜护盾 × \(progressStore.streakFreezes)")
+                                .font(.system(size: 18, weight: .heavy))
+                                .foregroundStyle(DuoColors.darkInk)
+                            Text("一天没学习时，自动顶替你的连胜")
+                                .font(.system(size: 13))
+                                .foregroundStyle(DuoColors.darkInkMuted)
+                        }
+                        Spacer()
+                    }
+                    .padding(14)
+                    .background(DuoColors.darkSurface, in: .rect(cornerRadius: 16))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 16)
+                            .strokeBorder(DuoColors.darkSurfaceAlt, lineWidth: 2)
+                    }
+
+                    Button {
+                        if progressStore.buyStreakFreeze(cost: freezeCost) {
+                            HapticEngine.shared.success()
+                            SFXEngine.shared.play(.unlock)
+                        } else {
+                            HapticEngine.shared.wrong()
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "diamond.fill").font(.system(size: 14, weight: .heavy))
+                            Text("购买护盾  \(freezeCost)")
+                        }
+                    }
+                    .buttonStyle(ChunkyButtonStyle(
+                        progressStore.gems >= freezeCost ? .secondary : .disabled
+                    ))
+                    .disabled(progressStore.gems < freezeCost)
+                }
+
+                Spacer(minLength: 4)
+
+                Button("知道了") { dismiss() }
+                    .buttonStyle(ChunkyButtonStyle(.primary))
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
+        }
+        .navigationTitle("连胜")
+        .background(DuoColors.darkBg.ignoresSafeArea())
+    }
+}
+
+// MARK: - Gem shop sheet
+
+private struct GemShopSheet: View {
+    @ObservedObject var progressStore: ProgressStore
+    @Environment(\.dismiss) private var dismiss
+
+    private let refillCost = 350
+    private let freezeCost = 200
+
+    @State private var flash: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                // Balance banner
+                HStack(spacing: 10) {
+                    Image(systemName: "diamond.fill")
+                        .font(.system(size: 28, weight: .heavy))
+                        .foregroundStyle(DuoColors.secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(progressStore.gems)")
+                            .font(.system(size: 28, weight: .black))
+                            .foregroundStyle(DuoColors.darkInk)
+                            .monospacedDigit()
+                        Text("我的宝石")
+                            .font(.system(size: 12, weight: .heavy))
+                            .foregroundStyle(DuoColors.darkInkMuted)
                     }
                     Spacer()
-                    Image(systemName: "chevron.right").foregroundStyle(.tertiary)
                 }
-                .padding()
-                .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 14))
+                .padding(16)
+                .frame(maxWidth: .infinity)
+                .background(DuoColors.secondary.opacity(0.14), in: .rect(cornerRadius: 18))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18)
+                        .strokeBorder(DuoColors.secondary.opacity(0.4), lineWidth: 2)
+                }
+
+                if let flash {
+                    Text(flash)
+                        .font(.system(size: 14, weight: .heavy))
+                        .foregroundStyle(DuoColors.primary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(DuoColors.primary.opacity(0.15), in: .rect(cornerRadius: 10))
+                }
+
+                Text("宝石商店")
+                    .font(.system(size: 13, weight: .heavy))
+                    .tracking(1.2)
+                    .foregroundStyle(DuoColors.darkInkMuted)
+
+                shopRow(
+                    icon: "heart.fill",
+                    iconColor: DuoColors.danger,
+                    title: "恢复所有心",
+                    subtitle: progressStore.hearts >= ProgressStore.maxHearts ? "心数已满" : "立即装满 5 颗心",
+                    cost: refillCost,
+                    enabled: progressStore.hearts < ProgressStore.maxHearts && progressStore.gems >= refillCost
+                ) {
+                    if progressStore.buyHeartRefill(cost: refillCost) {
+                        HapticEngine.shared.success()
+                        SFXEngine.shared.play(.unlock)
+                        flash = "心数已恢复！"
+                    } else {
+                        HapticEngine.shared.wrong()
+                    }
+                }
+
+                shopRow(
+                    icon: "snowflake",
+                    iconColor: DuoColors.secondary,
+                    title: "连胜护盾",
+                    subtitle: "当前拥有 \(progressStore.streakFreezes) 个",
+                    cost: freezeCost,
+                    enabled: progressStore.gems >= freezeCost
+                ) {
+                    if progressStore.buyStreakFreeze(cost: freezeCost) {
+                        HapticEngine.shared.success()
+                        SFXEngine.shared.play(.unlock)
+                        flash = "已购买连胜护盾！"
+                    } else {
+                        HapticEngine.shared.wrong()
+                    }
+                }
+
+                Text("完成课程可获得更多宝石")
+                    .font(.system(size: 12))
+                    .foregroundStyle(DuoColors.darkInkSofter)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.top, 8)
+
+                Button("关闭") { dismiss() }
+                    .buttonStyle(ChunkyButtonStyle(.primary))
+                    .padding(.top, 4)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 24)
+        }
+        .background(DuoColors.darkBg.ignoresSafeArea())
+    }
+
+    @ViewBuilder
+    private func shopRow(
+        icon: String,
+        iconColor: Color,
+        title: String,
+        subtitle: String,
+        cost: Int,
+        enabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle().fill(iconColor.opacity(0.22)).frame(width: 44, height: 44)
+                    Image(systemName: icon).font(.system(size: 22, weight: .heavy)).foregroundStyle(iconColor)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.system(size: 16, weight: .heavy)).foregroundStyle(DuoColors.darkInk)
+                    Text(subtitle).font(.system(size: 12)).foregroundStyle(DuoColors.darkInkMuted)
+                }
+                Spacer()
+                HStack(spacing: 4) {
+                    Image(systemName: "diamond.fill").font(.system(size: 13, weight: .heavy))
+                    Text("\(cost)").font(.system(size: 14, weight: .black)).monospacedDigit()
+                }
+                .foregroundStyle(enabled ? DuoColors.secondary : DuoColors.darkInkSofter)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    (enabled ? DuoColors.secondary.opacity(0.18) : DuoColors.darkSurfaceAlt.opacity(0.4)),
+                    in: .capsule
+                )
+            }
+            .padding(14)
+            .background(DuoColors.darkSurface, in: .rect(cornerRadius: 16))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16)
+                    .strokeBorder(DuoColors.darkSurfaceAlt, lineWidth: 2)
+            }
+            .opacity(enabled ? 1.0 : 0.55)
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+    }
+}
+
+// MARK: - Heart detail sheet
+
+private struct HeartDetailSheet: View {
+    @ObservedObject var progressStore: ProgressStore
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var tick = Date()
+    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 22) {
+                Text("心数")
+                    .font(.system(size: 24, weight: .black))
+                    .foregroundStyle(DuoColors.darkInk)
+                    .padding(.top, 6)
+
+                HStack(spacing: 10) {
+                    ForEach(0..<ProgressStore.maxHearts, id: \.self) { i in
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 32, weight: .heavy))
+                            .foregroundStyle(i < progressStore.hearts ? DuoColors.danger : DuoColors.darkSurfaceAlt)
+                    }
+                }
+
+                if progressStore.hearts >= ProgressStore.maxHearts {
+                    Text("你的心数已满！")
+                        .font(.system(size: 15, weight: .heavy))
+                        .foregroundStyle(DuoColors.darkInkMuted)
+                } else if let next = progressStore.nextHeartAt {
+                    VStack(spacing: 4) {
+                        Text("下一颗心还需")
+                            .font(.system(size: 12, weight: .heavy))
+                            .foregroundStyle(DuoColors.darkInkMuted)
+                        Text(formatCountdown(to: next, now: tick))
+                            .font(.system(size: 40, weight: .black))
+                            .foregroundStyle(DuoColors.danger)
+                            .monospacedDigit()
+                        Text("每 5 分钟恢复 1 颗心")
+                            .font(.system(size: 11))
+                            .foregroundStyle(DuoColors.darkInkSofter)
+                    }
+                }
+
+                if progressStore.streakFreezes > 0 {
+                    HStack(spacing: 8) {
+                        Image(systemName: "snowflake").foregroundStyle(DuoColors.secondary)
+                        Text("连胜护盾 × \(progressStore.streakFreezes)")
+                            .font(.system(size: 14, weight: .heavy))
+                            .foregroundStyle(DuoColors.secondary)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(DuoColors.secondary.opacity(0.14), in: .rect(cornerRadius: 12))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(DuoColors.secondary.opacity(0.35), lineWidth: 2)
+                    }
+                }
+
+                Button {
+                    if progressStore.buyHeartRefill(cost: 350) {
+                        HapticEngine.shared.success()
+                        SFXEngine.shared.play(.unlock)
+                    } else {
+                        HapticEngine.shared.wrong()
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "diamond.fill").font(.system(size: 13, weight: .heavy))
+                        Text("恢复所有心  350")
+                    }
+                }
+                .buttonStyle(ChunkyButtonStyle(
+                    (progressStore.hearts < ProgressStore.maxHearts && progressStore.gems >= 350) ? .secondary : .disabled
+                ))
+                .disabled(progressStore.hearts >= ProgressStore.maxHearts || progressStore.gems < 350)
+
+                Button("知道了") { dismiss() }
+                    .buttonStyle(ChunkyButtonStyle(.primary))
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
+        }
+        .background(DuoColors.darkBg.ignoresSafeArea())
+        .onReceive(timer) { _ in
+            tick = Date()
+            progressStore.tickHeartRecharge()
+        }
+    }
+
+    private func formatCountdown(to date: Date, now: Date) -> String {
+        let remaining = max(0, date.timeIntervalSince(now))
+        let minutes = Int(remaining) / 60
+        let seconds = Int(remaining) % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+}
+
+// MARK: - Book picker sheet (unified with home-page chunky sticker language)
+
+private struct BookPickerSheet: View {
+    let siteIndex: SiteIndex
+    @ObservedObject var progressStore: ProgressStore
+    @ObservedObject var downloader: AssetDownloader
+    @Binding var isPresented: Bool
+    let onPick: (String) -> Void
+
+    @State private var selectedGrade: Int
+
+    init(siteIndex: SiteIndex, progressStore: ProgressStore, downloader: AssetDownloader, isPresented: Binding<Bool>, onPick: @escaping (String) -> Void) {
+        self.siteIndex = siteIndex
+        self.progressStore = progressStore
+        self.downloader = downloader
+        self._isPresented = isPresented
+        self.onPick = onPick
+        self._selectedGrade = State(initialValue: progressStore.selectedGrade > 0 ? progressStore.selectedGrade : 1)
+    }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            DuoColors.darkBg.ignoresSafeArea()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    header
+                        .padding(.top, 8)
+
+                    sectionLabel("选择年级")
+                    gradeChips
+
+                    sectionLabel("选择课本")
+                    VStack(spacing: 12) {
+                        ForEach(booksForGrade, id: \.id) { book in
+                            Button {
+                                HapticEngine.shared.tap()
+                                progressStore.setSelectedGrade(selectedGrade)
+                                onPick(book.id)
+                                isPresented = false
+                            } label: {
+                                bookCard(book)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        if booksForGrade.isEmpty {
+                            Text("这个年级暂无课本")
+                                .font(.subheadline.weight(.bold))
+                                .foregroundStyle(DuoColors.darkInkMuted)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.vertical, 20)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 32)
+            }
+        }
+    }
+
+    private var booksForGrade: [Book] {
+        siteIndex.books.filter { $0.grade == selectedGrade }
+    }
+
+    // MARK: Header
+
+    private var header: some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("课本库")
+                    .font(.caption.weight(.heavy))
+                    .tracking(1.5)
+                    .foregroundStyle(DuoColors.darkInkMuted)
+                Text("换本课本")
+                    .font(.system(size: 28, weight: .black))
+                    .foregroundStyle(DuoColors.darkInk)
+            }
+            Spacer()
+            Button {
+                isPresented = false
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 16, weight: .black))
+                    .foregroundStyle(DuoColors.darkInkMuted)
+                    .frame(width: 40, height: 40)
+                    .background(DuoColors.darkSurface, in: .circle)
+                    .overlay(Circle().strokeBorder(DuoColors.darkSurfaceAlt, lineWidth: 2))
             }
             .buttonStyle(.plain)
         }
     }
 
-    private var continueLearning: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("可以学的书").font(.headline)
-            let books = booksForCurrentGrade
-            if books.isEmpty {
-                Text("先选一个年级吧").foregroundStyle(.secondary)
-            } else {
-                ForEach(books, id: \.id) { book in
-                    Button {
-                        path.append(.bookDetail(bookId: book.id))
-                    } label: {
-                        bookCard(book)
-                    }
-                    .buttonStyle(.plain)
+    private func sectionLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 13, weight: .heavy))
+            .tracking(1.2)
+            .foregroundStyle(DuoColors.darkInkMuted)
+    }
+
+    // MARK: Grade chips — chunky 3D pills
+
+    private var gradeChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(1...6, id: \.self) { g in
+                    gradeChip(g)
                 }
             }
+            .padding(.vertical, 2)
         }
     }
 
-    private var booksForCurrentGrade: [Book] {
-        let grade = progressStore.selectedGrade
-        if grade <= 0 { return Array(siteIndex.books.prefix(6)) }
-        return siteIndex.books.filter { $0.grade == grade }
+    @ViewBuilder
+    private func gradeChip(_ g: Int) -> some View {
+        let selected = selectedGrade == g
+        Button {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
+                selectedGrade = g
+            }
+            HapticEngine.shared.tap()
+        } label: {
+            ZStack {
+                // 3D shadow layer
+                Capsule()
+                    .fill(selected ? DuoColors.primaryDark : DuoColors.darkSurfaceAlt)
+                    .frame(width: 76, height: 42)
+                    .offset(y: 3)
+                // Top surface
+                Text("\(g)年级")
+                    .font(.system(size: 15, weight: .heavy))
+                    .foregroundStyle(selected ? .white : DuoColors.darkInkMuted)
+                    .frame(width: 76, height: 42)
+                    .background(selected ? DuoColors.primary : DuoColors.darkSurface, in: .capsule)
+            }
+            .frame(width: 76, height: 45)
+        }
+        .buttonStyle(.plain)
     }
 
+    @ViewBuilder
+    private func downloadStatusBadge(_ book: Book) -> some View {
+        if downloader.isBookDownloaded(book.id) {
+            Label("已下载", systemImage: "checkmark.circle.fill")
+                .duoFont(.micro)
+                .foregroundStyle(DuoColors.primary)
+        } else if let entry = downloader.manifest?.books.first(where: { $0.bookId == book.id }) {
+            let size = ByteCountFormatter.string(fromByteCount: entry.data.bytes + entry.audio.bytes, countStyle: .file)
+            Label("需下载 · \(size)", systemImage: "arrow.down.circle")
+                .duoFont(.micro)
+                .foregroundStyle(DuoColors.secondary)
+        }
+    }
+
+    // MARK: Book card — 3D chunky card with sticker badge
+
+    @ViewBuilder
     private func bookCard(_ book: Book) -> some View {
         let cfg = Subjects.resolve(book: book)
-        let isDownloaded = downloader.isBookDownloaded(book.id)
-        return HStack(spacing: 12) {
-            Circle().fill(cfg.accent.opacity(0.15)).frame(width: 44, height: 44)
-                .overlay(Text(cfg.label).font(.callout.bold()).foregroundStyle(cfg.accent))
-            VStack(alignment: .leading, spacing: 4) {
-                Text(book.fullName).font(.subheadline.bold())
-                Text("\(book.unitsCount) 单元 · \(book.lessonsCount) 节小课")
-                    .font(.caption).foregroundStyle(.secondary)
+        let isActive = progressStore.activeBookId == book.id
+
+        let borderColor: Color = isActive ? DuoColors.primary : DuoColors.darkSurfaceAlt
+        let shadowColor: Color = isActive ? DuoColors.primaryDark : DuoColors.darkSurface.opacity(0.8)
+
+        ZStack {
+            // Bottom depth layer (3D shadow peek)
+            RoundedRectangle(cornerRadius: 18)
+                .fill(shadowColor)
+                .offset(y: 4)
+
+            // Top card surface
+            HStack(spacing: 14) {
+                SubjectStickerBadge(label: cfg.label, color: cfg.accent)
+                    .frame(width: 56, height: 56)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(book.fullName)
+                        .duoFont(.subhead)
+                        .foregroundStyle(DuoColors.ink)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    HStack(spacing: 4) {
+                        Text("\(book.unitsCount) 单元")
+                        Text("·").foregroundStyle(DuoColors.inkSofter)
+                        Text("\(book.lessonsCount) 节小课")
+                    }
+                    .duoFont(.caption)
+                    .foregroundStyle(DuoColors.inkMuted)
+                    downloadStatusBadge(book)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if isActive {
+                    ZStack {
+                        Circle().fill(DuoColors.primary).frame(width: 28, height: 28)
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 14, weight: .black))
+                            .foregroundStyle(.white)
+                    }
+                }
             }
-            Spacer()
-            if isDownloaded {
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                    .accessibilityLabel("已下载")
-            } else {
-                Image(systemName: "arrow.down.circle").foregroundStyle(.secondary)
-                    .accessibilityLabel("未下载")
+            .padding(14)
+            .background(DuoColors.darkSurface, in: .rect(cornerRadius: 18))
+            .overlay {
+                RoundedRectangle(cornerRadius: 18)
+                    .strokeBorder(borderColor, lineWidth: 2)
             }
         }
-        .padding(12)
-        .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 14))
+        .frame(minHeight: 80)
+    }
+}
+
+// MARK: - Subject sticker badge (matches tab-bar icon language)
+
+private struct SubjectStickerBadge: View {
+    let label: String
+    let color: Color
+
+    var body: some View {
+        GeometryReader { geo in
+            let s = min(geo.size.width, geo.size.height) / 56
+            ZStack {
+                // Bottom depth layer
+                RoundedRectangle(cornerRadius: 12 * s)
+                    .fill(color.opacity(0.7))
+                    .offset(y: 3 * s)
+                // Top surface
+                RoundedRectangle(cornerRadius: 12 * s)
+                    .fill(color)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12 * s)
+                            .stroke(Color.black.opacity(0.35), lineWidth: 2 * s)
+                    }
+                Text(label)
+                    .font(.system(size: 18 * s, weight: .black))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.25), radius: 0, x: 0, y: 1)
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
     }
 }
