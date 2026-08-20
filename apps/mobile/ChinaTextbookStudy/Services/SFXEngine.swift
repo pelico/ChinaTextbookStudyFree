@@ -163,10 +163,6 @@ final class SFXEngine {
 
     private func scheduleEvents(_ events: [SynthEvent]) {
         for event in events {
-            let node = AVAudioSourceNode(format: format) { [sampleRate] _, _, frameCount, audioBufferList -> OSStatus in
-                return noErr // Will be replaced per-event below
-            }
-
             // Each event gets its own source node with a render callback.
             var phase: Double = 0
             var modPhase: Double = 0

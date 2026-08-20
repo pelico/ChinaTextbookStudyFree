@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// Plain lesson list for one book — placeholder for the eventual PathMap.
-/// This phase aims for a working learning loop, not the Duolingo-style art.
-/// The PathMap visual treatment is deferred to Phase 6/7.
+/// One book's learning path — snake-shaped PathMap with lesson nodes,
+/// claimable chest slots (every 5th lesson per unit) and side entries for
+/// stories / reading.
 struct BookDetailView: View {
     let bookId: String
     @ObservedObject var progressStore: ProgressStore
@@ -11,18 +11,11 @@ struct BookDetailView: View {
 
     @State private var outline: Outline?
     @State private var loadError: String?
-    @State private var lessons: [LessonRow] = []
+    @State private var lessons: [PathLessonMeta] = []
+    /// A path chest the learner tapped and is currently opening.
+    @State private var activeChest: ActiveChest?
 
-    /// Lightweight row metadata derived from outline + on-disk lesson files.
-    struct LessonRow: Identifiable, Hashable {
-        let id: String
-        let title: String
-        let unitNumber: Int
-        let unitTitle: String
-        let kpIndex: Int
-        let kpTotal: Int
-        let questionCount: Int
-    }
+    private struct ActiveChest: Identifiable { let id: String }
 
     var body: some View {
         Group {
@@ -68,9 +61,25 @@ struct BookDetailView: View {
 
                 // Snake-shaped PathMap
                 PathMapView(lessons: buildPathNodes()) { node in
-                    path.append(.lesson(bookId: bookId, lessonId: node.id))
+                    if node.kind == .chest {
+                        activeChest = ActiveChest(id: node.id)
+                    } else {
+                        path.append(.lesson(bookId: bookId, lessonId: node.id))
+                    }
                 }
             }
+        }
+        // Chest open modal — full-screen cover so the back button / tab bar
+        // can't be tapped mid-claim; rolls the reward, then banks + marks it.
+        .fullScreenCover(item: $activeChest) { chest in
+            ChestModalView(
+                onClaim: { gems in
+                    progressStore.addGems(gems)
+                    progressStore.claimChest(chest.id)
+                },
+                onDismiss: { activeChest = nil }
+            )
+            .presentationBackground(.clear)
         }
     }
 
@@ -94,30 +103,9 @@ struct BookDetailView: View {
         .buttonStyle(.plain)
     }
 
-    /// Convert lesson rows into PathMapNodes with status (completed/current/locked).
+    /// Lesson + chest nodes for the path (shared builder with the Home tab).
     private func buildPathNodes() -> [PathMapNode] {
-        var foundCurrent = false
-        return lessons.map { row in
-            let stars = progressStore.stars(for: row.id) ?? 0
-            let isCompleted = stars > 0
-            let status: LessonStatus
-            if isCompleted {
-                status = .completed
-            } else if !foundCurrent {
-                status = .current
-                foundCurrent = true
-            } else {
-                status = .locked
-            }
-            return PathMapNode(
-                id: row.id,
-                title: row.title,
-                unitNumber: row.unitNumber,
-                unitTitle: row.unitTitle,
-                status: status,
-                stars: stars
-            )
-        }
+        PathNodeBuilder.nodes(bookId: bookId, lessons: lessons, progressStore: progressStore)
     }
 
     // MARK: - Loading
@@ -126,32 +114,14 @@ struct BookDetailView: View {
         do {
             let outline = try DataLoader.shared.loadOutline(bookId: bookId)
             self.outline = outline
-            self.lessons = expandLessons(outline: outline)
+            // Peek at each lesson file for its question count, degrading to 0.
+            self.lessons = outline.pathLessonMetas(bookId: bookId) { lessonId in
+                (try? DataLoader.shared.loadLesson(bookId: bookId, lessonId: lessonId).questions.count) ?? 0
+            }
             self.loadError = nil
         } catch {
             self.loadError = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
         }
-    }
-
-    private func expandLessons(outline: Outline) -> [LessonRow] {
-        var rows: [LessonRow] = []
-        for unit in outline.units {
-            for (i, kp) in unit.knowledgePoints.enumerated() {
-                let lessonId = "\(bookId)-u\(unit.unitNumber)-kp\(i + 1)"
-                // Try to peek at the file to get question count, but degrade gracefully.
-                let count = (try? DataLoader.shared.loadLesson(bookId: bookId, lessonId: lessonId).questions.count) ?? 0
-                rows.append(LessonRow(
-                    id: lessonId,
-                    title: kp.name,
-                    unitNumber: unit.unitNumber,
-                    unitTitle: unit.title,
-                    kpIndex: i,
-                    kpTotal: unit.knowledgePoints.count,
-                    questionCount: count
-                ))
-            }
-        }
-        return rows
     }
 
 }

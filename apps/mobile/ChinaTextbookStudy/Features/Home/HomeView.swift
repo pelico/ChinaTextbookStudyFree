@@ -16,6 +16,14 @@ struct HomeView: View {
     @State private var outline: Outline?
     @State private var pathNodes: [PathMapNode] = []
     @State private var loadError: String?
+    /// Lesson metas (incl. question counts) cached per book — peeking at every
+    /// lesson file is too expensive to repeat on each appearance.
+    @State private var pathMetas: [PathLessonMeta] = []
+    @State private var metasBookId: String?
+    /// A path chest the learner tapped and is currently opening.
+    @State private var activeChest: ActiveChest?
+
+    private struct ActiveChest: Identifiable { let id: String }
 
     private var activeBook: Book? {
         if let id = progressStore.activeBookId {
@@ -38,6 +46,21 @@ struct HomeView: View {
             } else {
                 emptyState
             }
+        }
+        // Chest open modal — full-screen cover so the tab bar can't be tapped
+        // mid-claim; rolls the reward, then banks + marks it.
+        .fullScreenCover(item: $activeChest) { chest in
+            ChestModalView(
+                onClaim: { gems in
+                    progressStore.addGems(gems)
+                    progressStore.claimChest(chest.id)
+                },
+                onDismiss: {
+                    activeChest = nil
+                    reloadOutline()   // refresh the claimed chest's node
+                }
+            )
+            .presentationBackground(.clear)
         }
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $showBookPicker) {
@@ -90,7 +113,11 @@ struct HomeView: View {
 
             if outline != nil {
                 PathMapView(lessons: pathNodes) { node in
-                    path.append(.lesson(bookId: book.id, lessonId: node.id))
+                    if node.kind == .chest {
+                        activeChest = ActiveChest(id: node.id)
+                    } else {
+                        path.append(.lesson(bookId: book.id, lessonId: node.id))
+                    }
                 }
                 .id(book.id)   // re-instantiate on book switch so scroll resets
             } else if let err = loadError {
@@ -161,45 +188,25 @@ struct HomeView: View {
             progressStore.setActiveBook(book.id)
         }
         do {
-            let o = try DataLoader.shared.loadOutline(bookId: book.id)
-            outline = o
-            pathNodes = buildPathNodes(outline: o, bookId: book.id)
+            // Loading metas peeks at every lesson file for its question count
+            // (start-popup XP line) — do that once per book, not per appear.
+            if metasBookId != book.id || outline == nil {
+                let o = try DataLoader.shared.loadOutline(bookId: book.id)
+                outline = o
+                pathMetas = o.pathLessonMetas(bookId: book.id) { lessonId in
+                    (try? DataLoader.shared.loadLesson(bookId: book.id, lessonId: lessonId).questions.count) ?? 0
+                }
+                metasBookId = book.id
+            }
+            // Status/stars/chest state refresh is cheap and runs every time.
+            pathNodes = PathNodeBuilder.nodes(bookId: book.id, lessons: pathMetas, progressStore: progressStore)
             loadError = nil
         } catch {
             outline = nil
             pathNodes = []
+            metasBookId = nil
             loadError = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
         }
-    }
-
-    private func buildPathNodes(outline: Outline, bookId: String) -> [PathMapNode] {
-        var rows: [PathMapNode] = []
-        var foundCurrent = false
-        for unit in outline.units {
-            for (i, kp) in unit.knowledgePoints.enumerated() {
-                let lessonId = "\(bookId)-u\(unit.unitNumber)-kp\(i + 1)"
-                let stars = progressStore.stars(for: lessonId) ?? 0
-                let isCompleted = stars > 0
-                let status: LessonStatus
-                if isCompleted {
-                    status = .completed
-                } else if !foundCurrent {
-                    status = .current
-                    foundCurrent = true
-                } else {
-                    status = .locked
-                }
-                rows.append(PathMapNode(
-                    id: lessonId,
-                    title: kp.name,
-                    unitNumber: unit.unitNumber,
-                    unitTitle: unit.title,
-                    status: status,
-                    stars: stars
-                ))
-            }
-        }
-        return rows
     }
 }
 

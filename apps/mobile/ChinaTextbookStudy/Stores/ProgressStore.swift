@@ -101,13 +101,27 @@ final class ProgressStore: ObservableObject {
         )
 
         let goal = dailyGoal
-        let todayXpBefore = todayXp
+        // Read "today's XP so far" against the injected `now` (not the
+        // wall-clock `todayXp` accessor) so the whole mutation shares one
+        // notion of "today" — otherwise the one-time goal bonus repeats.
+        let todayKey = SRS.todayString(now: now)
+        let todayXpBefore = progress.lastXpDate == todayKey ? (progress.todayXp ?? 0) : 0
         let streakBefore = progress.streak
+        let snapshotBefore = achievementSnapshot
 
         var p = progress
         rollDailyIfNeeded(&p, now: now)
         recordXP(&p, xpGain, now: now)
         p.dailyLessons = (p.dailyLessons ?? 0) + 1
+
+        // Per-lesson gem drop — same economy as web's recordLessonComplete:
+        // 3 base, +5 two-star, +10 three-star, +15 first perfect, +20 the
+        // first time today's XP goal is crossed.
+        let priorStars = p.completedLessons[lessonId]?.stars ?? 0
+        var gemsGained = 3
+        if stars == 2 { gemsGained += 5 }
+        if stars == 3 { gemsGained += 10 }
+        if stars == 3 && priorStars < 3 { gemsGained += 15 }
 
         // Take the best result so a re-run can only improve stars.
         if let prior = p.completedLessons[lessonId] {
@@ -116,6 +130,12 @@ final class ProgressStore: ObservableObject {
             p.completedLessons[lessonId] = result
         }
         bumpStreak(&p, now: now)
+
+        let dailyGoalReachedNow = todayXpBefore < goal && (p.todayXp ?? 0) >= goal
+        if dailyGoalReachedNow { gemsGained += 20 }
+        p.gems = (p.gems ?? 0) + gemsGained
+        p.lifetimeGems = (p.lifetimeGems ?? 0) + gemsGained
+
         progress = p
         save()
         NotificationService.shared.rescheduleStreakReminder(streak: p.streak, studiedToday: true)
@@ -125,7 +145,9 @@ final class ProgressStore: ObservableObject {
             stars: stars,
             streakBefore: streakBefore,
             streakAfter: p.streak,
-            dailyGoalReachedNow: todayXpBefore < goal && (p.todayXp ?? 0) >= goal
+            dailyGoalReachedNow: dailyGoalReachedNow,
+            gemsGained: gemsGained,
+            newAchievements: Achievements.newlyUnlocked(before: snapshotBefore, after: achievementSnapshot)
         )
     }
 
@@ -235,6 +257,24 @@ final class ProgressStore: ObservableObject {
 
     /// Whether the daily XP goal has been reached today.
     var dailyGoalReached: Bool { todayXp >= dailyGoal }
+
+    /// Whether any study activity (lesson / review / reading) happened today.
+    var studiedToday: Bool { progress.lastActiveDate == SRS.todayString() }
+
+    /// The streak value a reminder may truthfully quote: the current streak
+    /// when studying today would still continue it (incl. shield coverage),
+    /// else 0 so the notification falls back to generic copy instead of
+    /// promising to save a streak that is already gone.
+    var reminderStreak: Int {
+        if studiedToday { return progress.streak }
+        let adv = Streak.advance(
+            streak: progress.streak,
+            streakFreezes: progress.streakFreezes ?? 0,
+            lastActiveDate: progress.lastActiveDate,
+            today: SRS.todayString()
+        )
+        return adv.streak == progress.streak + 1 ? progress.streak : 0
+    }
 
     /// Unix timestamp (seconds) for the next heart recharge, or nil if full.
     var nextHeartAt: Date? {
@@ -384,8 +424,10 @@ final class ProgressStore: ObservableObject {
     }
 
     /// Award XP for a mistake review (feeds the daily goal + streak, no hearts).
+    /// A session with zero correct answers still counts as review activity —
+    /// the quest counter and streak track effort, not the score.
     func awardReviewXP(_ amount: Int, reviewedCount: Int = 0, now: Date = Date()) {
-        guard amount > 0 else { return }
+        guard amount > 0 || reviewedCount > 0 else { return }
         var p = progress
         rollDailyIfNeeded(&p, now: now)
         recordXP(&p, amount, now: now)
@@ -558,18 +600,15 @@ final class ProgressStore: ObservableObject {
     }
 
     private func bumpStreak(_ p: inout UserProgress, now: Date) {
-        let today = SRS.todayString(now: now)
-        if p.lastActiveDate == today { return }
-        let yesterday = SRS.dateString(daysFromNow: -1, now: now)
-        if p.lastActiveDate == yesterday {
-            p.streak += 1
-        } else if p.lastActiveDate.isEmpty {
-            p.streak = 1
-        } else {
-            // Gap of >1 day → streak resets but counts today.
-            p.streak = 1
-        }
-        p.lastActiveDate = today
+        let adv = Streak.advance(
+            streak: p.streak,
+            streakFreezes: p.streakFreezes ?? 0,
+            lastActiveDate: p.lastActiveDate,
+            today: SRS.todayString(now: now)
+        )
+        p.streak = adv.streak
+        p.streakFreezes = adv.streakFreezes
+        p.lastActiveDate = adv.lastActiveDate
     }
 
     private func save() {

@@ -3,9 +3,11 @@ import SwiftUI
 /// Duolingo-style lesson path.
 ///
 /// - Column-centered zig-zag with gentle offsets
-/// - Node types cycle: star, star, video, chest, star, star, video, trophy
+/// - Lesson glyphs cycle star/video with a trophy closing each unit; chest
+///   nodes are REAL reward slots (every 5th lesson, see `Chest.slots`) that
+///   the caller claims via `onTap`
 /// - Current node bobs gently, wears a real unit-progress ring + "开始" pill
-/// - Tapping any node opens an anchored start popup (title · lesson n/m · +XP)
+/// - Tapping a lesson opens an anchored start popup (title · lesson n/m · +XP)
 /// - Tapping a locked node shakes it and shows a hint
 struct PathMapView: View {
     let lessons: [PathMapNode]
@@ -62,7 +64,12 @@ struct PathMapView: View {
             .background(DuoColors.bg.ignoresSafeArea())
             .overlay(alignment: .bottom) { lockedToast }
             .onAppear { scrollToCurrent(proxy, animated: false) }
-            .onChange(of: lessons) { _, _ in scrollToCurrent(proxy, animated: true) }
+            // Follow the learner's progress, but only when the current node
+            // actually moves — a chest claim also mutates `lessons`, and
+            // yanking the viewport away from the chest would be jarring.
+            .onChange(of: lessons.first(where: { $0.status == .current })?.id) { _, _ in
+                scrollToCurrent(proxy, animated: true)
+            }
         }
     }
 
@@ -80,7 +87,7 @@ struct PathMapView: View {
     @ViewBuilder
     private func startPopup(index: Int) -> some View {
         let node = lessons[index]
-        let unitNodes = lessons.filter { $0.unitNumber == node.unitNumber }
+        let unitNodes = lessons.filter { $0.kind == .lesson && $0.unitNumber == node.unitNumber }
         let lessonNo = (unitNodes.firstIndex(where: { $0.id == node.id }) ?? 0) + 1
         let accent = node.status == .completed ? DuoColors.bee : DuoColors.primary
 
@@ -92,7 +99,8 @@ struct PathMapView: View {
                     .foregroundStyle(.white)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
-                Text("第 \(lessonNo) / \(unitNodes.count) 节 · +20 XP")
+                Text("第 \(lessonNo) / \(unitNodes.count) 节" +
+                     (node.questionCount > 0 ? " · +\(node.questionCount * 10) XP" : ""))
                     .duoFont(.caption)
                     .foregroundStyle(.white.opacity(0.9))
                 Button {
@@ -205,21 +213,17 @@ struct PathMapView: View {
     enum NodeKind { case star, video, chest, trophy }
 
     private func nodeKind(at index: Int, node: PathMapNode) -> NodeKind {
-        let isLastOfUnit: Bool = {
-            guard index < lessons.count - 1 else { return true }
-            return lessons[index + 1].unitNumber != node.unitNumber
-        }()
-        if isLastOfUnit { return .trophy }
-        switch index % 4 {
-        case 2: return .video
-        case 3: return .chest
-        default: return .star
+        if node.kind == .chest { return .chest }
+        let hasLaterLessonInUnit = lessons[(index + 1)...].contains {
+            $0.kind == .lesson && $0.unitNumber == node.unitNumber
         }
+        if !hasLaterLessonInUnit { return .trophy }
+        return index % 4 == 2 ? .video : .star
     }
 
     /// Fraction of the node's unit already completed (drives the current ring).
     private func unitProgress(for node: PathMapNode) -> Double {
-        let unitNodes = lessons.filter { $0.unitNumber == node.unitNumber }
+        let unitNodes = lessons.filter { $0.kind == .lesson && $0.unitNumber == node.unitNumber }
         guard !unitNodes.isEmpty else { return 0 }
         let done = unitNodes.filter { $0.status == .completed }.count
         return Double(done) / Double(unitNodes.count)
@@ -236,6 +240,14 @@ struct PathMapView: View {
                 HapticEngine.shared.wrong()
                 withAnimation(.linear(duration: 0.4)) { lockedShake += 1 }
                 showLockedHint()
+            } else if node.kind == .chest {
+                // Unlocked chest: claim directly (no start popup). Already-
+                // opened chests just acknowledge the tap.
+                HapticEngine.shared.tap()
+                if !node.chestClaimed {
+                    SFXEngine.shared.play(.tap)
+                    onTap(node)
+                }
             } else {
                 HapticEngine.shared.tap(); SFXEngine.shared.play(.tap)
                 withAnimation(Motion.bounce) {
@@ -248,12 +260,14 @@ struct PathMapView: View {
                     if isCurrent { progressRing(progress: unitProgress(for: node)) }
 
                     Circle()
-                        .fill(nodeShadowColor(status: node.status))
+                        .fill(node.kind == .chest && node.chestClaimed
+                              ? DuoColors.lockedNodeLedge : nodeShadowColor(status: node.status))
                         .frame(width: nodeSize, height: nodeSize)
                         .offset(y: 5)
 
                     Circle()
-                        .fill(nodeBackground(status: node.status))
+                        .fill(node.kind == .chest && node.chestClaimed
+                              ? DuoColors.lockedNodeTop : nodeBackground(status: node.status))
                         .frame(width: nodeSize, height: nodeSize)
 
                     nodeIcon(node: node, kind: kind)
@@ -264,8 +278,10 @@ struct PathMapView: View {
             .modifier(IdleBob(active: isCurrent))
         }
         .buttonStyle(PathNodeButtonStyle())
-        .accessibilityIdentifier("lesson-row-\(node.id)")
-        .accessibilityLabel("\(node.title), \(node.status == .completed ? "已完成" : node.status == .current ? "当前" : "未解锁")")
+        .accessibilityIdentifier(node.kind == .chest ? "chest-node-\(node.id)" : "lesson-row-\(node.id)")
+        .accessibilityLabel(node.kind == .chest
+            ? "宝箱, \(node.status == .locked ? "未解锁" : node.chestClaimed ? "已领取" : "可领取")"
+            : "\(node.title), \(node.status == .completed ? "已完成" : node.status == .current ? "当前" : "未解锁")")
     }
 
     // MARK: - Node visuals
@@ -335,7 +351,19 @@ struct PathMapView: View {
         case .video:
             Image(systemName: "video.fill").font(.system(size: 24, weight: .bold)).foregroundStyle(color)
         case .chest:
-            Image(systemName: "shippingbox.fill").font(.system(size: 24, weight: .bold)).foregroundStyle(color)
+            if node.chestClaimed {
+                ZStack(alignment: .bottomTrailing) {
+                    Image(systemName: "shippingbox.fill")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(DuoColors.bee.opacity(0.55))
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 13, weight: .black))
+                        .foregroundStyle(DuoColors.primary)
+                        .offset(x: 5, y: 5)
+                }
+            } else {
+                Image(systemName: "shippingbox.fill").font(.system(size: 24, weight: .bold)).foregroundStyle(color)
+            }
         case .trophy:
             ZStack {
                 Image(systemName: "gearshape.fill").font(.system(size: 44, weight: .bold)).foregroundStyle(color.opacity(0.9))
@@ -422,13 +450,76 @@ struct CalloutTriangle: Shape {
     }
 }
 
+// MARK: - Node building
+
+/// Shared builder for a book's path nodes: lesson nodes with status/stars plus
+/// a chest node after every 5th lesson of a unit (see `Chest.slots`). Used by
+/// both the Home tab and BookDetailView so the two paths can't drift.
+@MainActor
+enum PathNodeBuilder {
+    static func nodes(
+        bookId: String,
+        lessons: [PathLessonMeta],
+        progressStore: ProgressStore
+    ) -> [PathMapNode] {
+        var foundCurrent = false
+        let chestByAfterLesson = Dictionary(
+            uniqueKeysWithValues: Chest.slots(bookId: bookId, lessons: lessons)
+                .map { ($0.afterLessonId, $0) }
+        )
+        var nodes: [PathMapNode] = []
+        for row in lessons {
+            let stars = progressStore.stars(for: row.id) ?? 0
+            let isCompleted = stars > 0
+            let status: LessonStatus
+            if isCompleted {
+                status = .completed
+            } else if !foundCurrent {
+                status = .current
+                foundCurrent = true
+            } else {
+                status = .locked
+            }
+            nodes.append(PathMapNode(
+                id: row.id,
+                title: row.title,
+                unitNumber: row.unitNumber,
+                unitTitle: row.unitTitle,
+                status: status,
+                stars: stars,
+                questionCount: row.questionCount
+            ))
+            if let slot = chestByAfterLesson[row.id] {
+                nodes.append(PathMapNode(
+                    id: slot.id,
+                    title: "宝箱",
+                    unitNumber: slot.unitNumber,
+                    unitTitle: slot.unitTitle,
+                    status: isCompleted ? .completed : .locked,
+                    stars: 0,
+                    kind: .chest,
+                    chestClaimed: progressStore.isChestClaimed(slot.id)
+                ))
+            }
+        }
+        return nodes
+    }
+}
+
 // MARK: - Data model
 
 struct PathMapNode: Identifiable, Hashable {
+    enum Kind: Hashable { case lesson, chest }
+
     let id: String
     let title: String
     let unitNumber: Int
     let unitTitle: String
     let status: LessonStatus
     let stars: Int
+    var kind: Kind = .lesson
+    /// Chest nodes only: whether the reward was already collected.
+    var chestClaimed: Bool = false
+    /// Lesson nodes only: drives the "+N XP" line in the start popup (0 = unknown).
+    var questionCount: Int = 0
 }

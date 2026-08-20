@@ -7,8 +7,9 @@ import SwiftUI
 /// instead of the ~30 ad-hoc `.font(.system(size:))` sizes that were scattered
 /// across the app. Prefer `.duoFont(.heading)` over raw sizes in new code.
 ///
-/// Every role scales with Dynamic Type via `relativeTo:` so accessibility text
-/// sizes still work.
+/// NOTE: sizes are currently fixed — Dynamic Type support (wiring `relativeTo`
+/// into `Font.custom(_:size:relativeTo:)`-style scaling) is planned but not
+/// implemented yet; `relativeTo` below records the intended mapping.
 enum DuoFont {
     case display    // 34 — result splash, big numbers
     case title      // 28 — screen titles

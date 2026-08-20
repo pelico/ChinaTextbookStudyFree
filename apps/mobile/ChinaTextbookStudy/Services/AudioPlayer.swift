@@ -22,8 +22,10 @@ final class AudioPlayer: NSObject, ObservableObject {
 
     /// Play one or more files in order. Empty / nil entries are skipped.
     /// Calling this interrupts any in-flight playback.
-    func play(paths: [String?], settings: SettingsStore = .shared) {
-        if settings.isMuted {
+    /// (`settings` defaults to nil → SettingsStore.shared; a main-actor default
+    /// value expression would trip Swift 6 isolation checking.)
+    func play(paths: [String?], settings: SettingsStore? = nil) {
+        if (settings ?? SettingsStore.shared).isMuted {
             stop(); return
         }
         let urls = paths.compactMap { $0 }.compactMap(resolve(_:))
@@ -31,7 +33,7 @@ final class AudioPlayer: NSObject, ObservableObject {
     }
 
     /// Convenience for a single file.
-    func play(path: String?, settings: SettingsStore = .shared) {
+    func play(path: String?, settings: SettingsStore? = nil) {
         guard let path else { return }
         play(paths: [path], settings: settings)
     }

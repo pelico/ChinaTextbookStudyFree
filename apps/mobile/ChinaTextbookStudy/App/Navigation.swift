@@ -27,6 +27,8 @@ struct LessonOutcome: Hashable {
     var streakBefore: Int = 0
     var streakAfter: Int = 0
     var dailyGoalReachedNow: Bool = false
+    var gemsGained: Int = 0
+    var newAchievements: [Achievement] = []
     var streakIncreased: Bool { streakAfter > streakBefore }
 }
 

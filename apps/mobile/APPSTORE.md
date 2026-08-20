@@ -12,8 +12,8 @@
 | `LSApplicationCategoryType` | ✅ | `public.app-category.education` |
 | `ITSAppUsesNonExemptEncryption` | ✅ | `NO`（没有自研加密） |
 | `NSHumanReadableCopyright` | ✅ | 声明教材内容版权 + 客户端 MIT |
-| 单元测试 | ✅ | 32 passing on iPhone & iPad |
-| UI 测试 | ✅ | 5 passing on iPhone, 2 passing + 3 skipped on iPad |
+| 单元测试 | ✅ | 50 passing（iPhone 模拟器） |
+| UI 测试 | ✅ | 11 passing（iPhone 模拟器） |
 | 真实 App icon 设计 | ⬜ | 需要你 / 设计师产出最终 1024px PNG，替换 `icon-1024.png` |
 | Bundle ID | ⬜ | 目前是占位 `com.example.ChinaTextbookStudy`，上架前改成你自己的 |
 | `DEVELOPMENT_TEAM` | ⬜ | 需要你的 Apple Developer Team ID |
@@ -62,21 +62,17 @@ iOS 端的音频 + 数据不进 bundle，靠 `AssetDownloader` 首启按需下�
 bash scripts/package-release-ios.sh
 
 # 2. 新开一个 GitHub Release（不和 Web 端的 v1.1.0-assets 共用）
-gh release create v1.0.0-ios-assets \
+#    tag 必须与 AssetDownloader.releaseBaseURL 一致（当前 v1.1.0-ios-assets）
+gh release create v1.1.0-ios-assets \
     /tmp/release-assets-ios/*.zip \
     /tmp/release-assets-ios/ios-manifest.json \
     --notes "iOS asset bundle: per-book data + AAC-24k m4a audio"
-
-# 3. 更新 AssetDownloader.releaseBaseURL 里的 tag
 ```
 
-对应代码在 [apps/mobile/ChinaTextbookStudy/Services/AssetDownloader.swift:53](ChinaTextbookStudy/Services/AssetDownloader.swift#L53):
-
-```swift
-var releaseBaseURL = URL(string:
-    "https://github.com/<你的用户名>/ChinaTextbookStudyFree/releases/download/v1.0.0-ios-assets"
-)!
-```
+对应代码在 [apps/mobile/ChinaTextbookStudy/Services/AssetDownloader.swift:64](ChinaTextbookStudy/Services/AssetDownloader.swift#L64)，
+已指向 `wuwangzhang1216/ChinaTextbookStudyFree/releases/download/v1.1.0-ios-assets`。
+**注意：这个 Release 目前还不存在** —— 未发布前，除内置种子教材（g1up 一年级数学）
+外的所有教材下载都会 404，这是提审前必须完成的硬性步骤。
 
 ## 2. App Store Connect metadata 草稿
 
@@ -99,12 +95,12 @@ var releaseBaseURL = URL(string:
 
 功能亮点：
 • 多邻国式闯关学习 —— 每个知识点拆成一节「小课」，5-7 题一闯
-• 八种题型全面覆盖：单选、判断、填空、计算、排序、连线、文字作答
+• 八种题型全面覆盖：单选、判断、数字填空、文字填空、计算、连词成句、连线、应用题
 • 内置 TTS 语音点读，题目、选项、解析一键朗读
 • 间隔重复错题本（Leitner 3 box 算法），自动排程复习
 • 课外故事 + 课文听读模块，支持语文英语双语
 • 16 个学习成就激励长期坚持
-• 暗色模式、iPad 三栏布局、动态字体无障碍
+• 暗色模式、iPad 分栏布局
 
 教材数据严格对齐人民教育出版社等官方版本，题库和配套音频由 AI 辅助生成后
 人工校对。所有内容均通过 GitHub Release 分发，按教材按需下载，首次安装包 < 20 MB。

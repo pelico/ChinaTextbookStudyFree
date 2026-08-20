@@ -74,8 +74,8 @@ struct SettingsView: View {
                                 settings.streakReminderEnabled = granted
                                 if granted {
                                     NotificationService.shared.rescheduleStreakReminder(
-                                        streak: progressStore.progress.streak,
-                                        studiedToday: progressStore.todayXp > 0
+                                        streak: progressStore.reminderStreak,
+                                        studiedToday: progressStore.studiedToday
                                     )
                                     HapticEngine.shared.success()
                                 } else {

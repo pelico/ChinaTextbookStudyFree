@@ -261,24 +261,4 @@ struct ShopView: View {
         }
     }
 
-    private func cosmeticSymbol(_ item: CosmeticItem) -> String {
-        switch item.id {
-        case "skin_graduate", "skin_laurel": return "graduationcap.fill"
-        case "skin_glasses": return "eyeglasses"
-        case "skin_party": return "party.popper.fill"
-        case "skin_crown": return "crown.fill"
-        case "skin_wizard": return "wand.and.stars"
-        case "skin_astronaut": return "airplane"
-        case "skin_sunglasses": return "sunglasses.fill"
-        case "skin_pirate": return "sailboat.fill"
-        case "skin_headphones": return "headphones"
-        case "skin_bowtie": return "figure.dress.line.vertical.figure"
-        default: break
-        }
-        switch item.type {
-        case .mascotSkin:     return "face.smiling.inverse"
-        case .uiTheme:        return "paintpalette.fill"
-        case .lessonBackdrop: return "photo.fill"
-        }
-    }
 }

@@ -33,6 +33,14 @@ enum SRS {
         return dateFormatter.string(from: target)
     }
 
+    /// Whole-day difference between two "yyyy-MM-dd" strings (`to` − `from`).
+    /// Unparseable input counts as an arbitrarily large gap.
+    static func daysBetween(_ from: String, _ to: String) -> Int {
+        guard let a = dateFormatter.date(from: from),
+              let b = dateFormatter.date(from: to) else { return Int.max }
+        return Calendar.current.dateComponents([.day], from: a, to: b).day ?? Int.max
+    }
+
     /// Apply a review result to an existing entry and return the updated copy.
     static func review(entry: MistakeEntry, isCorrect: Bool, now: Date = Date()) -> MistakeEntry {
         var next = entry

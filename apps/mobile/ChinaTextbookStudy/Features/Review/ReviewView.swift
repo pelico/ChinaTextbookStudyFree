@@ -36,7 +36,7 @@ struct ReviewView: View {
             if due > 0 {
                 Text("有 \(due) 道题等你复习").duoFont(.heading).foregroundStyle(DuoColors.ink)
                 Text("复习错题不掉血，还能赚经验值").duoFont(.caption).foregroundStyle(DuoColors.inkMuted)
-                Button { path.append(.reviewRunner) } label: { Text("开始复习  +\(due * 5) XP") }
+                Button { path.append(.reviewRunner) } label: { Text("开始复习  答对每题 +5 XP") }
                     .buttonStyle(ChunkyButtonStyle(.primary))
                     .accessibilityIdentifier("review-start")
             } else {

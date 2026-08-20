@@ -6,10 +6,13 @@ import UserNotifications
 /// Design notes:
 /// - Opt-in. Nothing is requested or scheduled until the learner turns the
 ///   toggle on in Settings, so a brand-new user is never prompted at launch.
-/// - One pending notification at a time, rescheduled after every study action
-///   so the copy always quotes the current streak.
-/// - If the learner already studied today, the reminder is pushed to tomorrow
-///   rather than nagging about a streak that is already safe.
+/// - A rolling window of 7 evening reminders, refreshed at every launch and
+///   after every study action. A lapsed learner — the whole point of the
+///   reminder — keeps hearing from us for a week after their last visit.
+/// - If the learner already studied today, today's slot is skipped rather
+///   than nagging about a streak that is already safe.
+/// - Only the first evening can truthfully quote the current streak; the
+///   later slots (learner hasn't come back) use generic copy.
 @MainActor
 final class NotificationService {
     static let shared = NotificationService()
@@ -17,7 +20,10 @@ final class NotificationService {
     /// Fire time — late enough to be a genuine "don't lose it" nudge.
     private let hour = 20
     private let minute = 0
-    private let identifier = "cstf.streak.reminder"
+    private let reminderDays = 7
+    private var identifiers: [String] {
+        (0..<reminderDays).map { "cstf.streak.reminder.\($0)" }
+    }
 
     private var center: UNUserNotificationCenter { .current() }
 
@@ -55,42 +61,48 @@ final class NotificationService {
         }
         Task {
             guard await isAuthorized() else { return }
+            // Re-check after the await: the learner may have flipped the
+            // toggle off while authorization status was being fetched.
+            guard SettingsStore.shared.streakReminderEnabled else { return }
             schedule(streak: streak, studiedToday: studiedToday, now: now)
         }
     }
 
     func cancel() {
-        center.removePendingNotificationRequests(withIdentifiers: [identifier])
+        // "cstf.streak.reminder" is the pre-window single-shot identifier;
+        // clear it too so an update never leaves a stale pending reminder.
+        center.removePendingNotificationRequests(withIdentifiers: identifiers + ["cstf.streak.reminder"])
     }
 
     private func schedule(streak: Int, studiedToday: Bool, now: Date) {
-        center.removePendingNotificationRequests(withIdentifiers: [identifier])
+        cancel()
 
-        let content = UNMutableNotificationContent()
-        content.title = "别让连胜断掉"
-        content.body = streak > 0
-            ? "你已经连续学习 \(streak) 天了，今天再做一节就能保住 🔥"
-            : "今天还没学习，来做一节小课吧 📚"
-        content.sound = .default
+        for (i, fireDate) in fireDates(studiedToday: studiedToday, now: now).enumerated() {
+            let content = UNMutableNotificationContent()
+            content.title = "别让连胜断掉"
+            content.body = (i == 0 && streak > 0)
+                ? "你已经连续学习 \(streak) 天了，今天再做一节就能保住 🔥"
+                : "今天还没学习，来做一节小课吧 📚"
+            content.sound = .default
 
-        guard let fireDate = nextFireDate(studiedToday: studiedToday, now: now) else { return }
-        let parts = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: fireDate)
-        let trigger = UNCalendarNotificationTrigger(dateMatching: parts, repeats: false)
-        center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: trigger))
+            let parts = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: fireDate)
+            let trigger = UNCalendarNotificationTrigger(dateMatching: parts, repeats: false)
+            center.add(UNNotificationRequest(identifier: identifiers[i], content: content, trigger: trigger))
+        }
     }
 
-    /// The next evening slot worth firing at. Skips today when the learner has
-    /// already studied, or when 20:00 has already passed.
-    private func nextFireDate(studiedToday: Bool, now: Date) -> Date? {
+    /// The next `reminderDays` evening slots. Skips today when the learner has
+    /// already studied, or when 20:00 has (nearly) passed.
+    private func fireDates(studiedToday: Bool, now: Date) -> [Date] {
         let cal = Calendar.current
         var comps = cal.dateComponents([.year, .month, .day], from: now)
         comps.hour = hour
         comps.minute = minute
-        guard let todaySlot = cal.date(from: comps) else { return nil }
+        guard let todaySlot = cal.date(from: comps) else { return [] }
 
-        if !studiedToday && todaySlot > now.addingTimeInterval(60) {
-            return todaySlot
+        let firstOffset = (!studiedToday && todaySlot > now.addingTimeInterval(60)) ? 0 : 1
+        return (0..<reminderDays).compactMap {
+            cal.date(byAdding: .day, value: firstOffset + $0, to: todaySlot)
         }
-        return cal.date(byAdding: .day, value: 1, to: todaySlot)
     }
 }

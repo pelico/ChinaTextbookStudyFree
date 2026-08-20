@@ -12,6 +12,8 @@ struct LessonResultView: View {
     @State private var showChest = false
     @State private var displayedXp: Int = 0
     @State private var appeared = false
+    /// The chest slot this lesson just filled (every 5th lesson of a unit).
+    @State private var chestSlotId: String?
 
     var body: some View {
         ZStack {
@@ -68,6 +70,13 @@ struct LessonResultView: View {
                     if result.outcome.dailyGoalReachedNow {
                         celebrationBanner(icon: "target", tint: DuoColors.primary, text: "今日目标达成 🎉")
                     }
+                    ForEach(result.outcome.newAchievements) { achievement in
+                        celebrationBanner(
+                            icon: "rosette",
+                            tint: Color(hex: achievement.colorHex),
+                            text: "解锁成就「\(achievement.name)」"
+                        )
+                    }
 
                     // Star reveal
                     StarRevealView(earnedStars: result.stars)
@@ -82,6 +91,12 @@ struct LessonResultView: View {
                             value: "+\(displayedXp)",
                             label: "经验值",
                             tint: DuoColors.secondary
+                        )
+                        statCard(
+                            icon: "diamond.fill",
+                            value: "+\(result.outcome.gemsGained)",
+                            label: "宝石",
+                            tint: DuoColors.beetle
                         )
                         statCard(
                             icon: "target",
@@ -116,11 +131,11 @@ struct LessonResultView: View {
             }
 
             // Chest modal overlay
-            if showChest {
+            if showChest, let chestSlotId {
                 ChestModalView(
                     onClaim: { gems in
                         progressStore.addGems(gems)
-                        progressStore.claimChest("\(result.bookId)-\(result.lessonId)")
+                        progressStore.claimChest(chestSlotId)
                     },
                     onDismiss: { showChest = false }
                 )
@@ -145,15 +160,26 @@ struct LessonResultView: View {
                 displayedXp = awardedXp
             }
 
-            // Check for chest (simplified: check if not already claimed)
-            let chestId = "\(result.bookId)-\(result.lessonId)"
-            if !progressStore.isChestClaimed(chestId) {
+            // Chest cadence: only when this lesson fills an unclaimed
+            // every-5th-lesson slot (same rule as the path + web).
+            if let slot = chestSlotAfterThisLesson(), !progressStore.isChestClaimed(slot.id) {
+                chestSlotId = slot.id
                 // Show chest after star reveal completes (~1.5s)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                     withAnimation { showChest = true }
                 }
             }
         }
+    }
+
+    /// The chest slot immediately following this lesson, if any.
+    private func chestSlotAfterThisLesson() -> ChestSlot? {
+        guard let outline = try? DataLoader.shared.loadOutline(bookId: result.bookId) else { return nil }
+        return Chest.chestAfter(
+            bookId: result.bookId,
+            lessons: outline.pathLessonMetas(bookId: result.bookId),
+            lessonId: result.lessonId
+        )
     }
 
     private var awardedXp: Int {

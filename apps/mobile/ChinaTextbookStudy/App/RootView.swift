@@ -65,13 +65,18 @@ struct RootView: View {
             }
             _ = downloader.loadCachedManifest()
             Task { try? await downloader.loadManifest() }
+            // Refresh the rolling reminder window so a lapsed learner keeps
+            // getting evening nudges (no-op unless the toggle is on).
+            NotificationService.shared.rescheduleStreakReminder(
+                streak: progressStore.reminderStreak,
+                studiedToday: progressStore.studiedToday
+            )
         }
     }
 }
 
-/// Optional intermediate view — kept as a stub for the bookList route.
-/// Currently used by the iPad sidebar's "按年级" items to show a persistent
-/// book list on the detail column.
+/// Book list for one grade — used by the iPad sidebar's "按年级" items to show
+/// a persistent book list on the detail column (the bookList route).
 struct BookListView: View {
     let grade: Int
     let siteIndex: SiteIndex

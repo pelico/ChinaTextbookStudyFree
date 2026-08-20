@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// 聪聪 — the owl mascot, rendered with SwiftUI shapes.
-/// Direct port of `apps/web/src/components/Mascot.tsx` SVG.
+/// 聪聪 — the panda cub mascot, rendered with SwiftUI Canvas/shapes.
+/// (Originally ported from `apps/web/src/components/Mascot.tsx`'s owl, then
+/// redesigned as a panda with purchasable accessory skins.)
 ///
 /// Supports 8 moods, breathing animation, random blink, and 3 reaction types.
 struct MascotView: View {
