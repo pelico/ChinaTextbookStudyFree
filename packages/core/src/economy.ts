@@ -128,6 +128,24 @@ export const HEART_REGEN_SECONDS = 300;
 /** 一次性补满红心的宝石价格 */
 export const HEART_REFILL_COST = 350;
 
+/**
+ * 复习奖励红心：一轮错题复习里至少答对 REVIEW_HEART_MIN_CORRECT 题，
+ * 补回 REVIEW_HEART_REWARD 颗心（不超过 MAX_HEARTS）。
+ * 双端必须引用这两个常量——历史上 iOS 有、web 没有，导致同一轮复习收益不一致。
+ */
+export const REVIEW_HEART_REWARD = 1;
+export const REVIEW_HEART_MIN_CORRECT = 5;
+
+/**
+ * 一轮复习结束后应补的红心数（已满心则为 0）。
+ * @param correctCount 本轮答对题数
+ * @param hearts 当前红心数
+ */
+export function reviewHeartReward(correctCount: number, hearts: number): number {
+  if (correctCount < REVIEW_HEART_MIN_CORRECT) return 0;
+  return Math.min(REVIEW_HEART_REWARD, Math.max(0, MAX_HEARTS - hearts));
+}
+
 // ============================================================
 // 🛡️ 连胜护盾 & 连胜推进
 // ============================================================

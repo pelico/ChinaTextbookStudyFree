@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import { dateKey, weekDateKeys, weekStartKey } from "@cstf/core/week";
 import {
   MAX_HEARTS,
   HEART_REFILL_COST,
@@ -254,21 +255,6 @@ export function StatsBar({ compact = false }: StatsBarProps = {}) {
 // 🔥 StreakModal —— 连胜弹层（周历 + 护盾 + 里程碑 + 补卡）
 // ============================================================
 
-/** 本周（周一起）的 7 个 YYYY-MM-DD */
-function currentWeekDates(): string[] {
-  const now = new Date();
-  const day = now.getDay(); // 0=周日
-  const mondayOffset = day === 0 ? -6 : 1 - day;
-  const dates: string[] = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + mondayOffset + i);
-    dates.push(
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
-    );
-  }
-  return dates;
-}
-
 const WEEK_LABELS = ["一", "二", "三", "四", "五", "六", "日"];
 
 function StreakModal({
@@ -300,7 +286,8 @@ function StreakModal({
 }) {
   const toast = useToast();
   const today = todayStr();
-  const week = currentWeekDates();
+  // 本周 7 天（周一→周日）走 core week.ts 的单一事实源，与周报/联赛同一窗口
+  const week = weekDateKeys(weekStartKey());
 
   // 断签可补卡：今天还没学 + 缺口 ≥ 2 天 + 护盾兜不住（与 store makeUpYesterdayStreak 同判据）
   const gap = lastActiveDate ? daysBetween(lastActiveDate, today) : Infinity;
@@ -497,10 +484,9 @@ function StreakModal({
 // 连胜展示口径（纯函数，不改 store —— store 只在下一次学习时结算）
 // ============================================================
 
-/** 本地时区的今天，YYYY-MM-DD（与 store 同实现） */
+/** 本地时区的今天，YYYY-MM-DD —— 走 core week.ts，避免第二套日期键实现 */
 function todayStr(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return dateKey();
 }
 
 /** 两个 YYYY-MM-DD 日期相差的天数（与 store 同实现） */

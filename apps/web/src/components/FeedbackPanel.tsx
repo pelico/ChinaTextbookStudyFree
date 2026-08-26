@@ -108,7 +108,7 @@ export function FeedbackPanel({
       initial={{ y: 110, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ type: "spring", damping: 22, stiffness: 260 }}
-      className={`fixed bottom-0 left-0 right-0 border-t-4 ${bg} backdrop-blur-sm`}
+      className={`fixed bottom-0 left-0 right-0 z-50 border-t-4 ${bg} backdrop-blur-sm`}
       style={{ boxShadow: "0 -8px 24px rgba(0,0,0,0.06)" }}
     >
       <div className="max-w-md lg:max-w-2xl mx-auto px-5 py-5">

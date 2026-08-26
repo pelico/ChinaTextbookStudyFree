@@ -3,13 +3,17 @@ import SwiftUI
 /// 本周 7 格连胜日历（ios-path-8 / ios-retention-4）。
 ///
 /// 通用组件：结算页的全屏连胜幕和首页的连胜详情弹层共用，数据来自
-/// `ProgressStore.recentXP(days: 7)`（最后一项 = 今天）。设计基于深色底
+/// `ProgressStore.weekXPEntries()`——**日历周，周一 → 周日**（parity-6），
+/// 所以「今天」可能落在任意一格，绝不是「最后一格」。设计基于深色底
 /// （darkBg / 全屏遮罩）——两处调用场景都是深色环境。
 ///
-/// - `entries`: 7 天（旧 → 新），`studied` = 当天有任意学习活动（XP > 0）。
-/// - `todayStudied`: 今天是否已打卡；驱动最后一格的强调态。
+/// - `entries`: 本周 7 天（周一 → 周日），`studied` = 当天有任意学习活动（XP > 0）。
+/// - `todayIndex`: 今天在这 7 格里的下标（周一=0 … 周日=6），
+///   调用方传 `ProgressStore.todayIndexInWeek()`；越界则本周不含今天，不高亮任何一格。
+/// - `todayStudied`: 今天是否已打卡；驱动「今天」那一格的强调态。
 struct StreakCalendarView: View {
     let entries: [(dateKey: String, studied: Bool)]
+    let todayIndex: Int
     let todayStudied: Bool
 
     private static let dayFormatter: DateFormatter = {
@@ -40,7 +44,7 @@ struct StreakCalendarView: View {
     @ViewBuilder
     private func dayCell(at index: Int) -> some View {
         let entry = entries[index]
-        let isToday = index == entries.count - 1
+        let isToday = index == todayIndex
         let lit = isToday ? todayStudied : entry.studied
 
         VStack(spacing: 6) {

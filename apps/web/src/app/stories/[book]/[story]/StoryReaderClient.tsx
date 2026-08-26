@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Play, Pause } from "lucide-react";
+import { readingId } from "@cstf/core/reading";
 import { Volume, Check, XMark, Star, Lightning } from "@/components/icons";
 import { InnerHeader } from "@/components/InnerHeader";
 import { QuestionRenderer, type QuestionPhase } from "@/components/question/QuestionRenderer";
@@ -150,9 +151,10 @@ export default function StoryReaderClient({ story, backHref }: Props) {
       setIsCorrect(null);
     } else {
       const accuracy = story.questions.length > 0 ? correctCount / story.questions.length : 0;
-      // 阅读奖励：纯 XP，首次完成才发（completeReading 内部按 id 查重幂等）
+      // 阅读奖励：纯 XP，首次完成才发（completeReading 内部按 id 查重幂等）。
+      // id 走 core 规范键 `reading:story:{storyId}`，与 iOS / 备份同一键空间。
       const xp = accuracy >= GOOD_THRESHOLD ? XP_STORY_READ + XP_QUIZ_GOOD : XP_STORY_READ;
-      completeReading(`story-${story.id}`, xp);
+      completeReading(readingId("story", story.id), xp);
       setPhase("result");
       playSfx("star");
       haptic("success");
@@ -398,7 +400,7 @@ export default function StoryReaderClient({ story, backHref }: Props) {
 
       {/* 底部操作栏 — 仅阅读阶段 */}
       {phase === "reading" && (
-        <div className="fixed bottom-0 inset-x-0 bg-white border-t border-bg-softer shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
+        <div className="fixed bottom-0 inset-x-0 z-40 bg-white border-t border-bg-softer shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
           <div className="max-w-md lg:max-w-6xl mx-auto px-4 py-3 flex gap-3">
             <motion.button
               type="button"

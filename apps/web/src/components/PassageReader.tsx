@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronLeft, ChevronRight, Play, Pause, Mic, Square, RotateCcw } from "lucide-react";
+import { readingId, type ReadingKind } from "@cstf/core/reading";
 import { Volume, Lightning } from "@/components/icons";
 import { InnerHeader } from "@/components/InnerHeader";
 import { playTTS, preloadTTS, stopTTS } from "@/lib/tts";
@@ -25,8 +26,11 @@ import { haptic } from "@/lib/haptic";
 import { cn } from "@/lib/cn";
 import type { Passage } from "@/types";
 
-/** 课文听读/跟读奖励的两种类型：奖励记录存在 progress store 的 completedReadings 里 */
-type RewardKind = "listen" | "followup";
+/**
+ * 课文听读/跟读奖励的两种类型：奖励记录存在 progress store 的 completedReadings 里。
+ * 键一律用 core 的规范阅读 id（`reading:{kind}:{rawId}`），与 iOS / 备份互通。
+ */
+type RewardKind = Extract<ReadingKind, "listen" | "followup">;
 
 const XP_LISTEN = 5;
 const XP_FOLLOWUP = 10;
@@ -53,11 +57,14 @@ export function PassageReader({ passage, backHref }: Props) {
   const [xpToast, setXpToast] = useState<{ amount: number; key: number } | null>(null);
 
   function grantPassageReward(kind: RewardKind, xp: number) {
-    // id 用 passage- 前缀，避免和真正的 lesson / story 冲突
-    const readingId = `passage-${passage.id}-${kind}`;
-    // 幂等：领过就不再发（store 内也会查重，这里提前 return 避免重复 toast）
-    if (useProgressStore.getState().completedReadings[readingId]) return;
-    completeReading(readingId, xp);
+    // 规范阅读 id（core readingId）：`reading:listen:{passageId}` / `reading:followup:{passageId}`，
+    // 与 iOS 同一键空间，备份互导后不会重复领 XP、也不会显示成未读。
+    const id = readingId(kind, passage.id);
+    // 幂等：领过就不再发（store 内也会查重，这里提前 return 避免重复 toast）。
+    // 走 store 的 isReadingDone，别自己翻 completedReadings —— 表里的值是完成日期，
+    // 老档/另一端导入的档可能没有日期，手写真值判断会把已读当成未读、重复发 XP。
+    if (useProgressStore.getState().isReadingDone(kind, passage.id)) return;
+    completeReading(id, xp);
     setXpToast({ amount: xp, key: Date.now() });
     playSfx("star");
     haptic("success");
@@ -401,7 +408,9 @@ export function PassageReader({ passage, backHref }: Props) {
       </div>
 
       {/* 底部操作栏 */}
-      <div className="fixed bottom-0 inset-x-0 bg-white border-t border-bg-softer shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
+      {/* z-40：与 BottomNav 同层，任何时候都不会被固定底栏压住（阅读器本就隐藏底栏，
+          这里显式给层级，防止将来改路由匹配时重演「按钮被盖住」） */}
+      <div className="fixed bottom-0 inset-x-0 z-40 bg-white border-t border-bg-softer shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
         <div className="max-w-md lg:max-w-6xl mx-auto px-4 py-3 flex gap-3">
           <motion.button
             type="button"

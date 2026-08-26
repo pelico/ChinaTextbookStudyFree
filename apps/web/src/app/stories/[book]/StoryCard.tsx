@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { readingId } from "@cstf/core/reading";
 import { Book, Volume, Star } from "@/components/icons";
 import { SoundLink } from "@/components/SoundLink";
 import { useProgressStore } from "@/store/progress";
@@ -18,7 +19,8 @@ export function StoryCard({ story, bookId }: Props) {
   useEffect(() => setHydrated(true), []);
 
   const audioReady = story.sentences.some(s => s.audio);
-  const done = hydrated && completedReadings[`story-${story.id}`] != null;
+  // 查询键与写入键同源：core 规范阅读 id `reading:story:{storyId}`
+  const done = hydrated && completedReadings[readingId("story", story.id)] != null;
 
   return (
     <SoundLink

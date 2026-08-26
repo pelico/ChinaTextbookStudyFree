@@ -20,7 +20,7 @@ struct StoryListView: View {
                                 subtitle: "第\(s.unitNumber)单元 · \(s.questions.count) 题",
                                 symbol: "book.pages.fill",
                                 tint: DuoColors.beetle,
-                                done: progressStore.isReadingCompleted(s.id),
+                                done: progressStore.isReadingCompleted(Reading.id(.story, s.id)),
                                 rewardXP: Economy.ReadingXP.storyGood,
                                 imageURL: AssetDownloader.storyImageURL(bookId: bookId, storyId: s.id, imagePath: s.image)
                             )
@@ -75,6 +75,11 @@ struct StoryReaderView: View {
     @ObservedObject private var audioPlayer = AudioPlayer.shared
     @ObservedObject private var progressStore = ProgressStore.shared
     @Environment(\.dismiss) private var dismiss
+
+    /// XP 记账 id —— 规范键 `reading:story:{storyId}`(parity-1)。
+    /// 不要再直接拿 `story.id` 当 key:那是 iOS 私有键空间,与 web 的
+    /// `story-{id}` 对不上,备份互通后进度会全部失配。
+    private var storyRewardId: String { Reading.id(.story, storyId) }
 
     var body: some View {
         Group {
@@ -183,7 +188,7 @@ struct StoryReaderView: View {
     /// button for the rare story without questions (content-5).
     @ViewBuilder
     private func bottomAction(_ story: Story) -> some View {
-        let done = progressStore.isReadingCompleted(story.id)
+        let done = progressStore.isReadingCompleted(storyRewardId)
         if !story.questions.isEmpty {
             VStack(spacing: 8) {
                 Button {
@@ -204,11 +209,14 @@ struct StoryReaderView: View {
             }
             .padding(.top, 8)
         } else {
-            let eligible = done || listenedWholeThing
+            // 没有音频包时「听完整个故事」永远解不开(iosretention-6):
+            // 给一条不依赖音频的出路,自己读一遍也算读完。
+            let audioReady = AudioPlayer.shared.hasAnyResolvable(story.sentences.map(\.audio))
+            let eligible = done || listenedWholeThing || !audioReady
             VStack(spacing: 8) {
                 Button {
                     guard !done, eligible else { return }
-                    progressStore.completeReading(id: story.id, xp: Economy.ReadingXP.storyGood)
+                    progressStore.completeReading(id: storyRewardId, xp: Economy.ReadingXP.storyGood)
                     HapticEngine.shared.success(); SFXEngine.shared.play(.complete)
                 } label: {
                     Text(done ? "已读完 ✓" : "读完了  +\(Economy.ReadingXP.storyGood) XP")
@@ -217,6 +225,11 @@ struct StoryReaderView: View {
                 .disabled(done || !eligible)
                 if !done && !eligible {
                     Text("先听完整个故事，就能领奖励啦").duoFont(.micro).foregroundStyle(DuoColors.inkMuted)
+                        .frame(maxWidth: .infinity)
+                } else if !done && !audioReady {
+                    Text("音频还没下载完，去「课本」页补下载就能听啦；先自己读一遍，也能领奖励～")
+                        .duoFont(.micro).foregroundStyle(DuoColors.inkMuted)
+                        .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
                 }
             }
@@ -339,7 +352,7 @@ struct StoryReaderView: View {
     private func resultPhase(_ story: Story) -> some View {
         let acc = accuracy(story)
         let xp = Economy.storyQuizXp(accuracy: acc)
-        let alreadyDone = progressStore.isReadingCompleted(story.id)
+        let alreadyDone = progressStore.isReadingCompleted(storyRewardId)
         return VStack(spacing: 18) {
             Spacer()
             MascotView(mood: acc >= Economy.ReadingXP.goodThreshold ? .proud : .think, size: 110, reactTo: .levelup)
@@ -369,7 +382,7 @@ struct StoryReaderView: View {
             // completeReading 内部按 id 幂等 —— 二刷不再发 XP。
             if !alreadyDone {
                 awarded = true
-                progressStore.completeReading(id: story.id, xp: xp)
+                progressStore.completeReading(id: storyRewardId, xp: xp)
             }
             SFXEngine.shared.play(.complete); HapticEngine.shared.success()
         }

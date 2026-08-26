@@ -44,6 +44,19 @@
     { "box": 2, "isCorrect": false, "expBox": 1, "expIntervalDays": 0 },
     { "box": 3, "isCorrect": false, "expBox": 1, "expIntervalDays": 0 }
   ],
+  "$srsGraduationComment": "毕业判定 = graduated === true || (box ?? 1) >= 3 && (correctCount ?? 0) >= 2。null 表示该字段缺失（老档 / 另一端导入）。due 队列过滤两端都必须用这个判定，不能只认显式 graduated 标记。",
+  "srsGraduation": [
+    { "$case": "显式标记优先，box/次数不达标也算毕业", "graduated": true, "box": 1, "correctCount": 0, "expGraduated": true },
+    { "$case": "graduated=false 但 box3+答对2，派生判定仍毕业", "graduated": false, "box": 3, "correctCount": 2, "expGraduated": true },
+    { "$case": "无 graduated 字段，box3+答对2 → 毕业", "graduated": null, "box": 3, "correctCount": 2, "expGraduated": true },
+    { "$case": "box3+答对3 → 毕业", "graduated": null, "box": 3, "correctCount": 3, "expGraduated": true },
+    { "$case": "box3 但只答对 1 → 未毕业", "graduated": null, "box": 3, "correctCount": 1, "expGraduated": false },
+    { "$case": "box3 缺 correctCount（按 0）→ 未毕业", "graduated": null, "box": 3, "correctCount": null, "expGraduated": false },
+    { "$case": "box2 即使答对很多次 → 未毕业", "graduated": null, "box": 2, "correctCount": 5, "expGraduated": false },
+    { "$case": "缺 box（按 1）+ 答对 5 → 未毕业", "graduated": null, "box": null, "correctCount": 5, "expGraduated": false },
+    { "$case": "全缺字段的新错题 → 未毕业", "graduated": null, "box": null, "correctCount": null, "expGraduated": false },
+    { "$case": "graduated=false + box1 → 未毕业", "graduated": false, "box": 1, "correctCount": 0, "expGraduated": false }
+  ],
   "dailyReward": [
     { "streak": 0, "expGems": 5 },
     { "streak": 1, "expGems": 5 },

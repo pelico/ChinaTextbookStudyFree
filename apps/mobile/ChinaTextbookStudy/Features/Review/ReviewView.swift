@@ -61,10 +61,15 @@ struct ReviewView: View {
     }
 
     /// SRS 四桶概览：今天 / 明天 / 之后 / 已掌握（对照 web ReviewClient）。
-    /// graduated 条目只进「已掌握」，其余按 nextReviewDate 分桶。
+    /// 已毕业的条目只进「已掌握」，其余按 nextReviewDate 分桶。
+    ///
+    /// ⚠️ 毕业判定必须走 `SRS.isGraduated`（派生语义），不能手抄
+    /// `graduated != true`：老档 / 从 web 导入的条目常常只有 box + correctCount，
+    /// 手抄判定会把它们算进「今天要复习」，而 hero 用的 `dueMistakes` 又不算 ——
+    /// 同一屏给出两个互相打架的数字（core-2）。
     private var bucketsBar: some View {
         let bank = progressStore.progress.mistakesBank
-        let active = bank.filter { $0.graduated != true }
+        let active = bank.filter { !SRS.isGraduated($0) }
         let today = SRS.todayString()
         let tomorrow = SRS.dateString(daysFromNow: 1)
         let todayCount = active.filter { ($0.nextReviewDate ?? today) <= today }.count

@@ -27,12 +27,19 @@ const KEYPAD_KEYS: { key: string; span?: 2 }[] = [
   { key: "0", span: 2 }, { key: "⌫", span: 2 },
 ];
 
-export function FillBlankQuestion({ question, answer, phase, isCorrect, onChange }: QuestionRendererProps) {
+export function FillBlankQuestion({
+  question,
+  answer,
+  phase,
+  isCorrect,
+  onChange,
+  locked = false,
+}: QuestionRendererProps) {
   const disabled = phase === "checked";
   const cancelNarrate = useAutoNarrate([question.audio?.question], question.id);
 
   function handleKey(k: string) {
-    if (disabled) return;
+    if (locked || disabled) return;
     cancelNarrate();
     playSfx("tap");
     haptic("light");
@@ -52,7 +59,7 @@ export function FillBlankQuestion({ question, answer, phase, isCorrect, onChange
 
   // 桌面端物理键盘：数字 / . / - / 退格（web-lesson-3 的填空半边）
   useEffect(() => {
-    if (disabled) return;
+    if (locked || disabled) return; // 遮罩打开时不接管键盘（webrunner-5）
     const onKeyDown = (e: KeyboardEvent) => {
       if (shouldIgnoreKey(e)) return;
       const k = e.key;
@@ -67,7 +74,7 @@ export function FillBlankQuestion({ question, answer, phase, isCorrect, onChange
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [disabled, answer, question.id]);
+  }, [disabled, answer, question.id, locked]);
 
   let displayCls =
     "w-full min-h-[68px] text-3xl font-extrabold text-center px-4 py-4 rounded-2xl border-2 flex items-center justify-center";

@@ -145,7 +145,8 @@ struct LessonResultView: View {
         guard streakShareImage == nil else { return }
         streakShareImage = ShareCard.renderStreak(ShareCard.StreakData(
             streak: result.outcome.streakAfter,
-            week: progressStore.recentXP(days: 7).map { (dateKey: $0.date, studied: $0.xp > 0) }
+            week: progressStore.weekXPEntries().map { (dateKey: $0.date, studied: $0.xp > 0) },
+            todayIndex: progressStore.todayIndexInWeek()
         ))
     }
 
@@ -408,9 +409,10 @@ struct LessonResultView: View {
                 .duoFont(.heading)
                 .foregroundStyle(.white)
 
-            // 本周 7 格日历（数据 = recentXP，今天必已点亮）。
+            // 本周 7 格日历（周一 → 周日；今天那一格必已点亮）。
             StreakCalendarView(
-                entries: progressStore.recentXP(days: 7).map { (dateKey: $0.date, studied: $0.xp > 0) },
+                entries: progressStore.weekXPEntries().map { (dateKey: $0.date, studied: $0.xp > 0) },
+                todayIndex: progressStore.todayIndexInWeek(),
                 todayStudied: true
             )
             .padding(.horizontal, 24)

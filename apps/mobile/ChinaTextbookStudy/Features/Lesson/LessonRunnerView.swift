@@ -62,8 +62,12 @@ struct LessonRunnerView: View {
 
     /// 掉心延迟(ios-lesson-15):答错后 heartLoss 音/触感与 `loseHeart()` 一起
     /// 延迟 0.4s。期间用户就点了「知道了」的话,`proceed` 用它把还没落账的
-    /// 那颗红心算进去,避免 0 心还能继续。
-    @State private var pendingHeartLoss = false
+    /// 红心算进去,避免 0 心还能继续。
+    ///
+    /// 必须是**计数器**而不是布尔(ioslesson-1):连续两次快答错时,第一个
+    /// 延迟闭包会把布尔清成 false,第二颗还没落账的心就凭空消失了,断心闸门
+    /// 因此漏算。计数器只做 +1 / -1,几笔悬账都能算准。
+    @State private var pendingHeartLosses = 0
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var settings = SettingsStore.shared
@@ -718,18 +722,19 @@ struct LessonRunnerView: View {
             // 重触感、心数 bounce 三者同帧落地,而不是和 wrong 糊成一团。
             SFXEngine.shared.play(.wrong); HapticEngine.shared.wrong()
             if !reduceMotion { wrongFlash += 1 }         // 全屏闪红属强动效,Reduce Motion 下跳过
-            pendingHeartLoss = true
+            pendingHeartLosses += 1
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 progressStore.loseHeart()
                 SFXEngine.shared.play(.heartLoss)
                 HapticEngine.shared.heartLoss()
-                pendingHeartLoss = false
+                pendingHeartLosses = max(0, pendingHeartLosses - 1)
             }
             progressStore.recordMistake(lessonId: lessonId, lessonTitle: lesson?.title, question: question)
         }
 
-        // loseHeart() 被延迟了 0.4s,吉祥物的心数要按「即将掉完账」的值算。
-        let remainingHearts = ok ? progressStore.hearts : max(0, progressStore.hearts - 1)
+        // loseHeart() 被延迟了 0.4s,吉祥物的心数要按「悬账全部落定后」的值算
+        // —— 快速连错时可能同时挂着不止一笔。
+        let remainingHearts = max(0, progressStore.hearts - pendingHeartLosses)
         let ctx = MascotTriggerContext(
             isCorrect: ok,
             isPerfectSession: missedIDs.isEmpty,
@@ -793,9 +798,9 @@ struct LessonRunnerView: View {
 
     /// Called by the feedback panel's continue button. Gates on hearts.
     private func proceed(question: Question) {
-        // 掉心账可能还悬在 0.4s 的延迟里(见 check),这里手动把它算进去,
-        // 防止最后一颗红心「还没扣到界面上」时溜过断心闸门。
-        let effectiveHearts = progressStore.hearts - (pendingHeartLoss ? 1 : 0)
+        // 掉心账可能还悬在 0.4s 的延迟里(见 check),这里手动把**每一笔**都算
+        // 进去,防止最后一颗红心「还没扣到界面上」时溜过断心闸门。
+        let effectiveHearts = progressStore.hearts - pendingHeartLosses
         if !isCorrectValue && effectiveHearts <= 0 {
             withAnimation(.easeOut(duration: 0.2)) { showOutOfHearts = true }
             return

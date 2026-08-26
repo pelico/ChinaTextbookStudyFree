@@ -19,6 +19,8 @@ struct MainShell: View {
     @State private var activeTab: AppTab = .learn
     /// 聪聪's "我们马上开始第一课！" toast shown right after onboarding.
     @State private var showFirstLessonToast = false
+    /// 自动进第一课只允许发生一次（iosretention-3），避免任何重复推进。
+    @State private var didAutoStartFirstLesson = false
 
     enum SidebarItem: Hashable, Identifiable {
         case home
@@ -53,7 +55,7 @@ struct MainShell: View {
         // push the learner straight into lesson one — no empty home screen
         // between "I committed to a goal" and "I'm learning".
         .onChange(of: progressStore.hasCompletedOnboarding) { _, done in
-            if done { startFirstLessonAfterOnboarding() }
+            if done, isBrandNewLearner { startFirstLessonAfterOnboarding() }
         }
         .overlay(alignment: .top) {
             if showFirstLessonToast {
@@ -66,16 +68,30 @@ struct MainShell: View {
 
     // MARK: - Post-onboarding first lesson (ios-retention-11)
 
+    /// `hasCompletedOnboarding` 变真有两条路：真的走完新手引导，以及
+    /// `acceptCloudRestore()` 里「恢复存档的老学员不用再走引导」（iosretention-3）。
+    /// 只有前者该被推进第一课 —— 带着一身进度回来的孩子被塞进第一课，
+    /// 既莫名其妙又会盖掉他真正的进度页。
+    ///
+    /// 判据用「一点进度都没有」：云端恢复提示本身就要求备份里
+    /// `completedLessons` 非空或 `xp > 0`（见 `checkCloudRestoreOffer`），
+    /// 所以恢复完成时这两项必有其一不为零，恒被挡在门外。
+    private var isBrandNewLearner: Bool {
+        progressStore.totalCompletedLessons == 0 && progressStore.progress.xp == 0
+    }
+
     /// Resolve the active book's very first path lesson and push it. If the
     /// book isn't downloaded yet (outline load throws) we simply stay on the
     /// home screen, where the download card takes over.
     private func startFirstLessonAfterOnboarding() {
+        guard !didAutoStartFirstLesson else { return }
         guard
             let bookId = progressStore.activeBookId,
             let outline = try? DataLoader.shared.loadOutline(bookId: bookId),
             let first = outline.pathLessonMetas(bookId: bookId).first
         else { return }
 
+        didAutoStartFirstLesson = true
         activeTab = .learn
         selectedSidebar = .home
         withAnimation(Motion.bounce) { showFirstLessonToast = true }

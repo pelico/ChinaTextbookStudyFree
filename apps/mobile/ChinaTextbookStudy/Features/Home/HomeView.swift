@@ -520,7 +520,8 @@ private struct StreakDetailSheet: View {
                         .tracking(1.2)
                         .foregroundStyle(DuoColors.darkInkMuted)
                     StreakCalendarView(
-                        entries: progressStore.recentXP(days: 7).map { (dateKey: $0.date, studied: $0.xp > 0) },
+                        entries: progressStore.weekXPEntries().map { (dateKey: $0.date, studied: $0.xp > 0) },
+                        todayIndex: progressStore.todayIndexInWeek(),
                         todayStudied: progressStore.studiedToday
                     )
                 }

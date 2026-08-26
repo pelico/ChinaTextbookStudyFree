@@ -14,12 +14,19 @@ import type { QuestionRendererProps } from "./QuestionRenderer";
 
 const TRUE_VALUES = new Set(["对", "正确", "true", "T", "✓", "√"]);
 
-export function TrueFalseQuestion({ question, answer, phase, isCorrect, onChange }: QuestionRendererProps) {
+export function TrueFalseQuestion({
+  question,
+  answer,
+  phase,
+  isCorrect,
+  onChange,
+  locked = false,
+}: QuestionRendererProps) {
   const correctIsTrue = TRUE_VALUES.has(question.answer.trim());
   const cancelNarrate = useAutoNarrate([question.audio?.question], question.id);
 
   function select(label: "对" | "错") {
-    if (phase !== "answering") return;
+    if (locked || phase !== "answering") return;
     cancelNarrate();
     playSfx("tap");
     haptic("light");
@@ -28,7 +35,7 @@ export function TrueFalseQuestion({ question, answer, phase, isCorrect, onChange
 
   // 键盘快捷键（web-lesson-3）：1 = 对，2 = 错
   useEffect(() => {
-    if (phase !== "answering") return;
+    if (locked || phase !== "answering") return; // 遮罩打开时不接管键盘（webrunner-5）
     const onKeyDown = (e: KeyboardEvent) => {
       if (shouldIgnoreKey(e)) return;
       if (e.key === "1") {
@@ -42,7 +49,7 @@ export function TrueFalseQuestion({ question, answer, phase, isCorrect, onChange
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, question.id]);
+  }, [phase, question.id, locked]);
 
   const renderBtn = (label: "对" | "错", icon: React.ReactNode, hotkey: string) => {
     const selected = answer === label;

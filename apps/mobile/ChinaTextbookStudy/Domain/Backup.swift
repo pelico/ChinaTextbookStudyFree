@@ -54,13 +54,21 @@ enum Backup {
         var dailyGoal: Int = Economy.defaultDailyGoal
         var joinedDate: String?
         var completedLessons: [String: LessonResultPayload] = [:]
-        /// 阅读完成表：id → 完成日期（iOS 不记完成日期，导出为空串）。
+        /// 阅读完成表：**规范阅读 id**（`Reading.id`）→ 完成日期。
+        /// 值必须是真值（非空串）：导入端判断「这篇读过没有」是看值的，
+        /// 空串会被当成没读过 → 跨端重复领 XP（parity-1）。iOS 本地不记完成
+        /// 日期，导出时按 `makeEnvelope` 的口径回退（见那里的注释）。
+        /// 导出 / 校验都会跑 `Reading.normalizeMap` 归一化，双端共用同一个 key 空间。
         var completedReadings: [String: String] = [:]
         var perfectedLessons: [String: Bool]?
         var mistakesBank: [MistakePayload] = []
         var claimedChests: [String: Bool] = [:]
         /// key 为里程碑天数的字符串形式。
         var claimedStreakRewards: [String: Bool] = [:]
+        /// 每日任务领取账本，键格式 `"YYYY-MM-DD:questId"`（questId 形如 `earnXP-60`）。
+        /// 必须随档携带：否则导入端把它当瞬态清空、又从 xpHistory 复原了今日 XP，
+        /// 已领过的任务会立刻回到「可领取」，导出再导入就能无限刷宝石。
+        var claimedQuests: [String: Bool] = [:]
         var lastDailyRewardDate: String = ""
         var unlockedAchievements: [String: Bool] = [:]
         var claimedAchievements: [String: Bool]?
@@ -179,8 +187,22 @@ enum Backup {
                 completedAt: r.completedAt
             ))
         })
-        data.completedReadings = Dictionary(
-            uniqueKeysWithValues: (p.completedReadings ?? []).map { ($0, "") }
+        // 阅读键一律归一化成规范 id（`reading:{kind}:{rawId}`）后再进信封。
+        //
+        // 值的口径（parity-1）：iOS 本地只存「读过哪些」的 id 列表、不记完成日期，
+        // 但**绝不能导成空串** —— 导入端（web）判断「这篇读过没有」是看值真不真的，
+        // 空串一律被当成没读过，iOS→web 之后每篇阅读都能再领一次 XP。
+        // 统一回退成 `joinedDate`（这台设备的首次使用日，一定不晚于真实完成日；
+        // 拿不到就用导出当天），保证值恒为真值。
+        let readingCompletedDate: String = {
+            if let joined = p.joinedDate, !joined.isEmpty { return joined }
+            return SRS.todayString(now: exportedAt)
+        }()
+        data.completedReadings = Reading.normalizeMap(
+            Dictionary(
+                (p.completedReadings ?? []).map { ($0, readingCompletedDate) },
+                uniquingKeysWith: { a, _ in a }
+            )
         )
         let perfected = p.completedLessons.filter { $0.value.stars >= 3 }.map(\.key)
         if !perfected.isEmpty {
@@ -199,7 +221,13 @@ enum Backup {
         }
         data.claimedChests = (p.claimedChests ?? [:]).filter(\.value)
         data.claimedStreakRewards = Dictionary(
-            uniqueKeysWithValues: (p.claimedStreakRewards ?? []).map { (String($0), true) }
+            (p.claimedStreakRewards ?? []).map { (String($0), true) },
+            uniquingKeysWith: { a, _ in a }
+        )
+        // 每日任务领取账本必须随档走，否则「导出 → 导入」能把已领的任务刷回可领。
+        data.claimedQuests = Dictionary(
+            (p.claimedQuests ?? []).map { ($0, true) },
+            uniquingKeysWith: { a, _ in a }
         )
         data.lastDailyRewardDate = p.lastDailyRewardDate ?? ""
         data.unlockedAchievements = Dictionary(
@@ -252,11 +280,23 @@ enum Backup {
     /// - `questionLookup`: 错题条目缺少题面快照时，从本地题库找回题目；
     ///   找不到的条目丢弃（跨端题库可能不齐）。
     /// - `keepLeagueSalt`: 联赛 salt 是设备指纹，不随备份迁移 —— 保留本机的。
-    /// - 瞬态不导入：红心计时器、课程会话、今日 XP 计数从零开始。
+    /// - `keepReviewHeartDate`: 复习补心账本（`lastReviewHeartDate`）是**本机按天
+    ///   的防刷账本**，不进信封也不随档迁移 —— 必须原样保留本机值。整体覆盖会把它
+    ///   抹成 nil，「补 1 心 → 导出 → 导入」就能当天反复补心到满（iosretention-4）。
+    ///   跟着信封走也不行：导入一份昨天的老档同样会把今天的账本刷回可领。
+    /// - `now`: 导入时刻。红心不满时按它补种回心计时（红心计时本身不进信封，
+    ///   但「缺心却没有计时」会让红心永不再生 —— 导入侧必须显式设置）。
+    /// - `today`: 「今天」的日期键（可注入便于测试）。今日 XP / 当日目标进度
+    ///   从 `xpHistory[today]` 复原，与 web importBackup 同口径 —— 否则同日
+    ///   导入后当日目标归零，再完一课就能重复领 +20💎。
+    /// - 真·瞬态不导入：课程会话、今日任务计数。
     static func userProgress(
         from envelope: Envelope,
         questionLookup: (String, Int) -> Question? = { _, _ in nil },
-        keepLeagueSalt: String? = nil
+        keepLeagueSalt: String? = nil,
+        keepReviewHeartDate: String? = nil,
+        now: Date = Date(),
+        today: String = SRS.todayString()
     ) -> UserProgress {
         let d = envelope.data
         var p = UserProgress(
@@ -293,15 +333,21 @@ enum Backup {
             )
         }
 
-        p.hearts = min(max(0, d.hearts), Economy.maxHearts)
-        p.nextHeartAt = nil                                   // 瞬态不导
+        let hearts = min(max(0, d.hearts), Economy.maxHearts)
+        p.hearts = hearts
+        // 缺心必须带着回心计时落地：只清空计时会让导入来的 0 心存档永远
+        // 停在 0 心（tickHeartRecharge 没有计时可推进）。满心则明确清空。
+        p.nextHeartAt = hearts < Economy.maxHearts
+            ? (now.timeIntervalSince1970 + Double(Economy.heartRegenSeconds)) * 1000
+            : nil
         p.gems = max(0, d.gems)
         p.lifetimeGems = max(max(0, d.lifetimeGems), max(0, d.gems))
         p.dailyGoal = d.dailyGoal > 0 ? d.dailyGoal : Economy.defaultDailyGoal
         p.streakFreezes = max(0, d.streakFreezes)
         p.freezesMigrated = true                              // 免掉护盾补发迁移
         p.joinedDate = d.joinedDate
-        p.completedReadings = Array(d.completedReadings.keys)
+        // 阅读键落成规范 id —— 与本地存储、web 端同一个 key 空间。
+        p.completedReadings = Reading.normalizeIds(Array(d.completedReadings.keys))
         p.claimedChests = d.claimedChests.filter(\.value)
         p.claimedStreakRewards = d.claimedStreakRewards
             .filter(\.value)
@@ -314,7 +360,22 @@ enum Backup {
         p.equippedMascotSkin = d.equipped.mascotSkin
         p.equippedTheme = d.equipped.uiTheme
         p.equippedBackdrop = d.equipped.lessonBackdrop
-        p.xpHistory = d.xpHistory.filter { $0.value >= 0 }
+        let history = d.xpHistory.filter { $0.value >= 0 }
+        p.xpHistory = history
+
+        // 今日 XP 从 xpHistory 复原（与 web 同口径）：不复原的话当日目标进度
+        // 归零，同一天里再完一节课就能重复吃到 +20💎 的达标奖励。
+        if let todayXp = history[today] {
+            p.todayXp = todayXp
+            p.lastXpDate = today
+        } else {
+            p.todayXp = 0
+            p.lastXpDate = nil
+        }
+        // 每日任务领取账本随档恢复，否则「导出 → 导入」= 任务重置 = 无限刷宝石。
+        p.claimedQuests = d.claimedQuests.filter(\.value).keys.sorted()
+        // 复习补心账本留本机值（同上：随档走 / 被抹掉都能刷心）。
+        p.lastReviewHeartDate = keepReviewHeartDate
 
         // 联赛：段位随备份走（未知段位由 League.tier 容错落回青铜），
         // salt 留本机，周键沿用备份（周一结算逻辑自会对齐）。
@@ -385,7 +446,9 @@ extension Backup.DataPayload: Decodable {
         let readings = ((try? c.decodeIfPresent(
             [String: Lossy<String>].self, forKey: AnyKey("completedReadings")
         )) ?? nil) ?? [:]
-        completedReadings = readings.compactMapValues(\.value)
+        // 历史键（web 的 passage-*/story-*、iOS 的裸 id）在校验期就归一化成
+        // 规范阅读 id —— 与 core validateBackup 同一处理点，幂等。
+        completedReadings = Reading.normalizeMap(readings.compactMapValues(\.value))
 
         let perfected = ((try? c.decodeIfPresent(
             [String: Lossy<Bool>].self, forKey: AnyKey("perfectedLessons")
@@ -401,6 +464,7 @@ extension Backup.DataPayload: Decodable {
 
         claimedChests = flags("claimedChests")
         claimedStreakRewards = flags("claimedStreakRewards")
+        claimedQuests = flags("claimedQuests")
         if let v = string("lastDailyRewardDate") { lastDailyRewardDate = v }
         unlockedAchievements = flags("unlockedAchievements")
         if c.contains(AnyKey("claimedAchievements")) {

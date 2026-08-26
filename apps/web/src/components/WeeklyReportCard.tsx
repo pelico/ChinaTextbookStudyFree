@@ -12,22 +12,9 @@
 
 import { useMemo } from "react";
 import { motion } from "framer-motion";
+import { dateKey, weekDateKeys, weekStartKey } from "@cstf/core/week";
 import { useProgressStore } from "@/store/progress";
 import { Calendar, TrendingUp, Lightning } from "@/components/icons";
-
-function ymd(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-/** 取本周一作为起点（getDay 中 0=周日，1=周一） */
-function startOfWeek(d: Date): Date {
-  const day = d.getDay();
-  const offset = day === 0 ? 6 : day - 1;
-  const out = new Date(d);
-  out.setHours(0, 0, 0, 0);
-  out.setDate(out.getDate() - offset);
-  return out;
-}
 
 const WEEKDAY_LABELS = ["一", "二", "三", "四", "五", "六", "日"];
 
@@ -36,30 +23,24 @@ export function WeeklyReportCard() {
   const lessonHistory = useProgressStore(s => s.lessonHistory);
 
   const data = useMemo(() => {
+    // 周窗口一律走 core week.ts（周一→周日），不再本地手写 startOfWeek / 滚动 7 天
     const now = new Date();
-    const thisMonday = startOfWeek(now);
-    const lastMonday = new Date(thisMonday);
-    lastMonday.setDate(lastMonday.getDate() - 7);
+    const todayKey = dateKey(now);
+    const thisWeekKeys = weekDateKeys(weekStartKey(now));
+    // 上周：weekDateKeys 会把"周内任意一天"归一到周一，所以喂"7 天前的今天"即可
+    const lastWeekKeys = weekDateKeys(
+      dateKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7)),
+    );
 
-    const thisWeek: Array<{ date: string; label: string; xp: number; isToday: boolean }> = [];
-    const todayKey = ymd(now);
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(thisMonday);
-      d.setDate(d.getDate() + i);
-      const key = ymd(d);
-      thisWeek.push({
-        date: key,
-        label: WEEKDAY_LABELS[i],
-        xp: xpHistory[key] ?? 0,
-        isToday: key === todayKey,
-      });
-    }
+    const thisWeek = thisWeekKeys.map((key, i) => ({
+      date: key,
+      label: WEEKDAY_LABELS[i],
+      xp: xpHistory[key] ?? 0,
+      isToday: key === todayKey,
+    }));
     let lastWeekXp = 0;
     let lastWeekLessons = 0;
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(lastMonday);
-      d.setDate(d.getDate() + i);
-      const key = ymd(d);
+    for (const key of lastWeekKeys) {
       lastWeekXp += xpHistory[key] ?? 0;
       lastWeekLessons += lessonHistory[key] ?? 0;
     }

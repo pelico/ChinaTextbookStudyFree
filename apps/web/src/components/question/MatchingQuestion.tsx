@@ -38,6 +38,7 @@ export function MatchingQuestion({
   phase,
   isCorrect,
   onChange,
+  locked = false,
 }: QuestionRendererProps) {
   const disabled = phase === "checked";
   const options = question.options ?? [];
@@ -74,15 +75,17 @@ export function MatchingQuestion({
     setActiveLeft(null);
   }, [question.id]);
 
-  // 全部配完 → 自动提交 canonical answer（父级检测后自动判定）
+  // 全部配完 → 自动提交 canonical answer（父级检测后自动判定）。
+  // ⚠️ 遮罩打开时必须停摆（webrunner-5）：否则在断心遮罩前用 1-8 键配完，
+  // 全程不用点一下就把本题判掉、还加了 XP。遮罩关掉后本 effect 会重跑补交。
   useEffect(() => {
-    if (disabled) return;
+    if (disabled || locked) return;
     if (pairTotal > 0 && Object.keys(matched).length >= pairTotal && answer !== question.answer) {
       const t = setTimeout(() => onChange(question.answer), 300);
       return () => clearTimeout(t);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [matched, disabled, pairTotal]);
+  }, [matched, disabled, locked, pairTotal]);
 
   function optionAudioAt(idx: number) {
     const src = question.audio?.options?.[idx];
@@ -90,7 +93,7 @@ export function MatchingQuestion({
   }
 
   function pickLeft(k: LeftKey) {
-    if (disabled || matched[k] || vanishing) return;
+    if (locked || disabled || matched[k] || vanishing) return;
     cancelNarrate();
     playSfx("tap");
     haptic("light");
@@ -99,7 +102,7 @@ export function MatchingQuestion({
   }
 
   function pickRight(rk: RightKey) {
-    if (disabled || vanishing) return;
+    if (locked || disabled || vanishing) return;
     if (activeLeft === null) return;
     if (Object.values(matched).includes(rk)) return;
     cancelNarrate();
@@ -127,7 +130,7 @@ export function MatchingQuestion({
 
   // 键盘快捷键（web-lesson-3）：左列 1-4，右列 5-8
   useEffect(() => {
-    if (phase !== "answering") return;
+    if (locked || phase !== "answering") return; // 遮罩打开时不接管键盘（webrunner-5）
     const onKeyDown = (e: KeyboardEvent) => {
       if (shouldIgnoreKey(e)) return;
       const n = Number(e.key);
@@ -143,7 +146,7 @@ export function MatchingQuestion({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, question.id, activeLeft, matched, vanishing, pairTotal]);
+  }, [phase, question.id, activeLeft, matched, vanishing, pairTotal, locked]);
 
   const shakeAnim = { x: [0, -7, 7, -5, 5, 0], transition: { duration: 0.42 } };
 

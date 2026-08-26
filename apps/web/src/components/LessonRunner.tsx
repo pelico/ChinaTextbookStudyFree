@@ -63,6 +63,7 @@ import {
   type MascotTriggerContext,
 } from "@/lib/mascotTriggers";
 import { getCosmeticById, type LessonBackdrop } from "@/lib/cosmetics";
+import { hasLessonProgress } from "@/lib/lessonSession";
 import { ShareCardButton } from "./ShareCardButton";
 import { renderBadgeCard, renderStreakCard, buildShareWeek } from "@/lib/shareCard";
 import type { QuestionType } from "@cstf/core";
@@ -338,6 +339,11 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
   const [settingsMounted, setSettingsMounted] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showIntro, setShowIntro] = useState(lesson.knowledge !== null);
+  /**
+   * 🔒 交互闸门（webrunner-5）：任何遮罩打开时，题目区的键盘快捷键 / 点击 /
+   * 配对题自动提交都必须停摆 —— 否则用户在断心遮罩前敲数字键就能把题判掉。
+   */
+  const locked = showExitConfirm || gateOpen || showSettings || showIntro;
 
   const shakeControls = useAnimation();
   const progressControls = useAnimation();
@@ -352,7 +358,9 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
     useProgressStore.getState().refreshHearts();
     const stored = useProgressStore.getState().activeLesson;
     let sessionRestored = false;
-    if (stored && stored.lessonId === lesson.id) {
+    // 可续会话口径统一（webrunner-7）：同一课程 + 有过实际作答。
+    // 一题未答的空会话不算进度 —— 否则课前知识讲解会被永久跳过。
+    if (stored && stored.lessonId === lesson.id && hasLessonProgress(stored)) {
       const validIds = new Set(questions.map(q => q.id));
       let restoredSolved: number[];
       let restoredQueue: number[];
@@ -395,8 +403,8 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
         setShowIntro(false);
         sessionRestored = true;
       }
-    } else if (stored && stored.lessonId !== lesson.id) {
-      // 切换到了新课程，丢弃上一个会话
+    } else if (stored) {
+      // 切换到了新课程 / 旧版本留下的空会话 → 丢弃
       useProgressStore.getState().clearLessonSession();
     }
     // 0 心进入：有可续会话 → 弹断心遮罩（可补心续课 / 去复习回心）；
@@ -416,9 +424,18 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
   // 持久化会话：只要还在答题，就把核心进度写回 store
   useEffect(() => {
     if (!ready || done || failed) return;
+    // 课前知识讲解还没看完 → 一节课都还没开始，不落盘（webrunner-4）
+    if (showIntro) return;
+    // 一题都还没作答 → 不落盘。否则首页会出现假的「继续学习」卡，
+    // 而且下次进入这节课会因为「有进度」跳过课前知识讲解。
+    if (attemptedRef.current.size === 0 && solved.length === 0) return;
     // answering 相位：当前题还没答，排在持久化队列最前
     const persistedQueue =
       phase === "answering" && currentId != null ? [currentId, ...queue] : queue;
+    // 最后一题判定后（checked，队列已空）不要写空会话（webrunner-3）：
+    // 用户此时若直接离开，空队列快照会在恢复时命中「队列空却没结算」兜底 →
+    // 整节课进度被清零。保留上一次非空快照，与 iOS 的 guard 对齐。
+    if (persistedQueue.length === 0) return;
     upsertLessonSession({
       lessonId: lesson.id,
       index: solved.length,
@@ -435,6 +452,7 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
     ready,
     done,
     failed,
+    showIntro,
     lesson.id,
     phase,
     currentId,
@@ -448,34 +466,69 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
     upsertLessonSession,
   ]);
 
-  // 完成或失败时清除持久化会话
+  // 通关时清除持久化会话。
+  // ⚠️ failed 不清档（webrunner-1）：失败页也提供「再来一次」，而断心遮罩的
+  // 「退出」承诺过「回来接着上次继续」—— 清档会直接毁掉整节课进度。
   useEffect(() => {
-    if (done || failed) {
+    if (done) {
       clearLessonSession();
     }
-  }, [done, failed, clearLessonSession]);
+  }, [done, clearLessonSession]);
 
-  // ⏱️ 学习时长：课中每 30s 冲一次账，切后台/卸载时把余量冲掉
+  // 💗 红心自然恢复后自动收起断心遮罩（webrunner-2）：
+  // 遮罩是 dismissible={false} 的，没有这条 effect 用户会被锁死在弹层里。
+  useEffect(() => {
+    if (!gateOpen || hearts <= 0) return;
+    setGateOpen(false);
+    // 与「补心续课」同一分支：反馈看完了就端上下一题，答题中则原地接着答
+    if (phase === "checked") serveNext();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gateOpen, hearts, phase]);
+
+  // ⏱️ 学习时长：课中每 30s 冲一次账。
+  // 只计「页面可见」的时间（webrunner-6）：切后台先把可见的那段冲掉再停表，
+  // 回到前台重新起表。挂机放着不管不会计入当日时长，也就不会误触发家长上限。
   useEffect(() => {
     if (!ready || done || failed) return;
     let lastFlush = Date.now();
-    const flush = () => {
+    let interval: ReturnType<typeof setInterval> | null = null;
+
+    /** 结算「上次结算点 → 现在」这段；spanWasVisible=false 时只推进游标不记账 */
+    const flush = (spanWasVisible: boolean) => {
       const now = Date.now();
       const delta = now - lastFlush;
       lastFlush = now;
-      // 单次冲账封顶 10 分钟：防挂机后台把当日时长打爆
+      if (!spanWasVisible) return;
+      // 单次冲账封顶 10 分钟：极端情况下（系统休眠等）也不把当日时长打爆
       if (delta > 500) addLearningTimeMs(Math.min(delta, 10 * 60_000));
     };
-    const interval = setInterval(flush, 30_000);
-    const onVisibility = () => {
-      if (document.visibilityState === "hidden") flush();
-      else lastFlush = Date.now();
+    const startTimer = () => {
+      if (interval == null) {
+        interval = setInterval(() => flush(document.visibilityState === "visible"), 30_000);
+      }
     };
+    const stopTimer = () => {
+      if (interval != null) {
+        clearInterval(interval);
+        interval = null;
+      }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        // 这段（前台 → 现在）确实是可见时间，先记账再停表
+        flush(true);
+        stopTimer();
+      } else {
+        lastFlush = Date.now();
+        startTimer();
+      }
+    };
+    if (document.visibilityState === "visible") startTimer();
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
-      clearInterval(interval);
+      stopTimer();
       document.removeEventListener("visibilitychange", onVisibility);
-      flush();
+      flush(document.visibilityState === "visible");
     };
   }, [ready, done, failed, addLearningTimeMs]);
 
@@ -589,6 +642,7 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
 
   /** 跳过本题：不判分，直接按答错处理（与多邻国 SKIP 语义一致） */
   function skipQuestion() {
+    if (locked) return;
     if (!current || phase !== "answering") return;
     const firstAttempt = !attemptedRef.current.has(current.id);
     attemptedRef.current.add(current.id);
@@ -598,6 +652,7 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
   }
 
   function handleCheck() {
+    if (locked) return;
     if (!current || phase !== "answering") return;
     if (!answer.trim()) return;
     const firstAttempt = !attemptedRef.current.has(current.id);
@@ -754,6 +809,7 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
   }
 
   function handleContinue() {
+    if (locked) return;
     if (failed || done || phase !== "checked") return;
     if (isCorrect) {
       if (queue.length === 0) {
@@ -774,19 +830,20 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
 
   // 配对题（web-lesson-11）：全部配完自动提交 canonical answer
   useEffect(() => {
+    if (locked) return; // 遮罩打开时不许自动判分（webrunner-5）
     if (phase !== "answering" || !current || current.type !== "matching") return;
     if (!answer.trim()) return;
     if (gradeAnswer(current, answer)) handleCheck();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [answer, phase, currentId]);
+  }, [answer, phase, currentId, locked]);
 
   // ⌨️ 键盘快捷键（web-lesson-3）：Enter 提交 / 继续，空格 继续。
   // 数字选选项在各题目组件内实现（1-4 选项、1/2 判断、1-8 配对、数字键盘）。
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (shouldIgnoreKey(e)) return;
-      if (!ready || done || failed || showIntro) return;
-      if (showExitConfirm || gateOpen || showSettings) return;
+      if (!ready || done || failed) return;
+      if (locked) return;
       if (phase === "answering") {
         if (e.key === "Enter") {
           if (isButtonTarget(e)) return; // 焦点在按钮上交给原生 click
@@ -886,8 +943,9 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
     playSfx("tap");
     haptic("medium");
     setGateOpen(false);
-    // 用户主动退出且 0 心 → 唯一会出现 FailScreen 的入口
-    setFailed(true);
+    // 遮罩承诺过「回来接着上次继续」→ 保留 activeLesson 直接返回（与 iOS onQuit 一致）。
+    // 绝不能走 setFailed(true)：那会连带清掉整节课的进度。
+    router.push(`/book/${lesson.bookId}/`);
   }
 
   // ============ 首次加载占位（等待 persist 恢复）============
@@ -1069,7 +1127,7 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
             </button>
             <p className="text-xs text-ink-softer -mt-1">做完复习回来，这节课会接着上次继续</p>
             <button onClick={handleGateExit} className="btn-chunky-ghost w-full">
-              退出
+              先退出，进度帮你留着
             </button>
           </div>
         </div>
@@ -1283,6 +1341,7 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
                 phase={phase}
                 isCorrect={isCorrect}
                 onChange={setAnswer}
+                locked={locked}
               />
             </motion.div>
           </AnimatePresence>

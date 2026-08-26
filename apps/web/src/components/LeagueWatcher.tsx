@@ -21,13 +21,13 @@ import { Mascot } from "./Mascot";
 import { Trophy, Gem } from "./icons";
 import { playSfx } from "@/lib/sfx";
 import { haptic } from "@/lib/haptic";
-
-const HIDDEN_PREFIXES = ["/lesson/", "/reading/", "/stories/"];
+import { isImmersivePath } from "@/lib/immersiveRoutes";
 
 export function LeagueWatcher() {
   const pathname = usePathname() ?? "/";
   const [result, setResult] = useState<PendingLeagueResult | null>(null);
-  const immersive = HIDDEN_PREFIXES.some(p => pathname.startsWith(p));
+  // 沉浸页（答题 / 阅读器）不打扰 —— 判定走 lib/immersiveRoutes 的单一事实源
+  const immersive = isImmersivePath(pathname);
 
   // 打开 / 回到普通页面时做联赛例行检查（persist 恢复后再执行）
   useEffect(() => {

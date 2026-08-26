@@ -24,6 +24,11 @@ import {
   isWeekendXpActive,
 } from "@cstf/core/economy";
 import { useToast } from "./Toast";
+import {
+  resumableSession,
+  remainingQuestionCount,
+  sessionAnsweredCount,
+} from "@/lib/lessonSession";
 
 interface LessonStartModalProps {
   open: boolean;
@@ -70,10 +75,9 @@ export function LessonStartModal({
   const [weekend] = useState(() => isWeekendXpActive());
 
   // 是否存在同一课程的未完成会话？（已开始的课不受时间上限影响）
-  const resume0 =
-    activeLesson && activeLesson.lessonId === lessonId && activeLesson.index > 0
-      ? activeLesson
-      : null;
+  // 口径统一到 lessonSession helper（webrunner-7）：以前用 index > 0，
+  // 而 index 其实是"答对数" —— 全答错的孩子既看不到进度提示也没有重开入口。
+  const resume0 = resumableSession(activeLesson, lessonId);
 
   // ⏱️ 家长时间关怀：达到每日上限后不再开新课；继续已开始的课不受影响
   const timeUp = hydrated && !resume0 && dailyTimeLimitReached();
@@ -100,7 +104,11 @@ export function LessonStartModal({
   }
 
   const resume = resume0;
-  const remaining = resume ? Math.max(0, questionCount - resume.index) : questionCount;
+  // 剩余题数以持久化队列为准（含错题重排回队尾的题），与课内进度同口径
+  const remaining = resume
+    ? remainingQuestionCount(resume, questionCount)
+    : questionCount;
+  const answeredSoFar = resume ? sessionAnsweredCount(resume) : 0;
 
   function handleStart() {
     if (!canStart) return;
@@ -139,7 +147,7 @@ export function LessonStartModal({
 
         {resume && (
           <div className="mt-4 h-8 inline-flex items-center gap-2 px-3 rounded-full bg-secondary/10 border-2 border-secondary/30 text-secondary-dark text-xs font-extrabold">
-            上次答到第 {resume.index + 1} 题 · 还剩 {remaining} 题
+            上次做了 {answeredSoFar} 题 · 还剩 {remaining} 题
           </div>
         )}
 

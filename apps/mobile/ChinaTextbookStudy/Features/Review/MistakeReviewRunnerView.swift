@@ -15,7 +15,9 @@ struct MistakeReviewRunnerView: View {
     @State private var awarded = false
     /// 本轮里新毕业（🎓 已掌握）的题数 — reviewMistake 返回值累加。
     @State private var graduatedCount: Int = 0
-    /// 完成一轮补 1 颗心（content-7 断心联动）；结算页展示用。
+    /// 本轮真的领到了那颗心（content-7 断心联动）；结算页展示用。
+    /// 只由 `claimReviewHeartIfEligible` 的返回值决定 —— 领没领得成由 store
+    /// 的按天账本说了算，这里的 @State 只负责显示（iosretention-4）。
     @State private var heartRewarded = false
 
     private let xpPerCorrect = 5
@@ -95,10 +97,12 @@ struct MistakeReviewRunnerView: View {
             awarded = true
             progressStore.awardReviewXP(correctCount * xpPerCorrect, reviewedCount: queue.count)
             // content-7 断心联动：走完一整轮到期错题，缺心时补 1 颗。
-            if progressStore.hearts < ProgressStore.maxHearts {
-                progressStore.addHeart(1)
-                heartRewarded = true
-            }
+            // 领取资格（最低答对数 + 按天账本）全在 store 里判，@State 挡不住
+            // 「答错→立刻到期→再刷一轮」的循环（iosretention-4）。
+            heartRewarded = progressStore.claimReviewHeartIfEligible(
+                correctCount: correctCount,
+                now: Date()
+            )
             SFXEngine.shared.play(.complete); HapticEngine.shared.success()
         }
     }

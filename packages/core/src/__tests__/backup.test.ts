@@ -16,6 +16,7 @@ import {
   validateBackup,
 } from "../backup";
 import { DEFAULT_EQUIPPED } from "../cosmetics";
+import { readingId } from "../reading";
 import { DEFAULT_DAILY_GOAL, INITIAL_FREEZES, MAX_HEARTS } from "../economy";
 import type { Question } from "../types";
 
@@ -92,6 +93,7 @@ describe("validateBackup: 合法信封", () => {
         ],
         claimedChests: { "chest-5": true },
         claimedStreakRewards: { "7": true },
+        claimedQuests: { "2026-08-25:earnXP-60": true },
         lastDailyRewardDate: "2026-08-25",
         unlockedAchievements: { first_lesson: true },
         claimedAchievements: { first_lesson: true },
@@ -107,6 +109,124 @@ describe("validateBackup: 合法信封", () => {
     expect(result.errors).toEqual([]);
     expect(result.data).toEqual(env);
     expect(result.data!.data.mistakesBank[0].question?.answer).toBe("37");
+    expect(result.data!.data.claimedQuests).toEqual({ "2026-08-25:earnXP-60": true });
+  });
+});
+
+describe("claimedQuests 随档携带（每日任务领取账本）", () => {
+  it("导出 → 导入后领取账本原样保留，不会重复领奖", () => {
+    const claimed: Record<string, true> = {
+      "2026-08-25:earnXP-60": true,
+      "2026-08-25:readTexts-1": true,
+    };
+    const env = buildBackup({ platform: "web", data: { claimedQuests: claimed } });
+    const result = validateBackup(JSON.parse(JSON.stringify(env)));
+    expect(result.ok).toBe(true);
+    expect(result.data!.data.claimedQuests).toEqual(claimed);
+  });
+
+  it("老档（v1 早期无该字段）缺省为空对象，不报错", () => {
+    const result = validateBackup({
+      schema: BACKUP_SCHEMA,
+      version: 1,
+      exportedAt: "2026-08-25T10:00:00.000Z",
+      platform: "ios",
+      data: { xp: 10 },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.errors).toEqual([]);
+    expect(result.data!.data.claimedQuests).toEqual({});
+  });
+
+  it("坏类型重置为空并记修复日志", () => {
+    const result = validateBackup({
+      schema: BACKUP_SCHEMA,
+      version: 1,
+      platform: "web",
+      data: { claimedQuests: "nope" },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.data!.data.claimedQuests).toEqual({});
+    expect(result.errors.some(e => e.includes("claimedQuests"))).toBe(true);
+  });
+});
+
+describe("completedReadings 归一化（双端同一 key 空间）", () => {
+  const PASSAGE = "chinese-g1up-p3";
+  const STORY = "chinese-g3up-s1";
+
+  it("导出端把 web 历史键升级成规范键", () => {
+    const env = buildBackup({
+      platform: "web",
+      data: {
+        completedReadings: {
+          [`passage-${PASSAGE}-listen`]: "2026-08-02",
+          [`passage-${PASSAGE}-followup`]: "2026-08-03",
+          [`story-${STORY}`]: "2026-08-04",
+        },
+      },
+    });
+    expect(env.data.completedReadings).toEqual({
+      [readingId("listen", PASSAGE)]: "2026-08-02",
+      [readingId("followup", PASSAGE)]: "2026-08-03",
+      [readingId("story", STORY)]: "2026-08-04",
+    });
+  });
+
+  it("导入端把 iOS 历史键升级成同一批规范键（互通）", () => {
+    const iosEnv = {
+      schema: BACKUP_SCHEMA,
+      version: 1,
+      exportedAt: "2026-08-25T10:00:00.000Z",
+      platform: "ios",
+      data: {
+        completedReadings: {
+          [PASSAGE]: "2026-08-02",
+          [`${PASSAGE}-followup`]: "2026-08-03",
+          [STORY]: "2026-08-04",
+        },
+      },
+    };
+    const webEnv = buildBackup({
+      platform: "web",
+      data: {
+        completedReadings: {
+          [`passage-${PASSAGE}-listen`]: "2026-08-02",
+          [`passage-${PASSAGE}-followup`]: "2026-08-03",
+          [`story-${STORY}`]: "2026-08-04",
+        },
+      },
+    });
+    expect(validateBackup(iosEnv).data!.data.completedReadings).toEqual(
+      webEnv.data.completedReadings,
+    );
+  });
+
+  it("值为空串的老档导入后不再是空串（否则会被真值判断当成未读、重复领 XP）", () => {
+    const iosEnv = {
+      schema: BACKUP_SCHEMA,
+      version: 1,
+      exportedAt: "2026-08-25T10:00:00.000Z",
+      platform: "ios",
+      // iOS 早期只存"读过哪些"（Set），导出时值一律是空串
+      data: { completedReadings: { [PASSAGE]: "", [STORY]: "" } },
+    };
+    const d = validateBackup(iosEnv).data!.data.completedReadings;
+    expect(Object.keys(d).sort()).toEqual([
+      readingId("listen", PASSAGE),
+      readingId("story", STORY),
+    ]);
+    for (const v of Object.values(d)) expect(v).not.toBe("");
+  });
+
+  it("规范键回环稳定（幂等，不产生修复日志）", () => {
+    const env = buildBackup({
+      platform: "ios",
+      data: { completedReadings: { [readingId("story", STORY)]: "2026-08-04" } },
+    });
+    const result = validateBackup(JSON.parse(JSON.stringify(env)));
+    expect(result.errors).toEqual([]);
+    expect(result.data).toEqual(env);
   });
 });
 

@@ -198,10 +198,12 @@ final class WaveDStoreTests: XCTestCase {
         XCTAssertEqual(store.progress.mistakesBank.count, 1, "graduated entry must stay in the bank")
         XCTAssertEqual(store.progress.mistakesBank[0].graduated, true)
         XCTAssertEqual(store.graduatedMistakes.count, 1)
-        // Even far in the future the graduated entry never comes due.
-        XCTAssertTrue(SRS.dueEntries(store.progress.mistakesBank, now: day("2026-06-01")).count >= 1,
-                      "sanity: the raw scheduler would surface it…")
-        XCTAssertTrue(store.dueMistakes.isEmpty, "…but the store filters graduated entries out")
+        // Even far in the future the graduated entry never comes due. The
+        // scheduler itself now mirrors core's derived predicate (isSrsGraduated),
+        // so graduated entries are excluded at the source, not just by the store.
+        XCTAssertTrue(SRS.dueEntries(store.progress.mistakesBank, now: day("2026-06-01")).isEmpty,
+                      "the scheduler mirrors core: graduated entries never come due")
+        XCTAssertTrue(store.dueMistakes.isEmpty, "…and the store agrees")
         // Achievement snapshot keeps counting the reviewed entry.
         XCTAssertEqual(store.achievementSnapshot.reviewedMistakeCount, 1)
         // An already-graduated entry cannot "newly graduate" again.

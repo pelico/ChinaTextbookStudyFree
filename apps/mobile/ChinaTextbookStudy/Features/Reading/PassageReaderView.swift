@@ -42,7 +42,7 @@ struct PassageListView: View {
                                 subtitle: "\(p.kind.displayName) · \(p.sentences.count) 句",
                                 symbol: p.kind.symbol,
                                 tint: DuoColors.secondary,
-                                done: progressStore.isReadingCompleted(p.id),
+                                done: progressStore.isReadingCompleted(Reading.id(.listen, p.id)),
                                 rewardXP: Economy.ReadingXP.listen
                             )
                         }
@@ -172,8 +172,11 @@ struct PassageReaderView: View {
         }
     }
 
-    /// XP 记账 id：听读用 passage.id（沿用老档），跟读单独记一条。
-    private var followupRewardId: String { "\(passageId)-followup" }
+    /// XP 记账 id —— 一律走 `Reading.id`(parity-1)。
+    /// 手写 `"\(passageId)-followup"` 之类字面量是 iOS/web 键空间零交集的根因,
+    /// 备份互通后阅读进度全部失配;规范键是 `reading:{kind}:{rawId}`。
+    private var listenRewardId: String { Reading.id(.listen, passageId) }
+    private var followupRewardId: String { Reading.id(.followup, passageId) }
 
     private func reader(_ passage: Passage) -> some View {
         ScrollViewReader { proxy in
@@ -198,7 +201,8 @@ struct PassageReaderView: View {
                         SlowModeBadge()
                     }
 
-                    if followup.isActive {
+                    // 错误态(麦克风被拒 / 录音起不来)也要出卡片,否则提示是死分支。
+                    if followup.isActive || followup.needsAttention {
                         followupStatusCard(passage)
                     }
 
@@ -264,22 +268,33 @@ struct PassageReaderView: View {
 
     // MARK: - 跟读（content-3）
 
+    /// 开一轮跟读。按钮和错误卡片的「再试一次」共用同一条路径。
+    private func startFollowup(_ passage: Passage) {
+        readAllRunActive = false
+        AudioPlayer.shared.stop()
+        HapticEngine.shared.tap()
+        followup.start(sentences: passage.sentences) {
+            // 跟读完整走完 → 首次 +10 XP
+            if !progressStore.isReadingCompleted(followupRewardId) {
+                progressStore.completeReading(id: followupRewardId, xp: Economy.ReadingXP.followup)
+                HapticEngine.shared.success(); SFXEngine.shared.play(.star)
+            }
+        }
+    }
+
+    /// 跳到系统设置页,让家长把麦克风权限打开(iosretention-3)。
+    private func openAppSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+    }
+
     @ViewBuilder
     private func followupButton(_ passage: Passage) -> some View {
         Button {
             if followup.isActive {
                 followup.abort()
             } else {
-                readAllRunActive = false
-                AudioPlayer.shared.stop()
-                HapticEngine.shared.tap()
-                followup.start(sentences: passage.sentences) {
-                    // 跟读完整走完 → 首次 +10 XP
-                    if !progressStore.isReadingCompleted(followupRewardId) {
-                        progressStore.completeReading(id: followupRewardId, xp: Economy.ReadingXP.followup)
-                        HapticEngine.shared.success(); SFXEngine.shared.play(.star)
-                    }
-                }
+                startFollowup(passage)
             }
         } label: {
             HStack(spacing: 8) {
@@ -309,8 +324,18 @@ struct PassageReaderView: View {
                     .buttonStyle(ChunkySmallButtonStyle(background: DuoColors.primary, shadowColor: DuoColors.primaryDark))
             case .deniedMic:
                 Image(systemName: "mic.slash.fill").font(.system(size: 16, weight: .bold)).foregroundStyle(DuoColors.danger)
-                Text("需要在 设置 里允许使用麦克风，才能跟读哦").duoFont(.caption).foregroundStyle(DuoColors.ink)
+                Text("要先允许使用麦克风，才能跟读哦").duoFont(.caption).foregroundStyle(DuoColors.ink)
                 Spacer(minLength: 0)
+                Button("去设置") { openAppSettings() }
+                    .buttonStyle(ChunkySmallButtonStyle(background: DuoColors.fox, shadowColor: DuoColors.fox.opacity(0.6)))
+                    .accessibilityIdentifier("followup-open-settings")
+            case .recordFailed:
+                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 16, weight: .bold)).foregroundStyle(DuoColors.danger)
+                Text("录音没能开始，先关掉别的正在录音的 App 再试试").duoFont(.caption).foregroundStyle(DuoColors.ink)
+                Spacer(minLength: 0)
+                Button("再试一次") { startFollowup(passage) }
+                    .buttonStyle(ChunkySmallButtonStyle(background: DuoColors.fox, shadowColor: DuoColors.fox.opacity(0.6)))
+                    .accessibilityIdentifier("followup-retry")
             default:
                 EmptyView()
             }
@@ -324,14 +349,17 @@ struct PassageReaderView: View {
 
     @ViewBuilder
     private func completionButton(_ passage: Passage) -> some View {
-        let done = progressStore.isReadingCompleted(passage.id)
+        let done = progressStore.isReadingCompleted(listenRewardId)
         let followupDone = followup.stage == .finished || progressStore.isReadingCompleted(followupRewardId)
-        let eligible = done || listenedWholeThing || followupDone
+        // 音频包没落地时「听完整篇」这条门槛是解不开的死结(iosretention-6),
+        // 给一条不依赖音频的出路:自己读一遍课文也算读完。
+        let audioReady = AudioPlayer.shared.hasAnyResolvable(passage.sentences.map(\.audio))
+        let eligible = done || listenedWholeThing || followupDone || !audioReady
         VStack(spacing: 8) {
             Button {
                 guard !done, eligible else { return }
                 // 课文听读 XP —— 统一口径 Economy.ReadingXP.listen（无宝石）。
-                progressStore.completeReading(id: passage.id, xp: Economy.ReadingXP.listen)
+                progressStore.completeReading(id: listenRewardId, xp: Economy.ReadingXP.listen)
                 HapticEngine.shared.success(); SFXEngine.shared.play(.complete)
             } label: {
                 Text(done ? "已读完 ✓" : "读完了  +\(Economy.ReadingXP.listen) XP")
@@ -343,6 +371,11 @@ struct PassageReaderView: View {
                 Text("先听完整篇课文，或跟读一遍，就能领奖励啦")
                     .duoFont(.micro).foregroundStyle(DuoColors.inkMuted)
                     .frame(maxWidth: .infinity)
+            } else if !done && !audioReady {
+                Text("音频还没下载完，去「课本」页补下载就能听啦；先自己读一遍，也能领奖励～")
+                    .duoFont(.micro).foregroundStyle(DuoColors.inkMuted)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
             }
         }
         .padding(.top, 8)
@@ -351,6 +384,9 @@ struct PassageReaderView: View {
 
 /// "Read the whole thing" button — queues every sentence's audio.
 /// `onCompleted` fires only when the queue drains naturally (content-5).
+///
+/// 音频包没落地时按钮置灰(iosretention-6):以前照样可以点,但队列是空的 ——
+/// `isPlaying` 恒 false、`onStarted`/`onCompleted` 都不触发,用户只看到「毫无反应」。
 struct ReadAllButton: View {
     let sentences: [PassageSentence]
     let isPlaying: Bool
@@ -362,8 +398,14 @@ struct ReadAllButton: View {
     @State private var completionCountAtStart = 0
     @State private var runId = 0
 
+    /// 这篇课文/故事本地有没有任何一句音频能播。
+    private var hasAudio: Bool {
+        AudioPlayer.shared.hasAnyResolvable(sentences.map(\.audio))
+    }
+
     var body: some View {
         Button {
+            guard hasAudio else { return }
             if isPlaying {
                 runActive = false
                 AudioPlayer.shared.stop()
@@ -379,14 +421,17 @@ struct ReadAllButton: View {
             }
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: isPlaying ? "stop.fill" : "play.fill").font(.system(size: 15, weight: .heavy))
-                Text(isPlaying ? "停止朗读" : "朗读全文")
+                Image(systemName: hasAudio ? (isPlaying ? "stop.fill" : "play.fill") : "arrow.down.circle")
+                    .font(.system(size: 15, weight: .heavy))
+                Text(hasAudio ? (isPlaying ? "停止朗读" : "朗读全文") : "音频还没下载完")
             }
         }
         .buttonStyle(ChunkySmallButtonStyle(
-            background: isPlaying ? DuoColors.danger : DuoColors.primary,
-            shadowColor: isPlaying ? DuoColors.dangerDark : DuoColors.primaryDark
+            background: hasAudio ? (isPlaying ? DuoColors.danger : DuoColors.primary) : DuoColors.inkSofter,
+            shadowColor: hasAudio ? (isPlaying ? DuoColors.dangerDark : DuoColors.primaryDark) : DuoColors.inkMuted
         ))
+        .disabled(!hasAudio)
+        .accessibilityIdentifier("read-all")
         .onChange(of: player.isPlaying) { _, playing in
             // By the time this fires, a natural drain has already bumped
             // `queueCompletionCount` (both happen in the same MainActor turn),
@@ -503,6 +548,11 @@ final class FollowupSession: ObservableObject {
         case recording(Int)
         case finished
         case deniedMic
+        /// 会话切不到 `.playAndRecord`,或 `AVAudioRecorder.record()` 返回 false
+        /// (麦克风被别的 App 占用、系统会话被打断……)。以前这里悄无声息:文件
+        /// 不生成、返回值没人看,用户只见「录音中」转一圈然后什么都没有
+        /// (iosretention-1)。
+        case recordFailed
     }
 
     @Published private(set) var stage: Stage = .idle
@@ -519,6 +569,16 @@ final class FollowupSession: ObservableObject {
     var isActive: Bool {
         switch stage {
         case .playingOriginal, .recording: return true
+        default: return false
+        }
+    }
+
+    /// 需要用户处理的错误态。状态卡的显示条件必须带上它 —— 否则
+    /// `.deniedMic` / `.recordFailed` 的提示文案是永远渲染不到的死分支,
+    /// 点「跟读模式」毫无反馈(iosretention-3)。
+    var needsAttention: Bool {
+        switch stage {
+        case .deniedMic, .recordFailed: return true
         default: return false
         }
     }
@@ -549,7 +609,14 @@ final class FollowupSession: ObservableObject {
                 self.stage = .deniedMic
                 return
             }
-            self.configureRecordSession()
+            // 整轮跟读都待在 `.playAndRecord` 会话里(协调器的 `.record` 模式)。
+            // 播原音时 AudioPlayer 的 `beginSpokenAudio()` 会主动让路,不再把
+            // 类别切成 .playback / .ambient —— 那正是 record() 静默失败的根因
+            // (iosretention-1)。切不过去就直接落错误态,别装作在录音。
+            guard AudioSessionCoordinator.shared.beginRecording() else {
+                self.stage = .recordFailed
+                return
+            }
             for (i, s) in sentences.enumerated() {
                 if Task.isCancelled { break }
                 // 1) 播原音
@@ -568,20 +635,28 @@ final class FollowupSession: ObservableObject {
                 // 2) 录音：时长按句长 3–8 秒，可提前点「读完了」
                 self.stage = .recording(i)
                 self.stopCurrentRecording = false
-                let url = self.beginRecording(index: i)
+                guard let url = self.beginRecording(index: i) else {
+                    // 录音起不来 —— 停下来把话说清楚,而不是空转到「跟读完成」
+                    // 再给一堆放不出声的空录音。
+                    self.stopRecorder()
+                    AudioSessionCoordinator.shared.endRecording()
+                    guard gen == self.runGeneration else { return }
+                    self.stage = .recordFailed
+                    return
+                }
                 let seconds = min(max(3.0, Double(s.text.count) * 0.28), 8.0)
                 let deadline = Date().addingTimeInterval(seconds)
                 while Date() < deadline && !self.stopCurrentRecording && !Task.isCancelled {
                     try? await Task.sleep(nanoseconds: 100_000_000)
                 }
-                self.endRecording()
-                if let url, FileManager.default.fileExists(atPath: url.path) {
+                self.stopRecorder()
+                if FileManager.default.fileExists(atPath: url.path) {
                     self.recordings[i] = url
                 }
                 if Task.isCancelled { break }
                 try? await Task.sleep(nanoseconds: 150_000_000)
             }
-            self.restorePlaybackSession()
+            AudioSessionCoordinator.shared.endRecording()
             guard gen == self.runGeneration else { return }   // superseded run
             if Task.isCancelled {
                 self.stage = .idle
@@ -598,13 +673,17 @@ final class FollowupSession: ObservableObject {
     }
 
     /// Interrupt an in-flight run. Keeps recordings made so far.
+    ///
+    /// 错误态(`.deniedMic` / `.recordFailed`)也一并复位 —— 用户去系统设置里
+    /// 打开麦克风回来后再点一次「跟读模式」,必须能真的重来一遍(iosretention-3)。
+    /// `.finished` 保留,对比回放列表不该被清掉。
     func abort() {
         task?.cancel()
         task = nil
-        endRecording()
+        stopRecorder()
         AudioPlayer.shared.stop()
-        restorePlaybackSession()
-        if isActive { stage = .idle }
+        AudioSessionCoordinator.shared.endRecording()
+        if isActive || needsAttention { stage = .idle }
     }
 
     /// Session over (view disappeared): stop everything and delete the files.
@@ -626,19 +705,16 @@ final class FollowupSession: ObservableObject {
 
     // MARK: - Internals
 
-    private func configureRecordSession() {
-        let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .duckOthers])
-        try? session.setActive(true, options: [])
-    }
-
-    private func restorePlaybackSession() {
-        let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
-        try? session.setActive(true, options: [])
-    }
-
+    /// 起一句的录音。返回 nil = 录不了,调用方必须落到可见错误态。
+    ///
+    /// 会话类别只走 `AudioSessionCoordinator`(唯一出口);这里以前自己
+    /// `setCategory` 而循环里播原音又把类别切走,`record()` 于是返回 false、
+    /// 文件根本不生成,返回值还没人检查(iosretention-1 / -2)。
     private func beginRecording(index: Int) -> URL? {
+        guard AudioSessionCoordinator.shared.beginRecording() else {
+            print("[FollowupSession] record session unavailable")
+            return nil
+        }
         try? FileManager.default.createDirectory(at: scratchDir, withIntermediateDirectories: true)
         let url = scratchDir.appendingPathComponent("sentence-\(index).m4a")
         try? FileManager.default.removeItem(at: url)
@@ -650,7 +726,10 @@ final class FollowupSession: ObservableObject {
         ]
         do {
             let r = try AVAudioRecorder(url: url, settings: settings)
-            r.record()
+            guard r.record() else {
+                print("[FollowupSession] AVAudioRecorder.record() refused to start")
+                return nil
+            }
             recorder = r
             return url
         } catch {
@@ -659,7 +738,8 @@ final class FollowupSession: ObservableObject {
         }
     }
 
-    private func endRecording() {
+    /// 只停录音器,不动会话类别(会话由协调器统一收尾)。
+    private func stopRecorder() {
         recorder?.stop()
         recorder = nil
     }

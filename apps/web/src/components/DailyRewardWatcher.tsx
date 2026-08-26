@@ -27,8 +27,7 @@ import { Mascot } from "./Mascot";
 import { Flame, Gem } from "./icons";
 import { playSfx } from "@/lib/sfx";
 import { haptic } from "@/lib/haptic";
-
-const HIDDEN_PREFIXES = ["/lesson/", "/reading/", "/jump/"];
+import { isImmersivePath } from "@/lib/immersiveRoutes";
 
 /** 本地时区 YYYY-MM-DD（与 store 同实现） */
 function todayStr(): string {
@@ -83,7 +82,8 @@ export function DailyRewardWatcher() {
 
   useEffect(() => {
     if (fired.current) return;
-    if (HIDDEN_PREFIXES.some(p => pathname.startsWith(p))) return;
+    // 沉浸页（课程 / 跳级 / 复习 runner / 阅读器）不打扰，回到普通页面再发
+    if (isImmersivePath(pathname)) return;
 
     // 等待 store hydrate；用一帧延迟确保 persist 已加载
     const t = window.setTimeout(() => {

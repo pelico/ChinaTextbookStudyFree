@@ -30,6 +30,7 @@ export function WordOrderQuestion({
   phase,
   isCorrect,
   onChange,
+  locked = false,
 }: QuestionRendererProps) {
   const disabled = phase === "checked";
   const options = question.options ?? [];
@@ -57,7 +58,7 @@ export function WordOrderQuestion({
   }
 
   function pick(i: number) {
-    if (disabled) return;
+    if (locked || disabled) return; // 遮罩打开时停摆（webrunner-5）
     if (picked.includes(i)) return;
     cancelNarrate();
     playSfx("tap");
@@ -67,7 +68,7 @@ export function WordOrderQuestion({
   }
 
   function unpick(i: number) {
-    if (disabled) return;
+    if (locked || disabled) return;
     playSfx("tap");
     haptic("light");
     playOptionAudio(i);

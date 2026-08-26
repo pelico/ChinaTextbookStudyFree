@@ -8,6 +8,8 @@
  *   - 复用 QuestionRenderer + core gradeAnswer 真实判分，答完才亮对错与解析
  *   - 首次作答的结果驱动 SRS（store reviewMistake）；答错的题重排队尾再练
  *   - 完成页：正确数 + XP（store awardReviewXP，每答对 +5）+ 毕业庆祝
+ *   - 走完一整轮到期错题且首答答对 ≥ REVIEW_HEART_MIN_CORRECT 题 → 补 1 颗红心
+ *     （store awardReviewHeart，每天一次的账本在 store 里，对齐 iOS content-7）
  *
  * 无红心消耗：复习是「安全区」，答错只会把题排回队尾，不扣心。
  */
@@ -19,7 +21,11 @@ import { motion, AnimatePresence, useAnimation, useReducedMotion } from "framer-
 import type { Question } from "@/types";
 import { gradeAnswer } from "@/lib/grade";
 import { getDueSrsEntries } from "@/lib/srs";
-import { useProgressStore, REVIEW_XP_PER_CORRECT } from "@/store/progress";
+import {
+  useProgressStore,
+  REVIEW_XP_PER_CORRECT,
+  REVIEW_HEART_MIN_CORRECT,
+} from "@/store/progress";
 import { QuestionRenderer, type QuestionPhase } from "@/components/question/QuestionRenderer";
 import { MathText } from "@/components/MathText";
 import { Mascot } from "@/components/Mascot";
@@ -49,19 +55,20 @@ interface ReviewStats {
   correct: number;
   xpGained: number;
   graduated: number;
+  /** 本轮补回的红心数（0 = 没到门槛 / 今天领过 / 已满心） */
+  heartsGained: number;
 }
 
 export function ReviewRunnerClient() {
   useSyncMute();
   const router = useRouter();
   const searchParams = useSearchParams();
-  // 断心跳转标记（?from=hearts）：完成后展示「心会慢慢恢复」的安抚提示。
-  // store 没有「+1 颗心」的细粒度 API（只有 debug 的整补 refillHeartsFull，
-  // 用它会超发），按任务书降级为只提示，不硬造经济入口。
+  // 断心跳转标记（?from=hearts）：完成页多给一句「红心会慢慢恢复」的安抚。
   const fromHearts = searchParams.get("from") === "hearts";
 
   const reviewMistake = useProgressStore(s => s.reviewMistake);
   const awardReviewXP = useProgressStore(s => s.awardReviewXP);
+  const awardReviewHeart = useProgressStore(s => s.awardReviewHeart);
   const prefersReduced = useReducedMotion();
 
   // ============ 队列：hydrate 后一次性快照（复习中 store 变化不打乱当前会话）============
@@ -163,11 +170,15 @@ export function ReviewRunnerClient() {
     const correct = [...attempts.values()].filter(Boolean).length;
     // 统一记账：每首答答对 +5 XP、dailyReviews += 复习量、推进连胜
     const xpGained = awardReviewXP(correct, attempts.size);
+    // parity-5 断心联动：走完一整轮到期错题才结算补心；门槛（答对 ≥ 5 题）、
+    // 上限（不超过 MAX_HEARTS）、当天只领一次都由 store awardReviewHeart 裁决。
+    const heartsGained = awardReviewHeart(correct);
     setStats({
       total: solved,
       correct,
       xpGained,
       graduated: graduatedRef.current,
+      heartsGained,
     });
     playSfx("complete");
     haptic("success");
@@ -331,12 +342,13 @@ function ReviewFeedbackPanel({
   const titleColor = isCorrect ? "text-primary-dark" : "text-danger-dark";
   const btnCls = isCorrect ? "btn-chunky-primary" : "btn-chunky-danger";
 
+  // z-50：必须压过移动端固定底栏（z-40），否则「继续」按钮会被盖住点不到
   return (
     <motion.div
       initial={{ y: 110, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ type: "spring", damping: 22, stiffness: 260 }}
-      className={`fixed bottom-0 left-0 right-0 border-t-4 ${bg} backdrop-blur-sm bg-white/90`}
+      className={`fixed bottom-0 left-0 right-0 z-50 border-t-4 ${bg} backdrop-blur-sm bg-white/90`}
       style={{ boxShadow: "0 -8px 24px rgba(0,0,0,0.06)" }}
     >
       <div className="max-w-md lg:max-w-2xl mx-auto px-5 py-5">
@@ -456,11 +468,34 @@ function ReviewCompletionScreen({
           </div>
         )}
 
-        {/* 断心跳转而来：安抚提示（红心随时间自然恢复） */}
-        {fromHearts && (
+        {/* ❤️ 复习补心（parity-5）：答对够多，红心补回来 */}
+        <AnimatePresence>
+          {stats.heartsGained > 0 && (
+            <motion.div
+              initial={{ scale: 0, y: 8, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              transition={{ delay: 0.35, type: "spring", damping: 12 }}
+              className="mt-4 inline-flex items-center gap-1.5 h-9 px-4 rounded-full font-extrabold text-base text-white"
+              style={{
+                background: "linear-gradient(135deg, #FF6B6B, #FF4B4B)",
+                boxShadow: "0 4px 0 0 #d33",
+              }}
+            >
+              <Heart className="w-4 h-4" />
+              <span className="tabular-nums">+{stats.heartsGained}</span>
+              <span className="text-sm">红心补回来啦！</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* 断心跳转而来：没拿到补心时给一句安抚 + 告诉孩子怎么才能拿到 */}
+        {fromHearts && stats.heartsGained === 0 && (
           <div className="mt-5 flex items-center justify-center gap-2 px-4 py-3 rounded-2xl bg-danger/10 border-2 border-danger/30 text-danger text-sm font-extrabold">
             <Heart className="w-4 h-4" />
-            <span>复习辛苦啦！红心每 5 分钟恢复 1 颗，休息一下再战～</span>
+            <span>
+              复习辛苦啦！一轮里答对 {REVIEW_HEART_MIN_CORRECT} 题就能补回 1 颗心，
+              红心也会每 5 分钟自己恢复 1 颗～
+            </span>
           </div>
         )}
 

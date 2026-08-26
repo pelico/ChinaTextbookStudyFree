@@ -84,12 +84,16 @@ struct RootView: View {
             }
             _ = downloader.loadCachedManifest()
             Task { try? await downloader.loadManifest() }
+            // ⚠️ 顺序不可颠倒（iosstore-1）：先探测 iCloud 备份，再做每日结算。
+            // refreshForNow 末尾会镜像存档进 iCloud —— 放在前面会让新装设备用
+            // 空档盖掉真实备份，恢复弹窗读回的正是自己写的空信封，用户换机即
+            // 永久丢档。checkCloudRestoreOffer 先跑，pendingCloudRestore 一旦
+            // 立起来，镜像与每日结算都会自动让路。
+            progressStore.checkCloudRestoreOffer()
             // Settle hearts / day-derived state / the rolling reminder window
             // once at launch (the reminder part is a no-op unless the toggle
             // is on).
             progressStore.refreshForNow()
-            // 新装设备探测 iCloud 备份（Wave E2）；老设备 / 已处理过则静默。
-            progressStore.checkCloudRestoreOffer()
         }
         // An app left in the background overnight must not wake up showing
         // yesterday: re-sync clocked state on every return to foreground and

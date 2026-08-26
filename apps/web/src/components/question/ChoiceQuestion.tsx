@@ -22,7 +22,14 @@ function normalizeOpt(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, "");
 }
 
-export function ChoiceQuestion({ question, answer, phase, isCorrect, onChange }: QuestionRendererProps) {
+export function ChoiceQuestion({
+  question,
+  answer,
+  phase,
+  isCorrect,
+  onChange,
+  locked = false,
+}: QuestionRendererProps) {
   const rawCorrect = question.answer.trim();
   let correctLetter = rawCorrect.toUpperCase().charAt(0);
   // 若 answer 不是单字母 A-D，则在 options 里反查对应字母
@@ -42,7 +49,7 @@ export function ChoiceQuestion({ question, answer, phase, isCorrect, onChange }:
 
   /** 选中某个选项（点击 / 键盘共用）：朗读 + 音效 + 触感 + 写回 answer */
   function selectLetter(letter: string) {
-    if (phase === "checked") return;
+    if (locked || phase === "checked") return;
     cancelNarrate();
     // 选中选项时自动朗读该选项
     const idx = letter.charCodeAt(0) - 65;
@@ -54,7 +61,7 @@ export function ChoiceQuestion({ question, answer, phase, isCorrect, onChange }:
   }
 
   function handleTap(letter: string, e: React.MouseEvent<HTMLButtonElement>) {
-    if (phase === "checked") return;
+    if (locked || phase === "checked") return;
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -71,7 +78,7 @@ export function ChoiceQuestion({ question, answer, phase, isCorrect, onChange }:
 
   // 键盘快捷键（web-lesson-3）：数字 1-4 选选项
   useEffect(() => {
-    if (phase !== "answering") return;
+    if (locked || phase !== "answering") return; // 遮罩打开时不接管键盘（webrunner-5）
     const onKeyDown = (e: KeyboardEvent) => {
       if (shouldIgnoreKey(e)) return;
       const n = Number(e.key);
@@ -82,7 +89,7 @@ export function ChoiceQuestion({ question, answer, phase, isCorrect, onChange }:
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, question.id]);
+  }, [phase, question.id, locked]);
 
   return (
     <div className="w-full">

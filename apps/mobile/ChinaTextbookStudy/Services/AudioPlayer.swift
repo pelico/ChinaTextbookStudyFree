@@ -4,43 +4,72 @@ import Combine
 
 /// 统一音频会话协调器(critic-4)。
 ///
-/// App 里有两类声音,对会话的诉求相反:
+/// App 里有三类声音,对会话的诉求互相冲突:
 /// 1. **SFX / 判分短音** —— 走 `.ambient`:尊重静音拨片、与用户自己的音乐混音;
 /// 2. **TTS / 课文长音频** —— 播放期间临时切 `.playback(.spokenAudio, .duckOthers)`
-///    (静音拨片下朗读也要能听到,并把背景音乐压低),播完立刻恢复 ambient。
+///    (静音拨片下朗读也要能听到,并把背景音乐压低),播完立刻恢复 ambient;
+/// 3. **跟读录音** —— 需要 `.playAndRecord`,否则 `AVAudioRecorder.record()`
+///    直接返回 false、连文件都不生成(iosretention-1)。
 ///
-/// 此前 `SFXEngine` 与 `AudioPlayer` 各自 `setCategory` 互相打架 —— 谁后启动谁
-/// 说了算,SFX 会意外顶掉朗读会话(反之亦然)。现在两边都只跟协调器打交道,
-/// 类别切换有唯一出口。
+/// 此前 `SFXEngine` / `AudioPlayer` / `FollowupSession` 各自 `setCategory` 互相
+/// 打架 —— 谁后启动谁说了算。现在**所有**类别切换只有这一个出口:任何地方直接
+/// 调 `AVAudioSession.setCategory` 都会让 `mode` 与真实会话漂移,是 bug。
 @MainActor
 final class AudioSessionCoordinator {
     static let shared = AudioSessionCoordinator()
 
-    private enum Mode { case none, ambient, spokenAudio }
+    private enum Mode { case none, ambient, spokenAudio, record }
     private var mode: Mode = .none
 
     private init() {}
 
     /// SFX 播放前调用:保证会话至少处于 `.ambient`。
-    /// 朗读进行中(.spokenAudio)不降级 —— 短音效借道播放会话即可。
+    ///
+    /// 朗读(.spokenAudio)/ 录音(.record)进行中不降级 —— 短音效借道当前会话即可,
+    /// 尤其录音期间切走类别会让下一次 `record()` 静默失败。
+    ///
+    /// 其余情况**校验真实会话**再决定是否重新 apply:历史上有代码绕过协调器直接
+    /// `setCategory(.playback)`,`mode` 停在 `.ambient` 而系统会话是 `.playback`,
+    /// 旧的 `guard mode == .none` 让协调器永远回不到 ambient,静音拨片对音效彻底
+    /// 失效(iosretention-2)。这里比对一次 `session.category` 就能自愈。
     func ensureAmbient() {
-        guard mode == .none else { return }
+        guard mode != .spokenAudio, mode != .record else { return }
+        if mode == .ambient, AVAudioSession.sharedInstance().category == .ambient { return }
         apply(.ambient)
     }
 
     /// TTS / 课文长音频开始:切 `.playback(.spokenAudio, .duckOthers)`。
+    /// 录音会话进行中不抢类别 —— `.playAndRecord` 同样能播放,而切走会让紧接着
+    /// 的 `AVAudioRecorder.record()` 失败(跟读「听原音 → 录音」交替进行)。
     func beginSpokenAudio() {
-        guard mode != .spokenAudio else { return }
+        guard mode != .spokenAudio, mode != .record else { return }
         apply(.spokenAudio)
     }
 
     /// TTS / 课文长音频结束(自然播完 / stop / 被打断):恢复 `.ambient`。
+    /// 录音会话进行中是 no-op(`mode != .spokenAudio`)。
     func endSpokenAudio() {
         guard mode == .spokenAudio else { return }
         apply(.ambient)
     }
 
-    private func apply(_ newMode: Mode) {
+    /// 跟读录音开始:切 `.playAndRecord`。返回 false 表示会话没能切过去,
+    /// 调用方必须放弃录音并给用户可见提示,不要硬着头皮 `record()`。
+    /// 幂等 —— 已经在录音会话里直接返回 true。
+    @discardableResult
+    func beginRecording() -> Bool {
+        if mode == .record { return true }
+        return apply(.record)
+    }
+
+    /// 跟读录音结束(整轮走完 / 中止 / 失败):恢复 `.ambient`,把静音拨片还给用户。
+    func endRecording() {
+        guard mode == .record else { return }
+        apply(.ambient)
+    }
+
+    @discardableResult
+    private func apply(_ newMode: Mode) -> Bool {
         let session = AVAudioSession.sharedInstance()
         do {
             switch newMode {
@@ -48,13 +77,17 @@ final class AudioSessionCoordinator {
                 try session.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
             case .spokenAudio:
                 try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+            case .record:
+                try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .duckOthers])
             case .none:
-                return
+                return false
             }
             try session.setActive(true)
             mode = newMode
+            return true
         } catch {
             print("[AudioSessionCoordinator] switch failed: \(error)")
+            return false
         }
     }
 }
@@ -163,6 +196,20 @@ final class AudioPlayer: NSObject, ObservableObject {
         if rel.hasSuffix(".opus") { rel = String(rel.dropLast(".opus".count)) + ".m4a" }
         let url = DataLoader.shared.sandboxAudioRoot.appendingPathComponent(rel)
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// 这批路径里**至少有一条**能落到本地文件吗?
+    ///
+    /// 音频包没下载(或被 SeedInstaller 整体清掉)时,`play(paths:)` 会得到空队列 ——
+    /// `isPlaying` 恒 false、`queueCompletionCount` 不动,依赖「整队自然播完」的
+    /// 完成门槛就永远解不开(iosretention-6)。UI 需要提前知道这件事,才能把
+    /// 「朗读全文」置灰并给一条不依赖音频的出路。
+    /// 命中第一条就返回,常见情况只做一次 `fileExists`。
+    func hasAnyResolvable(_ paths: [String?]) -> Bool {
+        paths.contains { path in
+            guard let path else { return false }
+            return resolve(path) != nil
+        }
     }
 
     // MARK: - Internals

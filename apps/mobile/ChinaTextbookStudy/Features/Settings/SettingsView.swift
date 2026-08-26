@@ -16,6 +16,12 @@ struct SettingsView: View {
     @State private var importedFlash = false
     @State private var showReports = false
 
+    // iCloud 手动恢复（iosstore-6 兜底入口）
+    /// 云端读到的那份档，等待「覆盖确认」。
+    @State private var pendingCloudImport: Backup.Envelope?
+    /// 云端没有备份 / 还没同步下来时的提示文案。
+    @State private var cloudRestoreNote: String?
+
     private var appVersion: String {
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
         let b = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
@@ -235,6 +241,18 @@ struct SettingsView: View {
 
                 divider
 
+                // 从 iCloud 恢复（iosstore-6）：换机时恢复弹窗依赖 iCloud 同步时序，
+                // 没弹出来 / 手滑点了「暂不」的用户必须还有一条自己动手的路。
+                Button { lookUpCloudBackup() } label: {
+                    dataRow(icon: "icloud.and.arrow.down.fill", tint: DuoColors.beetle,
+                            title: "从 iCloud 恢复存档",
+                            subtitle: cloudRestoreNote ?? "换了新手机？把 iCloud 里的进度找回来（会覆盖当前进度）")
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("cloud-restore")
+
+                divider
+
                 // 已报告的问题（Wave E2 小旗子）。
                 Button { showReports = true } label: {
                     dataRow(icon: "flag.fill", tint: DuoColors.fox, title: "已报告的问题",
@@ -275,6 +293,17 @@ struct SettingsView: View {
         ) {
             Button("覆盖并导入", role: .destructive) { confirmImport() }
             Button("取消", role: .cancel) { pendingImport = nil }
+        }
+        .confirmationDialog(
+            pendingCloudImport.map(cloudBackupSummary) ?? "",
+            isPresented: Binding(
+                get: { pendingCloudImport != nil },
+                set: { if !$0 { pendingCloudImport = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("恢复并覆盖", role: .destructive) { confirmCloudRestore() }
+            Button("取消", role: .cancel) { pendingCloudImport = nil }
         }
         .sheet(isPresented: $showReports) {
             ReportsListSheet(progressStore: progressStore)
@@ -321,6 +350,39 @@ struct SettingsView: View {
         case .failure(let error):
             importError = error.errorDescription ?? "备份文件无法识别"
         }
+    }
+
+    // MARK: - 从 iCloud 恢复（iosstore-6）
+
+    /// 读一次 iCloud 备份：有就弹「覆盖确认」，没有 / 还没同步好就给一句人话。
+    private func lookUpCloudBackup() {
+        cloudRestoreNote = nil
+        switch progressStore.cloudRead() {
+        case .archive(let envelope):
+            pendingCloudImport = envelope
+        case .empty:
+            cloudRestoreNote = "iCloud 里还没有备份，先在旧手机上打开一次应用试试"
+        case .unknown:
+            // 「读不到」不等于「没有」：KVS 首次下载是异步的。
+            cloudRestoreNote = "iCloud 还在同步，过一会儿再点一次～"
+        }
+    }
+
+    /// 覆盖确认里给孩子看的进度摘要。
+    private func cloudBackupSummary(_ envelope: Backup.Envelope) -> String {
+        let lessons = envelope.data.completedLessons.count
+        let day = String(envelope.exportedAt.prefix(10))
+        let when = day.isEmpty ? "" : " · 备份于 \(day)"
+        return "找到 iCloud 存档：\(envelope.data.xp) 经验值 · \(lessons) 节课\(when)。恢复会覆盖这台设备上的进度，确定吗？"
+    }
+
+    private func confirmCloudRestore() {
+        guard let envelope = pendingCloudImport else { return }
+        progressStore.applyCloudRestore(envelope)   // 内部已做全量刷新
+        pendingCloudImport = nil
+        cloudRestoreNote = "恢复成功！进度已经回来啦 🎉"
+        HapticEngine.shared.success()
+        SFXEngine.shared.play(.unlock)
     }
 
     private func confirmImport() {

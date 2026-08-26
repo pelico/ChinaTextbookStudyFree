@@ -69,11 +69,36 @@ enum SRS {
         return next
     }
 
+    // MARK: - 毕业判定（core `isSrsGraduated` 的逐行镜像）
+
+    /// 毕业线（盒子）：至少升到 box 3。
+    static let graduateMinBox = 3
+    /// 毕业线（答对次数）：累计答对达到该值。
+    static let graduateMinCorrect = 2
+
+    /// 条目是否达到毕业语义：**显式 graduated 标记，或 box ≥ 3 且累计答对 ≥ 2**。
+    ///
+    /// ⚠️ 这是派生判定，不是「只认显式标记」：老档 / 从另一端导入的条目常常
+    /// 只有 box + correctCount 而没有 graduated 字段，只认标记会让它们永远
+    /// 留在 due 队列里反复出现。与 core `isSrsGraduated` 同源，
+    /// spec/golden-vectors.json 的 `srsGraduation` 组两端对照。
+    static func isGraduated(graduated: Bool?, box: Int?, correctCount: Int?) -> Bool {
+        if graduated == true { return true }
+        return (box ?? 1) >= graduateMinBox && (correctCount ?? 0) >= graduateMinCorrect
+    }
+
+    /// 错题条目的毕业判定。
+    static func isGraduated(_ entry: MistakeEntry) -> Bool {
+        isGraduated(graduated: entry.graduated, box: entry.box, correctCount: entry.correctCount)
+    }
+
     /// Filter & sort entries that are due today.
     /// Lower box first; within a box, oldest `lastReviewedAt` (or `addedAt`) first.
+    /// 毕业条目（派生判定）永不进入 due 队列 —— 与 core `getDueSrsEntries` 一致。
     static func dueEntries(_ entries: [MistakeEntry], now: Date = Date()) -> [MistakeEntry] {
         let today = todayString(now: now)
         let due = entries.filter { e in
+            if isGraduated(e) { return false }
             guard let next = e.nextReviewDate else { return true }
             return next <= today
         }

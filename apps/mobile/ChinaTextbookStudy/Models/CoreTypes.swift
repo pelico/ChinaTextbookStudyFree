@@ -403,6 +403,12 @@ struct UserProgress: Codable, Hashable {
     // Wave B economy ledgers (all optional for backward compat)
     var claimedStreakRewards: [Int]?    // streak milestones already paid (3/7/14/…)
     var lastDailyRewardDate: String?    // YYYY-MM-DD the login reward was last claimed
+    /// 今日登录奖励是按哪一档「有效连胜」发的（parity-4）。补卡成功后有效连胜
+    /// 回升，按新旧两档的差额补发，最终收益与 web「补卡决定后再发」等价。
+    var lastDailyRewardStreak: Int?
+    /// 复习补心账本（iosretention-4）：YYYY-MM-DD，每天只补一次，
+    /// 杜绝「进复习 → 乱答 → 看结算 → 返回」无限回心。
+    var lastReviewHeartDate: String?
     var unlockedAchievements: [String]? // permanent achievement ledger (never re-locks)
     var freezesMigrated: Bool?          // one-time max(current, 2) shield migration done
 

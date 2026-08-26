@@ -21,8 +21,17 @@ import {
   DEFAULT_DAILY_GOAL,
   DAILY_GOAL_BONUS,
   FIRST_PERFECT_XP_BONUS,
+  REVIEW_HEART_REWARD,
+  REVIEW_HEART_MIN_CORRECT,
+  reviewHeartReward,
   advanceStreak,
 } from "@cstf/core/economy";
+import {
+  readingId,
+  normalizeReadingId,
+  normalizeReadingMap,
+  type ReadingKind,
+} from "@cstf/core/reading";
 import {
   ALL_ACHIEVEMENTS,
   computeUnlockedAchievementIds,
@@ -174,6 +183,12 @@ interface ProgressState {
   // 心数系统（持久化，跨会话恢复）
   hearts: number;
   nextHeartAt: number | null; // ms timestamp
+  /**
+   * 上次靠「复习错题」赚到红心的日期（YYYY-MM-DD，"" = 从未）。
+   * 每天只能靠复习补一次心 —— 否则重复进出同一批错题就能无限刷心。
+   * 与 iOS ProgressStore 的 lastReviewHeartDate 同名同义。
+   */
+  lastReviewHeartDate: string;
 
   // 每日目标
   dailyGoal: number;
@@ -182,6 +197,12 @@ interface ProgressState {
 
   // 连胜护盾
   streakFreezes: number;
+  /**
+   * 「护盾一次性补发」是否已经执行过（与 iOS Progress.freezesMigrated 同名同义）。
+   * 没有这个开关的话，persist version 每提升一次，migrate 里的
+   * `max(现值, INITIAL_FREEZES)` 就会再白送一轮护盾。
+   */
+  freezesMigrated: boolean;
 
   // 未完成课程会话
   activeLesson: ActiveLessonSession | null;
@@ -223,8 +244,10 @@ interface ProgressState {
   // 🎒 v6：用户选择的年级（首次进入时引导选择，决定 home 显示哪一年级的教材）
   selectedGrade: number | null;
 
-  // 📖 v7：阅读完成记录（课文听读/跟读、故事阅读），id → 完成时间 ISO。
-  // 与课程记录彻底分离：阅读只发 XP、不发宝石、不算课时（对齐 iOS completeReading）
+  // 📖 v7：阅读完成记录，**规范阅读 id**（@cstf/core/reading 的
+  // `reading:{kind}:{rawId}`）→ 完成时间 ISO。
+  // 与课程记录彻底分离：阅读只发 XP、不发宝石、不算课时（对齐 iOS completeReading）。
+  // ⚠️ 不要手拼 key：读用 isReadingDone / 写用 completeReading(readingId(kind, rawId), xp)。
   completedReadings: Record<string, string>;
 
   // 🏆 v8：成就永久解锁账本（只进不出，防连胜回落"回锁"；奖励只发一次）
@@ -272,8 +295,13 @@ interface ProgressState {
    * 返回结算单 LessonOutcome 供结算页展示。
    */
   recordLessonComplete: (lessonId: string, lessonTitle: string, accuracy: number, xpGained: number) => LessonOutcome;
-  /** 完成一篇阅读（课文听读/跟读/故事）：幂等，首次才发 XP，不发通关宝石、不写课程记录 */
+  /**
+   * 完成一篇阅读（课文听读/跟读/故事）：幂等，首次才发 XP，不发通关宝石、不写课程记录。
+   * id 请传 `readingId(kind, rawId)`；传历史格式也不会记错账（内部会归一化）。
+   */
   completeReading: (id: string, xp: number) => void;
+  /** 某篇阅读是否已完成（内部按规范 id 查表，调用方不用关心 key 格式） */
+  isReadingDone: (kind: ReadingKind, rawId: string) => boolean;
   addMistake: (lessonId: string, lessonTitle: string, question: Question) => void;
   removeMistake: (lessonId: string, questionId: number) => void;
   clearMistakesForLesson: (lessonId: string) => void;
@@ -284,6 +312,18 @@ interface ProgressState {
   loseHeart: () => void;
   refreshHearts: () => void;
   refillHeartsFull: () => void; // 调试/管理用
+  /**
+   * 补回 n 颗红心（默认 1）：先结算自然回复再封顶 MAX_HEARTS，满心清计时。
+   * 对齐 iOS ProgressStore.addHeart。
+   */
+  addHeart: (n?: number) => void;
+  /**
+   * 复习一轮错题后的补心结算（对齐 iOS content-7）：
+   * 答对 ≥ REVIEW_HEART_MIN_CORRECT 才补 REVIEW_HEART_REWARD 颗，
+   * 每天最多一次（lastReviewHeartDate 账本，防止刷同一批错题无限刷心）。
+   * 返回实际补到的红心数（0 = 没到门槛 / 今天领过 / 已满心）。
+   */
+  awardReviewHeart: (correctCount: number) => number;
   /** 花 350 宝石立即补满红心（先刷新自然回复；已满不扣费返回 false） */
   buyHeartRefill: () => boolean;
   /** 花 200 宝石购买一枚连胜护盾（持有上限 2，满则返回 false） */
@@ -418,7 +458,16 @@ export {
   DEFAULT_DAILY_GOAL,
   dailyRewardForStreak,
   isWeekendXpActive as isWeekendBonusActive,
+  REVIEW_HEART_REWARD,
+  REVIEW_HEART_MIN_CORRECT,
 };
+
+/**
+ * 阅读完成 id 的单一事实源（@cstf/core/reading）。
+ * UI 调用点（PassageReader / StoryReaderClient / StoryCard）统一用它拼 key：
+ *   readingId("listen" | "followup", passage.id) / readingId("story", story.id)
+ */
+export { readingId, type ReadingKind };
 
 /** 一颗红心的回复时长（ms），由 core HEART_REGEN_SECONDS 折算 */
 export const HEART_RECHARGE_MS = HEART_REGEN_SECONDS * 1000;
@@ -577,12 +626,15 @@ export const useProgressStore = create<ProgressState>()(
 
       hearts: MAX_HEARTS,
       nextHeartAt: null,
+      lastReviewHeartDate: "",
 
       dailyGoal: DEFAULT_DAILY_GOAL,
       todayXp: 0,
       lastXpDate: "",
 
       streakFreezes: INITIAL_FREEZES,
+      // 新装的 app 一开始就拿到 INITIAL_FREEZES，不需要再被"补发"一次
+      freezesMigrated: true,
 
       activeLesson: null,
 
@@ -763,6 +815,21 @@ export const useProgressStore = create<ProgressState>()(
           // 题面快照：跨端导入时可直接展示（iOS 题库齐全时会忽略）
           question: m.question,
         }));
+        // 🏆 成就两个字段语义不同，如实分别导出：
+        //   unlockedAchievements = 「已达成」= 实时判定 ∪ 账本（账本只进不出，
+        //     所以并集才是真实的已达成集）；
+        //   claimedAchievements  = 「已领取（已发过宝石）」= web 的 unlockedAchievements 账本。
+        // web 上 AchievementWatcher 会在解锁的同一瞬间发钱，所以两者通常相等；
+        // 相等时对端（iOS）算出的「已解锁未领取」差集为空，不会重复发奖，语义依然正确。
+        let unlockedForBackup: Record<string, true> = { ...s.unlockedAchievements };
+        try {
+          for (const id of computeUnlockedAchievementIds(s)) {
+            unlockedForBackup[id] = true;
+          }
+        } catch {
+          // 快照字段异常时保守回退到账本本身（宁可少报"已达成"，也不谎报）
+          unlockedForBackup = { ...s.unlockedAchievements };
+        }
         return buildBackup({
           platform: "web",
           data: {
@@ -780,9 +847,12 @@ export const useProgressStore = create<ProgressState>()(
             mistakesBank,
             claimedChests: s.claimedChests,
             claimedStreakRewards,
+            // 每日任务领取账本必须随档走：不带的话导入端把它当瞬态清空，
+            // 又从 xpHistory 复原了今日 XP，今天领过的任务立刻回到"可领取"，
+            // 「导出→导入」就能无限刷宝石。
+            claimedQuests: s.claimedQuests,
             lastDailyRewardDate: s.lastDailyRewardDate,
-            // web 的 unlockedAchievements 就是「已领取账本」，两个字段同源导出
-            unlockedAchievements: s.unlockedAchievements,
+            unlockedAchievements: unlockedForBackup,
             claimedAchievements: s.unlockedAchievements,
             ownedCosmetics: s.ownedCosmetics,
             equipped: {
@@ -832,11 +902,28 @@ export const useProgressStore = create<ProgressState>()(
           if (Number.isFinite(n) && n > 0) claimedStreakRewards[n] = true;
         }
 
-        // 成就账本 = 解锁 ∪ 已领取（防重复领奖）
+        // 🏆 web 的 unlockedAchievements 是「已发钱账本」（进账本 = 宝石已到手）。
+        // 所以导入时只能吸收对端的**已领取**集：iOS 上「已解锁但还没领」的成就
+        // 不进账本，导入后 AchievementWatcher 重算时会把它当新解锁正常补发宝石。
+        // 若对端根本没有 claimedAchievements 字段，说明是"解锁即发钱"语义的老档，
+        // 这时才回退用 unlockedAchievements（否则会把老档的奖励重复发一遍）。
         const unlockedAchievements: Record<string, true> = {
-          ...d.unlockedAchievements,
-          ...(d.claimedAchievements ?? {}),
+          ...(d.claimedAchievements ?? d.unlockedAchievements),
         };
+
+        // 🗓️ 每日任务领取账本：key 是 "YYYY-MM-DD:questId"，只有**今天**的键
+        // 还会被 claimQuest / claimableQuestCount 查到（更早的日期永远查不到，
+        // 留着只会白占存储），所以按今天裁剪后写回，保证「导出→导入」之后
+        // 今天已经领过的任务不能再领一次。
+        const claimedQuests: Record<string, true> = {};
+        for (const k of Object.keys(d.claimedQuests ?? {})) {
+          if (k.startsWith(`${today}:`)) claimedQuests[k] = true;
+        }
+
+        // ❤️ 红心：缺心的存档必须带着回复计时进来，否则 refreshHearts 无表可走
+        //（自愈守卫也会补种，这里显式设置是为了不白白浪费一个回复周期）。
+        const hearts = Math.max(0, Math.min(d.hearts, MAX_HEARTS));
+        const nextHeartAt = hearts >= MAX_HEARTS ? null : Date.now() + HEART_RECHARGE_MS;
 
         // 装扮：starter 永远保底；未知装扮 id 回退默认（跨版本 / 跨端容错）
         const ownedCosmetics: Record<string, true> = {
@@ -858,11 +945,13 @@ export const useProgressStore = create<ProgressState>()(
           streakFreezes: Math.min(d.streakFreezes, 99),
           gems: d.gems,
           lifetimeGems: d.lifetimeGems,
-          hearts: Math.min(d.hearts, MAX_HEARTS),
-          nextHeartAt: null,
+          hearts,
+          nextHeartAt,
           dailyGoal: Math.max(10, Math.min(500, d.dailyGoal || DEFAULT_DAILY_GOAL)),
           completedLessons,
-          completedReadings: d.completedReadings,
+          // 阅读 key 归一化（core validateBackup 已经归一过，这里幂等兜底，
+          // 防止调用方绕过校验直接塞信封）
+          completedReadings: normalizeReadingMap(d.completedReadings),
           perfectedLessons: d.perfectedLessons ?? {},
           mistakesBank,
           claimedChests: d.claimedChests,
@@ -888,9 +977,14 @@ export const useProgressStore = create<ProgressState>()(
           dailyLessons: 0,
           dailyReviews: 0,
           dailyReadings: 0,
-          claimedQuests: {},
           todayTimeMs: 0,
           lastTimeDate: "",
+          // ⚠️ 不是瞬态、也不进信封：
+          //   claimedQuests —— 见上，按今天裁剪后随档恢复（防重复领任务宝石）；
+          //   lastReviewHeartDate —— 故意不写（保持本机当前值），
+          //     否则「导出→导入」就能清掉补心账本，每天刷无数颗红心；
+          //   freezesMigrated —— 保持本机 true，导入不该触发护盾补发。
+          claimedQuests,
         });
       },
 
@@ -1044,7 +1138,15 @@ export const useProgressStore = create<ProgressState>()(
       // 📖 阅读完成（课文听读/跟读、故事）——对齐 iOS completeReading：
       // 纯 XP，不发通关宝石、不写 completedLessons/lessonHistory，重复完成不再奖励
       completeReading: (id, xp) => {
-        if (get().completedReadings[id]) return; // 已完成过，幂等
+        // key 一律归一化成 core 的规范阅读 id：即使某个调用点还在传历史格式
+        // （`passage-x-listen` / `story-x` / 裸 id），也不会在表里另开一个键
+        // 导致重复发 XP、或与导入的存档对不上。normalizeReadingId 幂等。
+        const key = normalizeReadingId(id);
+        if (key === "") return; // 认不出来的残缺 id：不记账，避免污染 key 空间
+        // 幂等判断只看**键是否存在**，与 isReadingDone / UI 同一口径。
+        // 不能写成 `if (map[key])`：值是完成日期，老档（或另一端导出的档）里
+        // 可能是空串，真值判断会把"读过但日期不详"误判成没读过 → 每次进来都能再领一次 XP。
+        if (get().completedReadings[key] != null) return; // 已完成过，幂等
         const today = todayStr();
         set(state => {
           const roll = questDayRollover(state, today);
@@ -1061,12 +1163,15 @@ export const useProgressStore = create<ProgressState>()(
             lifetimeGems: state.lifetimeGems + xpAccount.goalBonusGems,
             completedReadings: {
               ...state.completedReadings,
-              [id]: new Date().toISOString(),
+              [key]: new Date().toISOString(),
             },
           };
         });
         get().bumpStreakIfNeeded();
       },
+
+      isReadingDone: (kind, rawId) =>
+        get().completedReadings[readingId(kind, rawId)] != null,
 
       addMistake: (lessonId, lessonTitle, question) => {
         const today = todayStr();
@@ -1174,11 +1279,18 @@ export const useProgressStore = create<ProgressState>()(
 
       refreshHearts: () => {
         let { hearts, nextHeartAt } = get();
-        if (hearts >= MAX_HEARTS || !nextHeartAt) {
+        if (hearts >= MAX_HEARTS) {
           // 确保满心时 nextHeartAt 为空
-          if (hearts >= MAX_HEARTS && nextHeartAt !== null) {
-            set({ nextHeartAt: null });
-          }
+          if (nextHeartAt !== null) set({ nextHeartAt: null });
+          return;
+        }
+        if (!nextHeartAt) {
+          // 🩹 自愈守卫：缺心却没有回复计时 —— 这是个「死状态」，
+          // 因为回心只发生在这里（要有表才走），而 loseHeart 在 hearts<=0 时
+          // 直接 return 也够不着补种。任何路径（导入存档、老档迁移、
+          // 手改 localStorage）写出这个组合，都会让小朋友的红心永远停在 0、
+          // 一节课都点不开，刷新也救不回来。发现即补种一个回复周期。
+          set({ nextHeartAt: Date.now() + HEART_RECHARGE_MS });
           return;
         }
         const now = Date.now();
@@ -1193,6 +1305,33 @@ export const useProgressStore = create<ProgressState>()(
 
       refillHeartsFull: () => {
         set({ hearts: MAX_HEARTS, nextHeartAt: null });
+      },
+
+      addHeart: (n = REVIEW_HEART_REWARD) => {
+        if (n <= 0) return;
+        // 先结算自然回复，封顶才是按"真实心数"来的（否则会吞掉一次回心）
+        get().refreshHearts();
+        const { hearts } = get();
+        if (hearts >= MAX_HEARTS) return;
+        const next = Math.min(MAX_HEARTS, hearts + n);
+        // 补满了就停表；没补满保留原计时（不重置，否则等于惩罚玩家）
+        set(state => ({
+          hearts: next,
+          nextHeartAt: next >= MAX_HEARTS ? null : state.nextHeartAt,
+        }));
+      },
+
+      awardReviewHeart: correctCount => {
+        const today = todayStr();
+        // 每天一次的账本：不然反复进出同一批错题就能把红心刷成无限
+        if (get().lastReviewHeartDate === today) return 0;
+        get().refreshHearts();
+        const granted = reviewHeartReward(correctCount, get().hearts);
+        // 没到门槛 / 已经满心 → 不记账本，今天晚点真赚到了还能补
+        if (granted <= 0) return 0;
+        get().addHeart(granted);
+        set({ lastReviewHeartDate: today });
+        return granted;
       },
 
       buyHeartRefill: () => {
@@ -1525,8 +1664,12 @@ export const useProgressStore = create<ProgressState>()(
       //   v9 → v10：本地模拟联赛 leagueSalt/leagueTier/leagueWeekKey
       //            + pendingLeagueResult（salt 由首次 settleLeagueIfNeeded 生成）
       //   v10 → v11：题目报错本地列表 reports（🚩 小旗子）
-      version: 11,
-      migrate: (persistedState: unknown) => {
+      //   v11 → v12：completedReadings 的 key 升级为 core 规范阅读 id
+      //            （reading:{kind}:{rawId}，双端同一 key 空间）
+      //            + freezesMigrated（护盾补发一次性开关）
+      //            + lastReviewHeartDate（复习补心按天账本）
+      version: 12,
+      migrate: (persistedState: unknown, fromVersion: number) => {
         const state = (persistedState as Partial<ProgressState>) ?? {};
         const starterOwned = Object.fromEntries(
           getStarterCosmetics().map(c => [c.id, true as const]),
@@ -1556,6 +1699,12 @@ export const useProgressStore = create<ProgressState>()(
             completedLessons[id] = result;
           }
         }
+        // === v12：阅读 key 归一化 —— 上面刚并进来的 `passage-*` / `story-*` 伪 id
+        //     和 iOS 老档的裸 id 一起升级到规范 `reading:{kind}:{rawId}`。
+        //     normalizeReadingMap 幂等，重复迁移不会出问题；同一篇被多个历史键
+        //     记过时保留较早的完成日期。 ===
+        const normalizedReadings = normalizeReadingMap(completedReadings);
+
         const perfectedLessons = Object.fromEntries(
           Object.entries(state.perfectedLessons ?? {}).filter(
             ([id]) => !isReadingId(id),
@@ -1583,15 +1732,27 @@ export const useProgressStore = create<ProgressState>()(
           /* 快照字段异常时保守跳过，账本从空开始 */
         }
 
+        // === v8 的「护盾一次性补发」——现在有了持久开关，最多再跑这一次 ===
+        // 判定「已经补发过」：显式标记，或者存档版本 ≥ 8（那次迁移当年就跑过了）。
+        // 没有这个开关时，每提升一次 persist version 都会重跑 max(现值, 2)，
+        // 用护盾用到 0 的小朋友每次发版都白捡 2 个。
+        const freezesAlreadyToppedUp =
+          state.freezesMigrated === true || fromVersion >= 8;
+        const rawFreezes = state.streakFreezes ?? INITIAL_FREEZES;
+        const streakFreezes = freezesAlreadyToppedUp
+          ? rawFreezes
+          : Math.max(rawFreezes, INITIAL_FREEZES); // 超过 2 的不没收（只封新购）
+
         return {
           ...state,
           hearts: state.hearts ?? MAX_HEARTS,
           nextHeartAt: state.nextHeartAt ?? null,
+          lastReviewHeartDate: state.lastReviewHeartDate ?? "",
           dailyGoal: state.dailyGoal ?? DEFAULT_DAILY_GOAL,
           todayXp: state.todayXp ?? 0,
           lastXpDate: state.lastXpDate ?? "",
-          // v8：护盾一次性迁移为 max(现值, 2)；超过 2 的不没收（只封新购）
-          streakFreezes: Math.max(state.streakFreezes ?? INITIAL_FREEZES, INITIAL_FREEZES),
+          streakFreezes,
+          freezesMigrated: true,
           activeLesson: state.activeLesson ?? null,
           autoNarrate: state.autoNarrate ?? true,
           gems: state.gems ?? 0,
@@ -1613,8 +1774,8 @@ export const useProgressStore = create<ProgressState>()(
           lastDailyRewardDate: state.lastDailyRewardDate ?? "",
           // v6
           selectedGrade: state.selectedGrade ?? null,
-          // v7
-          completedReadings,
+          // v7 + v12（key 已升级为规范阅读 id）
+          completedReadings: normalizedReadings,
           // v8
           unlockedAchievements,
           pendingStreakMilestone: state.pendingStreakMilestone ?? null,

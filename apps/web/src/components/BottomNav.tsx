@@ -26,6 +26,7 @@ import { haptic } from "@/lib/haptic";
 import { useProgressStore } from "@/store/progress";
 import { ALL_COSMETICS } from "@/lib/cosmetics";
 import { hasUnseenAchievements } from "@/lib/achievements";
+import { isImmersivePath } from "@/lib/immersiveRoutes";
 import type { ComponentType } from "react";
 
 interface NavItem {
@@ -90,18 +91,6 @@ const NAV_ITEMS: NavItem[] = [
   },
 ];
 
-/**
- * 沉浸式路径，不显示底部导航：
- *   - 课程答题 /lesson/**
- *   - 课文阅读器 /reading/{book}/{passage}（列表页 /reading/{book}/ 保留导航）
- *   - 故事阅读器 /stories/{book}/{story}（列表页 /stories/{book}/ 保留导航）
- */
-const HIDDEN_PATTERNS = [
-  /^\/lesson\//,
-  /^\/reading\/[^/]+\/[^/]+/,
-  /^\/stories\/[^/]+\/[^/]+/,
-];
-
 function isActive(pathname: string, item: NavItem): boolean {
   if (item.matchPrefix === "/") {
     return (
@@ -147,8 +136,9 @@ export function BottomNav() {
   const claimableQuests = hydrated ? claimableQuestCount() : 0;
   const profileHasUnseen = hydrated && hasUnseenAchievements();
 
-  // 沉浸式路径（答题 / 阅读器）隐藏底部导航
-  if (HIDDEN_PATTERNS.some(re => re.test(pathname))) return null;
+  // 沉浸式路径（课程 / 跳级 / 复习 runner / 阅读器）隐藏底部导航，
+  // 否则固定底栏会盖住这些页面底部的「检查 / 继续」按钮。
+  if (isImmersivePath(pathname)) return null;
 
   function getBadge(item: NavItem): { count?: number; dot?: boolean } | null {
     if (item.matchPrefix === "/review" && reviewBadge > 0) return { count: reviewBadge };

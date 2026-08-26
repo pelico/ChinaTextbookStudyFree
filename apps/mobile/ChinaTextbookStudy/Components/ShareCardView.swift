@@ -17,8 +17,11 @@ enum ShareCard {
     /// 连胜卡数据。
     struct StreakData {
         let streak: Int
-        /// 本周 7 天（旧 → 新），是否学习过。
+        /// 本周 7 天（**周一 → 周日**，parity-6 的日历周），是否学习过。
         let week: [(dateKey: String, studied: Bool)]
+        /// 今天在这 7 格里的下标（周一=0 … 周日=6），传 `ProgressStore.todayIndexInWeek()`；
+        /// 越界则不标「今」。绝不能假设「最后一格 = 今天」。
+        let todayIndex: Int
     }
 
     /// 成就 / 三星卡数据。
@@ -139,7 +142,7 @@ struct StreakShareCardView: View {
                 // 本周 7 格日历
                 HStack(spacing: 8) {
                     ForEach(Array(data.week.enumerated()), id: \.offset) { i, day in
-                        let isToday = i == data.week.count - 1
+                        let isToday = i == data.todayIndex
                         VStack(spacing: 5) {
                             Text(isToday ? "今" : weekdayLabel(day.dateKey))
                                 .font(.system(size: 11, weight: .heavy, design: .rounded))

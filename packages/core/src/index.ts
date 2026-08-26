@@ -10,6 +10,8 @@ export * from "./mascotTriggers";
 export * from "./achievements";
 export * from "./quests";
 export * from "./rng";
+export * from "./week";
 export * from "./league";
+export * from "./reading";
 export * from "./backup";
 export * from "./jump";

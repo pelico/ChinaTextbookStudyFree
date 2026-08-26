@@ -18,6 +18,7 @@
  */
 
 import { U64_MASK, djb2Hash, mix64 } from "./rng";
+import { dayIndexInWeek, weekStartKey } from "./week";
 
 // ============================================================
 // 🏆 段位
@@ -80,32 +81,12 @@ export const LEAGUE_BOT_COUNT = 15;
 
 /**
  * 本周周一的 YYYY-MM-DD（本地时区）。周一自身返回当天。
+ *
+ * 「一周」的定义在 week.ts（weekStartKey / weekDateKeys / dayIndexInWeek），
+ * 联赛、周报、连胜日历共用同一份实现；这里只保留历史名字作为别名，
+ * 不允许再写第二份周窗口逻辑。
  */
-export function weekKeyFor(date: Date = new Date()): string {
-  const day = date.getDay(); // 0=周日..6=周六
-  const offset = (day + 6) % 7; // 距本周周一的天数
-  const monday = new Date(date.getFullYear(), date.getMonth(), date.getDate() - offset);
-  const y = monday.getFullYear();
-  const m = String(monday.getMonth() + 1).padStart(2, "0");
-  const d = String(monday.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-/** 解析 weekKey 为本地时区当天 00:00 的 Date。 */
-function parseWeekKey(weekKey: string): Date {
-  const [y, m, d] = weekKey.split("-").map(Number);
-  return new Date(y, m - 1, d);
-}
-
-/**
- * date 相对 weekKey 周一的天序（周一=0 … 周日=6；早于周一为负，晚于周日 >6）。
- * 用本地日历日的差值计算，对 DST 用 round 兜底。
- */
-function dayIndexInWeek(weekKey: string, date: Date): number {
-  const monday = parseWeekKey(weekKey);
-  const midnight = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  return Math.round((midnight.getTime() - monday.getTime()) / 86_400_000);
-}
+export const weekKeyFor = weekStartKey;
 
 // ============================================================
 // 🤖 影子同学（bot）

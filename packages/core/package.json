@@ -20,7 +20,9 @@
     "./achievements": "./src/achievements.ts",
     "./quests": "./src/quests.ts",
     "./rng": "./src/rng.ts",
+    "./week": "./src/week.ts",
     "./league": "./src/league.ts",
+    "./reading": "./src/reading.ts",
     "./backup": "./src/backup.ts",
     "./jump": "./src/jump.ts"
   },

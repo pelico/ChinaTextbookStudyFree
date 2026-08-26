@@ -80,6 +80,11 @@ final class AssetDownloader: ObservableObject {
     private var dataRoot: URL { DataLoader.shared.sandboxDataRoot }
     private var audioRoot: URL { DataLoader.shared.sandboxAudioRoot }
 
+    /// bookId → 音频包是否齐。`isBookDownloaded` 会被书单每帧调用,探测要解 JSON,
+    /// 不缓存会很贵。任何一次下载完成都整表清空 —— 音频分片是内容寻址、跨书共享的,
+    /// 下了 A 也可能补齐 B 缺的那几条。
+    private var audioReadyCache: [String: Bool] = [:]
+
     // MARK: - Manifest
 
     /// Fetch the manifest from the GitHub Release. Caches it on disk so the
@@ -111,8 +116,20 @@ final class AssetDownloader: ObservableObject {
 
     // MARK: - Per-book download
 
-    /// Whether a book's data zip has already been extracted locally.
+    /// 这本书是不是**真的**下好了 —— 数据包 + 音频包都得在。
+    ///
+    /// 以前只看 `outline.json`,于是「数据包下好了、音频包失败/被清掉」的书照样
+    /// 显示「已下载」:课文页点「朗读全文」毫无反应,听读完成门槛永远解不开,
+    /// 用户也找不到重新下载的入口(iosretention-6)。
+    ///
+    /// 注意 `SeedInstaller` 升级时会整体删掉 `cstf/audio/` —— 标记就放在音频树
+    /// 里面,跟着一起消失,状态自动回落到「需下载」,不会出现「显示已下载但没声音」。
     func isBookDownloaded(_ bookId: String) -> Bool {
+        hasBookData(bookId) && hasBookAudio(bookId)
+    }
+
+    /// 数据包(课程/课文/故事 JSON)是否已解压到本地。
+    func hasBookData(_ bookId: String) -> Bool {
         let outline = dataRoot
             .appendingPathComponent("books", isDirectory: true)
             .appendingPathComponent(bookId, isDirectory: true)
@@ -120,13 +137,99 @@ final class AssetDownloader: ObservableObject {
         return FileManager.default.fileExists(atPath: outline.path)
     }
 
+    /// 音频包是否已落地。优先看下载器写的标记;没有标记(内置 seed 书、老版本
+    /// 装好的书)时回落到抽样探测,免得把本来能用的书误判成「需下载」。
+    func hasBookAudio(_ bookId: String) -> Bool {
+        if let cached = audioReadyCache[bookId] { return cached }
+        let ok = FileManager.default.fileExists(atPath: audioMarkerURL(bookId).path)
+            || probeBookAudio(bookId)
+        audioReadyCache[bookId] = ok
+        return ok
+    }
+
+    private var audioMarkerDir: URL {
+        audioRoot.appendingPathComponent(".downloaded", isDirectory: true)
+    }
+
+    private func audioMarkerURL(_ bookId: String) -> URL {
+        audioMarkerDir.appendingPathComponent(bookId)
+    }
+
+    private func writeAudioMarker(_ bookId: String, sha: String) {
+        try? FileManager.default.createDirectory(at: audioMarkerDir, withIntermediateDirectories: true)
+        try? sha.write(to: audioMarkerURL(bookId), atomically: true, encoding: .utf8)
+    }
+
+    /// 抽样探测:从这本书的数据里取前几条音频引用,看文件在不在。
+    ///
+    /// - 一条音频引用都没有(纯数学书之类)→ 视为不需要音频,返回 true;
+    /// - 抽到的引用全部命中 → true;任何一条缺失 → false(重下是幂等的,
+    ///   宁可多提示一次,也不要让用户对着没声音的课文干瞪眼)。
+    private func probeBookAudio(_ bookId: String) -> Bool {
+        let refs = sampleAudioRefs(bookId, limit: 8)
+        guard !refs.isEmpty else { return true }
+        return refs.allSatisfy { AudioPlayer.shared.resolve($0) != nil }
+    }
+
+    private func sampleAudioRefs(_ bookId: String, limit: Int) -> [String] {
+        var refs: [String] = []
+        func collect(_ path: String?) {
+            guard refs.count < limit, let path, !path.isEmpty else { return }
+            refs.append(path)
+        }
+
+        // 课文 / 故事的逐句音频最便宜，先探这两个。
+        if let passages = (try? DataLoader.shared.loadPassages(bookId: bookId))?.passages {
+            outer: for p in passages {
+                for s in p.sentences {
+                    collect(s.audio)
+                    if refs.count >= limit { break outer }
+                }
+            }
+        }
+        if refs.count < limit, let stories = (try? DataLoader.shared.loadStories(bookId: bookId))?.stories {
+            outer: for s in stories {
+                for sentence in s.sentences {
+                    collect(sentence.audio)
+                    if refs.count >= limit { break outer }
+                }
+            }
+        }
+        // 再退到任意一节课的题目音频（数学等没有课文的书走这条）。
+        if refs.count < limit, let lesson = firstLesson(bookId) {
+            for q in lesson.questions {
+                collect(q.audio?.question)
+                collect(q.audio?.explanation)
+                if refs.count >= limit { break }
+            }
+        }
+        return refs
+    }
+
+    private func firstLesson(_ bookId: String) -> Lesson? {
+        let dir = dataRoot
+            .appendingPathComponent("books", isDirectory: true)
+            .appendingPathComponent(bookId, isDirectory: true)
+            .appendingPathComponent("lessons", isDirectory: true)
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else { return nil }
+        guard let first = names.filter({ $0.hasSuffix(".json") }).sorted().first else { return nil }
+        let lessonId = String(first.dropLast(".json".count))
+        return try? DataLoader.shared.loadLesson(bookId: bookId, lessonId: lessonId)
+    }
+
     /// Download both bundles for a book sequentially. Idempotent — if the
     /// data already exists and SHA matches, the download is skipped.
+    ///
+    /// 音频包**解压成功之后**才写 per-book 落地标记(iosretention-6):数据包成功、
+    /// 音频包失败时这本书不会假装「已下载」,下载卡照样给重试入口。
     func ensureBookDownloaded(_ entry: ManifestEntry) async throws {
         if inFlight.contains(entry.bookId) { return }
         inFlight.insert(entry.bookId)
         defer { inFlight.remove(entry.bookId) }
         bookProgress[entry.bookId] = 0
+        lastError = nil
+        // 上一轮失败留下的「音频不全」判断作废，重新探。
+        audioReadyCache.removeAll()
 
         do {
             try await downloadBundle(
@@ -141,10 +244,13 @@ final class AssetDownloader: ObservableObject {
                 weight: 0.8,
                 bookId: entry.bookId
             )
+            writeAudioMarker(entry.bookId, sha: entry.audio.sha256)
+            audioReadyCache.removeAll()
             bookProgress[entry.bookId] = 1
             try? markExcludedFromBackup(dataRoot)
             try? markExcludedFromBackup(audioRoot)
         } catch {
+            audioReadyCache.removeAll()
             lastError = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
             throw error
         }

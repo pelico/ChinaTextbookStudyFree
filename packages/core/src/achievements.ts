@@ -10,7 +10,23 @@
  *     markAllSeen，依赖 localStorage + Zustand store。RN 端会有自己的 seen-tracking 实现。
  */
 
+import { getStarterCosmetics } from "./cosmetics";
+
 export type AchievementCategory = "milestone" | "streak" | "perfection" | "shop" | "review";
+
+/**
+ * 新档白送的初始美妆 id 集合 —— "解锁第一件美妆道具"要排除它们。
+ * 用 cosmetics 的 starter 标记推导（而不是减一个魔法数），
+ * 将来增删 starter 或用户只拥有部分 starter 都不会错档。
+ */
+const STARTER_COSMETIC_IDS: ReadonlySet<string> = new Set(
+  getStarterCosmetics().map(c => c.id),
+);
+
+/** 自己买/赚来的美妆件数（不含初始白送的）。 */
+function ownedNonStarterCount(ownedCosmetics: Record<string, unknown>): number {
+  return Object.keys(ownedCosmetics).filter(id => !STARTER_COSMETIC_IDS.has(id)).length;
+}
 
 /**
  * 成就计算所需的进度快照——只声明 ALL_ACHIEVEMENTS 真正读到的字段。
@@ -216,7 +232,7 @@ const A: Achievement[] = [
     color: "#A855F7",
     goal: 1,
     reward: 20,
-    getProgress: s => Math.max(0, Object.keys(s.ownedCosmetics).length - 3),
+    getProgress: s => ownedNonStarterCount(s.ownedCosmetics),
   },
   {
     id: "gem-collector",

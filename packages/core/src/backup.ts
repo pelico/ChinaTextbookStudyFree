@@ -18,12 +18,37 @@
 import type { Question } from "./types";
 import { DEFAULT_EQUIPPED } from "./cosmetics";
 import { MAX_HEARTS, DEFAULT_DAILY_GOAL, INITIAL_FREEZES } from "./economy";
+import { normalizeReadingMap } from "./reading";
 
 // ============================================================
 // 类型
 // ============================================================
 
 export const BACKUP_SCHEMA = "cstf-backup" as const;
+
+/**
+ * 信封格式代号。**保持 1**，理由与已知限制见下。
+ *
+ * 已知限制（v1 内的一次语义变更，2026-08 双端 key 空间统一）：
+ *   `completedReadings` 的**键空间**从"两端各写各的"（web `passage-{id}-listen` /
+ *   `story-{id}`，iOS 裸 `{id}` / `{id}-followup`）改成了统一的规范阅读 id
+ *   `reading:{kind}:{rawId}`（见 reading.ts）。当前两端的 buildBackup /
+ *   validateBackup 都**无条件**用 normalizeReadingMap 归一化，所以新端读任何时代的
+ *   档案都正确；但**混版窗口内旧客户端导入新档，会把所有阅读读成未读**
+ *   （只丢已读标记与"这篇领过 XP"的记录，不会损坏其它字段，重装新版后再导一次即可复原）。
+ *
+ * 为什么不升到 2：
+ *   1. 升版本救不了旧客户端 —— 旧端的前向兼容策略是"version 更大也照读已知字段"
+ *      （见 validateBackup 注释与 iOS Backup.swift），它并不按 version 分支解析
+ *      completedReadings，所以 v2 和 v1 在旧端的结果一模一样；
+ *   2. 新客户端也不需要 version 来分支 —— 归一化本来就是无条件的、幂等的，
+ *      normalizeReadingMap 同时认得新旧两套键；
+ *   3. 真正的代价是双端 skew：iOS `Domain/Backup.swift` 的 `Backup.version`
+ *      与 spec/golden-vectors.json 必须同步改，任何一侧漏改就会出现"同一版本的
+ *      两端导出不同 version"，比现在这条有据可查的限制更难排查。
+ *   → 结论：只作**语义标注**，不动版本号。真要升版，必须三处（此常量 /
+ *      iOS Backup.version / golden-vectors）同一次提交一起改。
+ */
 export const BACKUP_VERSION = 1;
 
 export type BackupPlatform = "ios" | "web";
@@ -68,13 +93,26 @@ export interface BackupData {
   dailyGoal: number;
   joinedDate?: string; // YYYY-MM-DD
   completedLessons: Record<string, BackupLessonResult>;
-  /** 阅读完成表：id → 完成日期（YYYY-MM-DD） */
+  /**
+   * 阅读完成表：规范阅读 id → 完成日期（YYYY-MM-DD）。
+   * 键一律是 reading.ts 的 `reading:{kind}:{rawId}`（buildBackup / validateBackup
+   * 都会用 normalizeReadingMap 归一化历史键），双端共用同一个 key 空间。
+   *
+   * 值保证非空：日期不详的老档条目会写成 `UNKNOWN_COMPLETION_DATE`。
+   * 判断"读过没有"看**键是否存在**，别对值做真值判断。
+   */
   completedReadings: Record<string, string>;
   perfectedLessons?: Record<string, true>;
   mistakesBank: BackupMistake[];
   claimedChests: Record<string, true>;
   /** key 为里程碑天数的字符串形式（JSON 键天然是字符串） */
   claimedStreakRewards: Record<string, true>;
+  /**
+   * 每日任务领取账本，键格式 `"YYYY-MM-DD:questId"`（questId 形如 `earnXP-60`）。
+   * 必须随档携带：否则导入端把它当瞬态清空、又从 xpHistory 复原了今日 XP，
+   * 已领过的任务会立刻回到"可领取"，导出再导入就能无限刷宝石。
+   */
+  claimedQuests: Record<string, true>;
   lastDailyRewardDate: string; // YYYY-MM-DD，"" = 从未领取
   unlockedAchievements: Record<string, true>;
   claimedAchievements?: Record<string, true>;
@@ -122,6 +160,7 @@ function defaultData(): BackupData {
     mistakesBank: [],
     claimedChests: {},
     claimedStreakRewards: {},
+    claimedQuests: {},
     lastDailyRewardDate: "",
     unlockedAchievements: {},
     ownedCosmetics: {},
@@ -138,14 +177,19 @@ export interface BuildBackupInput {
   data?: Partial<BackupData>;
 }
 
-/** 构造一个合法的 v1 信封。传入的 data 可以只给部分字段。 */
+/**
+ * 构造一个合法的 v1 信封。传入的 data 可以只给部分字段。
+ * completedReadings 一律归一化成规范阅读 id，信封里只存在一个 key 空间。
+ */
 export function buildBackup(input: BuildBackupInput): BackupEnvelope {
+  const data: BackupData = { ...defaultData(), ...stripUndefined(input.data ?? {}) };
+  data.completedReadings = normalizeReadingMap(data.completedReadings);
   return {
     schema: BACKUP_SCHEMA,
     version: BACKUP_VERSION,
     exportedAt: input.exportedAt ?? new Date().toISOString(),
     platform: input.platform,
-    data: { ...defaultData(), ...stripUndefined(input.data ?? {}) },
+    data,
   };
 }
 
@@ -425,10 +469,12 @@ export function validateBackup(input: unknown): BackupValidationResult {
     hearts: readNonNegNumber(d, "hearts", MAX_HEARTS, log),
     dailyGoal: readNonNegNumber(d, "dailyGoal", DEFAULT_DAILY_GOAL, log),
     completedLessons: readCompletedLessons(d, log),
-    completedReadings: readStringRecord(d, "completedReadings", log),
+    // 阅读 id 归一化：老档 / 另一端的历史键统一升级到 reading:{kind}:{rawId}
+    completedReadings: normalizeReadingMap(readStringRecord(d, "completedReadings", log)),
     mistakesBank: readMistakesBank(d, log),
     claimedChests: readFlagRecord(d, "claimedChests", log),
     claimedStreakRewards: readFlagRecord(d, "claimedStreakRewards", log),
+    claimedQuests: readFlagRecord(d, "claimedQuests", log),
     lastDailyRewardDate: readString(d, "lastDailyRewardDate", "", log),
     unlockedAchievements: readFlagRecord(d, "unlockedAchievements", log),
     ownedCosmetics: readFlagRecord(d, "ownedCosmetics", log),

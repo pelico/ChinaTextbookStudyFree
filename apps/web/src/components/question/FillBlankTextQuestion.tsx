@@ -83,6 +83,7 @@ export function FillBlankTextQuestion({
   phase,
   isCorrect,
   onChange,
+  locked = false,
 }: QuestionRendererProps) {
   const disabled = phase === "checked";
   const cancelNarrate = useAutoNarrate([question.audio?.question], question.id);
@@ -93,7 +94,7 @@ export function FillBlankTextQuestion({
   );
 
   function handleKey(k: string) {
-    if (disabled) return;
+    if (locked || disabled) return; // 遮罩打开时停摆（webrunner-5）
     cancelNarrate();
     playSfx("tap");
     haptic("light");

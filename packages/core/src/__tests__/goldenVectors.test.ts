@@ -8,14 +8,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import vectors from "../../spec/golden-vectors.json";
 import {
+  MAX_HEARTS,
+  REVIEW_HEART_MIN_CORRECT,
+  REVIEW_HEART_REWARD,
   advanceStreak,
   dailyRewardForStreak,
   lessonGemDrip,
+  reviewHeartReward,
   starsFromAccuracy,
   streakMilestoneReward,
   xpForLesson,
 } from "../economy";
-import { latchUnlocked } from "../achievements";
+import {
+  ALL_ACHIEVEMENTS,
+  latchUnlocked,
+  type AchievementProgressSnapshot,
+} from "../achievements";
+import { getStarterCosmetics } from "../cosmetics";
 import {
   BOT_NAME_POOL,
   botWeeklyGoal,
@@ -23,7 +32,13 @@ import {
   botsForWeek,
   type LeagueTierId,
 } from "../league";
-import { reviewSrsEntry, type SrsBox, type SrsMistakeEntry } from "../srs";
+import {
+  getDueSrsEntries,
+  isSrsGraduated,
+  reviewSrsEntry,
+  type SrsBox,
+  type SrsMistakeEntry,
+} from "../srs";
 import { computeChestsForBook } from "../chestLogic";
 import type { PathLessonMeta, Question } from "../types";
 
@@ -127,6 +142,40 @@ describe("golden vectors: srsReview", () => {
       expect(next.nextReviewDate).toBe(localDateStr(v.expIntervalDays));
     });
   }
+});
+
+describe("golden vectors: srsGraduation", () => {
+  // 这组向量是 iOS Domain/SRS.swift 的镜像基准：毕业是**派生判定**，
+  // 不是"只认显式 graduated 标记"。
+  for (const v of vectors.srsGraduation) {
+    it(`${v.$case} → ${v.expGraduated ? "毕业" : "未毕业"}`, () => {
+      expect(
+        isSrsGraduated({
+          graduated: v.graduated ?? undefined,
+          box: v.box ?? undefined,
+          correctCount: v.correctCount ?? undefined,
+        }),
+      ).toBe(v.expGraduated);
+    });
+  }
+
+  it("due 队列过滤与毕业判定同源：派生毕业的条目不再出现", () => {
+    const base = {
+      lessonId: "lesson-1",
+      question: { id: 1 } as unknown as Question,
+      addedAt: "2020-01-01T00:00:00.000Z",
+      nextReviewDate: "2020-01-01", // 早就到期
+    };
+    const entries: SrsMistakeEntry[] = [
+      { ...base, box: 3, correctCount: 2 }, // 派生毕业，无 graduated 字段
+      { ...base, box: 3, correctCount: 1 }, // 未达标
+      { ...base, box: 1, correctCount: 0, graduated: true }, // 显式毕业
+    ];
+    const due = getDueSrsEntries(entries);
+    expect(due).toHaveLength(1);
+    expect(due[0].box).toBe(3);
+    expect(due[0].correctCount).toBe(1);
+  });
 });
 
 describe("golden vectors: dailyReward", () => {
@@ -234,6 +283,52 @@ describe("latchUnlocked（只进不出账本）", () => {
     latchUnlocked(prev, current);
     expect(prev).toEqual(["a"]);
     expect(current).toEqual(["a", "b"]);
+  });
+});
+
+describe("reviewHeartReward（复习补心，双端同口径）", () => {
+  it("答对数不足门槛不补心", () => {
+    expect(reviewHeartReward(REVIEW_HEART_MIN_CORRECT - 1, 0)).toBe(0);
+    expect(reviewHeartReward(0, 0)).toBe(0);
+  });
+
+  it("达到门槛补 1 颗", () => {
+    expect(reviewHeartReward(REVIEW_HEART_MIN_CORRECT, 0)).toBe(REVIEW_HEART_REWARD);
+    expect(reviewHeartReward(REVIEW_HEART_MIN_CORRECT + 10, 2)).toBe(REVIEW_HEART_REWARD);
+  });
+
+  it("满心不再补，也不会补出上限", () => {
+    expect(reviewHeartReward(20, MAX_HEARTS)).toBe(0);
+    expect(reviewHeartReward(20, MAX_HEARTS + 3)).toBe(0);
+    expect(reviewHeartReward(20, MAX_HEARTS - 1)).toBe(1);
+  });
+});
+
+describe("first-cosmetic 成就（初始白送不算数）", () => {
+  const starterIds = getStarterCosmetics().map(c => c.id);
+  const achievement = ALL_ACHIEVEMENTS.find(a => a.id === "first-cosmetic")!;
+  const snapshot = (ownedIds: string[]): AchievementProgressSnapshot => ({
+    xp: 0,
+    streak: 0,
+    lifetimeGems: 0,
+    completedLessons: {},
+    perfectedLessons: {},
+    ownedCosmetics: Object.fromEntries(ownedIds.map(id => [id, true])),
+    mistakesBank: [],
+  });
+
+  it("只拥有全部初始美妆时进度为 0", () => {
+    expect(achievement.getProgress(snapshot(starterIds))).toBe(0);
+  });
+
+  it("只拥有部分初始美妆（老档缺项）时进度仍为 0", () => {
+    expect(achievement.getProgress(snapshot(starterIds.slice(0, 1)))).toBe(0);
+  });
+
+  it("买到第一件非初始美妆即达标", () => {
+    expect(
+      achievement.getProgress(snapshot([...starterIds.slice(0, 1), "skin_panda"])),
+    ).toBe(1);
   });
 });
 

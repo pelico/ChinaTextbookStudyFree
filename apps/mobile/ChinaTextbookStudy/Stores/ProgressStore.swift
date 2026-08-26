@@ -94,6 +94,14 @@ final class ProgressStore: ObservableObject {
             migrated.claimedAchievements = migrated.unlockedAchievements ?? []
             didMigrate = true
         }
+        // parity-1 阅读 id 迁移：历史存档里的裸 id / `-followup` 后缀键一次性
+        // 升级成规范阅读 id（`reading:{kind}:{rawId}`），与 web / 备份信封共用
+        // 同一个 key 空间。归一化幂等，重复启动不会再改动。
+        let normalizedReadings = Reading.normalizeIds(migrated.completedReadings ?? [])
+        if Set(normalizedReadings) != Set(migrated.completedReadings ?? []) {
+            migrated.completedReadings = normalizedReadings
+            didMigrate = true
+        }
         // Wave D joinedDate backfill: earliest lesson completion, else today.
         if migrated.joinedDate == nil {
             let earliest = migrated.completedLessons.values.map(\.completedAt).min()
@@ -103,6 +111,15 @@ final class ProgressStore: ObservableObject {
         if didMigrate {
             progress = migrated
             save()
+        }
+        // iCloud 键值库的内容是异步下载的 —— 值到货时系统发通知，收到就重探
+        // 一次恢复弹窗并放行后续镜像（iosstore-4）。
+        startObservingCloudChanges()
+    }
+
+    deinit {
+        if let observer = cloudChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
         }
     }
 
@@ -288,13 +305,13 @@ final class ProgressStore: ObservableObject {
         guard let idx = p.mistakesBank.firstIndex(where: {
             $0.lessonId == lessonId && $0.question.id == questionId
         }) else { return false }
-        let wasGraduated = p.mistakesBank[idx].graduated == true
+        let wasGraduated = SRS.isGraduated(p.mistakesBank[idx])
         var updated = SRS.review(entry: p.mistakesBank[idx], isCorrect: isCorrect, now: now)
         var newlyGraduated = false
         if !isCorrect {
             // 防御性：答错回炉（毕业条目理论上不会再进队列）。
             updated.graduated = false
-        } else if (updated.box ?? 1) >= 3 && (updated.correctCount ?? 0) >= 2 {
+        } else if SRS.isGraduated(graduated: nil, box: updated.box, correctCount: updated.correctCount) {
             updated.graduated = true
             newlyGraduated = !wasGraduated
         }
@@ -392,6 +409,10 @@ final class ProgressStore: ObservableObject {
     /// local day, `lastDailyRewardDate` ledger). Tier = min(有效连胜, 7); a
     /// broken chain honestly drops to tier 0. Publishes `pendingDailyReward`
     /// for the home screen to celebrate.
+    ///
+    /// parity-4：发放时把「按哪一档发的」记进 `lastDailyRewardStreak`。断签当天
+    /// 先按 0 档发 5💎，用户随后补卡成功时 `topUpDailyRewardAfterMakeup` 会补发
+    /// 差额，总额与 web「补卡决定之后再发」完全一致（见该方法注释）。
     func claimDailyRewardIfDue(now: Date = Date()) {
         let today = SRS.todayString(now: now)
         guard progress.lastDailyRewardDate != today else { return }
@@ -399,11 +420,42 @@ final class ProgressStore: ObservableObject {
         let gems = Economy.dailyRewardForStreak(effectiveStreak)
         var p = progress
         p.lastDailyRewardDate = today
+        p.lastDailyRewardStreak = effectiveStreak
         p.gems = (p.gems ?? 0) + gems
         p.lifetimeGems = (p.lifetimeGems ?? 0) + gems
         progress = p
         save()
         pendingDailyReward = DailyRewardClaim(gems: gems, effectiveStreak: effectiveStreak)
+    }
+
+    /// 补卡成功后补发今日登录奖励的差额（parity-4）。
+    ///
+    /// web 的顺序是「先弹补卡 → 用户决定 → 再按决定后的有效连胜发奖」；
+    /// iOS 在 `refreshForNow` 第一时间就发了奖（不依赖任何 UI 出场，
+    /// 断签用户换个 tab 也不会漏发）。两边最终收益必须相等：
+    ///   - 用户补卡成功：web 一次发 table[min(streak,7)]；
+    ///     iOS 先发 table[0]=5，这里补发 table[min(streak,7)] − 5 → 总额相同。
+    ///   - 用户不补卡：两边都只有 table[0]=5 → 相同。
+    /// 差额只在「今天已发过奖 且 新档位更高」时补，永不重复发放。
+    private func topUpDailyRewardAfterMakeup(now: Date = Date()) {
+        let today = SRS.todayString(now: now)
+        guard progress.lastDailyRewardDate == today,
+              let paidStreak = progress.lastDailyRewardStreak
+        else { return }
+        let effectiveStreak = salvageableStreak(now: now)
+        guard effectiveStreak > paidStreak else { return }
+        let delta = Economy.dailyRewardForStreak(effectiveStreak)
+            - Economy.dailyRewardForStreak(paidStreak)
+        guard delta > 0 else { return }
+        var p = progress
+        p.lastDailyRewardStreak = effectiveStreak
+        p.gems = (p.gems ?? 0) + delta
+        p.lifetimeGems = (p.lifetimeGems ?? 0) + delta
+        progress = p
+        save()
+        // 卡片还没被首页消费掉就并进同一张卡，已消费则单独报喜。
+        let shown = (pendingDailyReward?.gems ?? 0) + delta
+        pendingDailyReward = DailyRewardClaim(gems: shown, effectiveStreak: effectiveStreak)
     }
 
     /// Spend 50 gems to pull `lastActiveDate` back to yesterday, reviving a
@@ -423,6 +475,8 @@ final class ProgressStore: ObservableObject {
         p.lastActiveDate = SRS.dateString(daysFromNow: -1, now: now)
         progress = p
         save()
+        // 连胜救回来了 → 今日登录奖励按新档位补发差额（parity-4）。
+        topUpDailyRewardAfterMakeup(now: now)
         return true
     }
 
@@ -505,11 +559,54 @@ final class ProgressStore: ObservableObject {
         save()
     }
 
+    /// 一轮错题复习的补心结算（iosretention-4）。
+    ///
+    /// 账本按天：`lastReviewHeartDate` 与登录奖励同款写法 —— 一天只补一次，
+    /// 杜绝「进复习 → 随便答 → 看结算 → 返回」的无限回心。数额走 core 常量
+    /// （答对 < `Economy.reviewHeartMinCorrect` 不发；满心不发；一次最多 1 颗）。
+    ///
+    /// - Returns: 本次是否真的补了心（false = 不够格 / 今天补过 / 已满心）。
+    @discardableResult
+    func claimReviewHeartIfEligible(correctCount: Int, now: Date = Date()) -> Bool {
+        tickHeartRecharge(now: now)
+        let today = SRS.todayString(now: now)
+        guard progress.lastReviewHeartDate != today else { return false }
+        let reward = Economy.reviewHeartReward(correctCount: correctCount, hearts: hearts)
+        guard reward > 0 else { return false }
+        var p = progress
+        p.lastReviewHeartDate = today
+        progress = p
+        addHeart(reward, now: now)   // 内部会 save()
+        return true
+    }
+
+    /// 今天是否还能靠复习补心（UI 提示用：不够格时别承诺补心）。
+    func canClaimReviewHeart(now: Date = Date()) -> Bool {
+        progress.lastReviewHeartDate != SRS.todayString(now: now) && hearts < Self.maxHearts
+    }
+
     /// Tick the heart recharge timer, restoring hearts as needed.
+    ///
+    /// 自愈（webstore-1 iOS 半边）：**缺心却没有回心计时**（导入的存档、老档、
+    /// 任何一次漏设计时的写入）会让红心永远停在原地 —— 这里当场补种计时，
+    /// 而不是直接返回。满心则顺手清掉残留计时。
     func tickHeartRecharge(now: Date = Date()) {
         var p = progress
         var currentHearts = p.hearts ?? Self.maxHearts
-        guard currentHearts < Self.maxHearts, var nextMs = p.nextHeartAt else { return }
+        guard currentHearts < Self.maxHearts else {
+            if p.nextHeartAt != nil {
+                p.nextHeartAt = nil
+                progress = p
+                save()
+            }
+            return
+        }
+        guard var nextMs = p.nextHeartAt else {
+            p.nextHeartAt = (now.timeIntervalSince1970 + Self.heartRechargeSeconds) * 1000
+            progress = p
+            save()
+            return
+        }
         let nowMs = now.timeIntervalSince1970 * 1000
         while nextMs <= nowMs && currentHearts < Self.maxHearts {
             currentHearts += 1
@@ -533,8 +630,16 @@ final class ProgressStore: ObservableObject {
     /// left overnight never shows yesterday's state.
     func refreshForNow(now: Date = Date()) {
         tickHeartRecharge(now: now)
-        claimDailyRewardIfDue(now: now)
-        refreshLeague(now: now)
+        // 每次刷新都重探一次云端恢复（iosstore-6）：KVS 首次下载是异步的，
+        // 冷启动那一下往往读不到值 —— 只在冷启动探一次等于把弹窗押在时序上。
+        // 必须排在结算与镜像**之前**：探到了就立起弹窗，后面两件事自动让路。
+        checkCloudRestoreOffer(now: now)
+        // 云端恢复还没决定时，当前进度可能是一份「等着被覆盖」的空档 ——
+        // 不在这份空档上发奖 / 结算联赛，等用户选完再说。
+        if pendingCloudRestore == nil {
+            claimDailyRewardIfDue(now: now)
+            refreshLeague(now: now)
+        }
         let today = SRS.todayString(now: now)
         if today != lastKnownDay {
             lastKnownDay = today
@@ -688,8 +793,21 @@ final class ProgressStore: ObservableObject {
 
     // MARK: - Reading (passages & stories)
 
+    /// 已完成的阅读（**规范阅读 id**，`reading:{kind}:{rawId}`）。
     var completedReadings: Set<String> { Set(progress.completedReadings ?? []) }
-    func isReadingCompleted(_ id: String) -> Bool { completedReadings.contains(id) }
+
+    /// 是否读完。入参既可以是规范 id，也可以是历史裸 id / `-followup` 写法
+    /// （内部统一归一化），老调用点不改也不会误判为未读。
+    func isReadingCompleted(_ id: String) -> Bool {
+        let key = Reading.normalize(id)
+        guard !key.isEmpty else { return false }
+        return completedReadings.contains(key)
+    }
+
+    /// 按类型 + 原始 id 查询（推荐写法：`isReadingCompleted(.followup, passage.id)`）。
+    func isReadingCompleted(_ kind: Reading.Kind, _ rawId: String) -> Bool {
+        completedReadings.contains(Reading.id(kind, rawId))
+    }
 
     /// A reading activity whose XP the store can quote (content-5): the
     /// completion gate UI shows「读完了 +N XP」before committing.
@@ -710,10 +828,14 @@ final class ProgressStore: ObservableObject {
 
     /// Mark a passage/story as read. Awards XP + advances the daily goal & streak
     /// the first time only, so reading feeds the same loop as lessons.
+    ///
+    /// `id` 归一化后入账（规范阅读 id），历史调用点传裸 id 也不会写脏 key。
     func completeReading(id: String, xp: Int, now: Date = Date()) {
+        let key = Reading.normalize(id)
+        guard !key.isEmpty else { return }
         var p = progress
         var set = Set(p.completedReadings ?? [])
-        guard set.insert(id).inserted else { return }   // already read
+        guard set.insert(key).inserted else { return }   // already read
         p.completedReadings = Array(set)
         rollDailyIfNeeded(&p, now: now)
         recordXP(&p, xp, now: now)
@@ -723,6 +845,11 @@ final class ProgressStore: ObservableObject {
         progress = p
         save()
         NotificationService.shared.rescheduleStreakReminder(streak: p.streak, studiedToday: true)
+    }
+
+    /// 按类型 + 原始 id 记完成（推荐写法，UI 不必自己拼 key）。
+    func completeReading(_ kind: Reading.Kind, rawId: String, xp: Int, now: Date = Date()) {
+        completeReading(id: Reading.id(kind, rawId), xp: xp, now: now)
     }
 
     // MARK: - Profile
@@ -745,6 +872,11 @@ final class ProgressStore: ObservableObject {
     func resetProgress() {
         progress = Self.freshProgress()
         pendingDailyReward = nil
+        // 本机重置 ≠ 新设备。不记下这个决定的话，下次回前台会因为「本地空档」
+        // 把重置误判成换新机，弹出「发现 iCloud 备份」——用户顺手点「从头开始」
+        // 就会 disown 掉云端那份真备份，下一课把它洗成空档。
+        // 想彻底覆盖云端存档仍可走设置页的手动恢复/备份入口。
+        UserDefaults.standard.set(true, forKey: Self.cloudRestoreHandledKey)
         save()
     }
 
@@ -771,14 +903,17 @@ final class ProgressStore: ObservableObject {
     }
 
     /// Mistakes the SRS scheduler thinks are due for review today.
-    /// Graduated (已掌握) entries stay in the bank but never come due.
+    ///
+    /// 毕业（已掌握）条目留在错题本里但永不到期 —— 判定走 `SRS.isGraduated`
+    /// 的**派生语义**（显式标记 or box≥3 且答对≥2，core-2）：老档与从 web
+    /// 导入的条目往往只有 box/correctCount，只认标记会让它们永远在队列里打转。
     var dueMistakes: [MistakeEntry] {
-        SRS.dueEntries(progress.mistakesBank.filter { $0.graduated != true })
+        SRS.dueEntries(progress.mistakesBank)
     }
 
     /// Entries mastered through the SRS loop (the「已掌握」bucket).
     var graduatedMistakes: [MistakeEntry] {
-        progress.mistakesBank.filter { $0.graduated == true }
+        progress.mistakesBank.filter { SRS.isGraduated($0) }
     }
 
     // MARK: - Internal
@@ -887,21 +1022,43 @@ final class ProgressStore: ObservableObject {
         return true
     }
 
-    /// XP earned on each of the last `days` days, oldest first.
-    func recentXP(days: Int = 7, now: Date = Date()) -> [(date: String, xp: Int)] {
+    /// 某一个日历周（周一 → 周日）每天的 XP，共 7 格（parity-6）。
+    ///
+    /// 周窗口的单一事实源是 `Week`（core `week.ts` 的镜像）——联赛周榜、周报、
+    /// 连胜日历必须共用同一个「本周」，不再各写一套滚动 7 天。
+    func weekXP(weekKey: String, now: Date = Date()) -> [(date: String, xp: Int)] {
         let history = progress.xpHistory ?? [:]
-        return (0..<days).reversed().map { offset in
-            let key = SRS.dateString(daysFromNow: -offset, now: now)
-            return (key, history[key] ?? 0)
-        }
+        return Week.weekDateKeys(weekKey, now: now).map { ($0, history[$0] ?? 0) }
     }
 
-    /// Total XP over the 7 days ending `endingDaysAgo` days back.
+    /// 本周（now 所在的日历周）每天的 XP，周一 → 周日。
+    func weekXP(now: Date = Date()) -> [(date: String, xp: Int)] {
+        weekXP(weekKey: Week.weekStartKey(now), now: now)
+    }
+
+    /// 今天在本周 7 格里的下标（周一=0 … 周日=6）。
+    /// ⚠️ 连胜日历 / 周报的「今天」高亮请用它，别再假设「最后一格 = 今天」。
+    func todayIndexInWeek(now: Date = Date()) -> Int {
+        min(max(0, Week.dayIndexInWeek(weekKey: Week.weekStartKey(now), date: now, now: now)), 6)
+    }
+
+    /// 本周 7 格 XP（周一 → 周日）。
+    ///
+    /// parity-6：口径已从「最近滚动 7 天」改为**日历周**，与 web 周报 / 联赛
+    /// 周榜一致。`days` 参数保留只为不打断既有调用点，周窗口恒为 7 格。
+    func weekXPEntries(now: Date = Date()) -> [(date: String, xp: Int)] {
+        weekXP(now: now)
+    }
+
+    /// 某个日历周的 XP 总和：`weeksAgo` = 0 本周、1 上周……
+    func weeklyTotal(weeksAgo: Int, now: Date = Date()) -> Int {
+        weekXP(weekKey: Week.weekStartKey(weeksAgo: weeksAgo, now: now), now: now)
+            .reduce(0) { $0 + $1.xp }
+    }
+
+    /// 兼容旧调用点：`endingDaysAgo` 现按「往前几周」解读（0 = 本周，7 = 上周）。
     func weeklyTotal(endingDaysAgo: Int = 0, now: Date = Date()) -> Int {
-        let history = progress.xpHistory ?? [:]
-        return (0..<7).reduce(0) { sum, i in
-            sum + (history[SRS.dateString(daysFromNow: -(i + endingDaysAgo), now: now)] ?? 0)
-        }
+        weeklyTotal(weeksAgo: max(0, endingDaysAgo) / 7, now: now)
     }
 
     /// Advance the streak for study activity on `now`, then pay out any
@@ -955,11 +1112,10 @@ final class ProgressStore: ObservableObject {
     /// 某一周（周一 weekKey 起 7 天）用户实际获得的 XP —— xpHistory 求和。
     /// 保留天数不足一周时按可得数据尽力求和。
     func leagueWeeklyXp(weekKey: String) -> Int {
-        guard let monday = SRS.dateFormatter.date(from: weekKey) else { return 0 }
+        guard Week.isDateKey(weekKey) else { return 0 }
         let history = progress.xpHistory ?? [:]
-        return (0..<7).reduce(0) { sum, offset in
-            sum + (history[SRS.dateString(daysFromNow: offset, now: monday)] ?? 0)
-        }
+        // 周窗口走 Week（core week.ts 的镜像）—— 与周报 / 连胜日历同一口径。
+        return Week.weekDateKeys(weekKey).reduce(0) { $0 + (history[$1] ?? 0) }
     }
 
     /// 本周（now 所在周）的用户 XP。
@@ -1143,9 +1299,13 @@ final class ProgressStore: ObservableObject {
     ///
     /// - 错题条目缺题面快照时按 lessonId 从本地题库找回，找不到丢弃；
     /// - 联赛 salt 是设备指纹，保留本机值；
-    /// - 瞬态（红心计时 / 课程会话 / 今日计数）不导入；
+    /// - 今日 XP / 每日任务领取账本随档恢复（iosstore-2 / parity-3）：
+    ///   不恢复的话当日目标进度归零 + 任务回到可领 → 导出再导入就能刷宝石；
+    /// - 复习补心账本（`lastReviewHeartDate`）是本机按天的防刷账本，保留本机值
+    ///   （iosretention-4）：被覆盖掉的话「补 1 心 → 导出 → 导入」当天能刷满心；
+    /// - 真·瞬态（课程会话 / 今日任务计数）不导入；
     /// - 调用方负责导入前的「将覆盖当前进度」确认与导入后的全量刷新。
-    func importBackup(_ envelope: Backup.Envelope) {
+    func importBackup(_ envelope: Backup.Envelope, now: Date = Date()) {
         let restored = Backup.userProgress(
             from: envelope,
             questionLookup: { lessonId, questionId in
@@ -1154,7 +1314,10 @@ final class ProgressStore: ObservableObject {
                 else { return nil }
                 return lesson.questions.first { $0.id == questionId }
             },
-            keepLeagueSalt: progress.leagueSalt
+            keepLeagueSalt: progress.leagueSalt,
+            keepReviewHeartDate: progress.lastReviewHeartDate,
+            now: now,
+            today: SRS.todayString(now: now)
         )
         progress = restored
         pendingDailyReward = nil
@@ -1167,48 +1330,263 @@ final class ProgressStore: ObservableObject {
     static let cloudBackupKey = "cstf.backup.v1"
     /// NSUbiquitousKeyValueStore 总额 1MB —— 超过 900KB 就不写。
     private static let cloudBackupByteLimit = 900_000
-    private static let cloudRestoreHandledKey = "cstf.cloudRestoreHandled"
+    /// 用户已经对「云端那份档」做过决定（恢复 / 暂不）→ 不再弹恢复提示。
+    static let cloudRestoreHandledKey = "cstf.cloudRestoreHandled"
+    /// 本设备已与云端那份档**做过了断**：记下那份档的身份标记（见 `archiveMark`）。
+    /// 用户选了「暂不恢复 / 从头开始」之后，那份档就不再是这台设备的上位档，
+    /// 「本地弱于云端」的闸门对它失效 —— 否则这台设备会永远写不出新备份。
+    static let cloudArchiveDisownedKey = "cstf.cloudArchiveDisowned"
+    /// 本设备是否**确认**读到过 iCloud 键值库的真实内容（见 `CloudReadState`）。
+    static let cloudReadConfirmedKey = "cstf.cloudReadConfirmed"
+    /// 第一次尝试读云端的时间戳（Unix 秒）——「未知」态的宽限期从这里起算。
+    static let cloudFirstReadAtKey = "cstf.cloudFirstReadAt"
+    /// 首次尝试读云端起，多久还读不到值就认定「云端确实没有备份」。
+    ///
+    /// iCloud 键值库的首次下载是异步的，`synchronize()` 只负责落盘、不会拉取远端。
+    /// 没有这个宽限期，全新用户（iCloud 里本来就没有备份、也永远收不到变更通知）
+    /// 会永远停在「未知」态、一份备份都写不出去 —— 那是比原 bug 更糟的倒退。
+    static let cloudUnknownGraceSeconds: TimeInterval = 24 * 3600
 
     /// 发现的 iCloud 备份（新装设备）——RootView 弹「要恢复吗？」。
     @Published var pendingCloudRestore: Backup.Envelope?
 
+    /// iCloud 键值库变更监听（值到货 / 账号切换）。
+    private var cloudChangeObserver: NSObjectProtocol?
+
+    /// 读云端的**三态**结果（iosstore-4）。
+    ///
+    /// `data(forKey:) == nil` 有两种截然不同的含义，混为一谈就会用弱档盖掉真备份：
+    ///   - `.empty`：确认云端没有备份（读到过真实内容 / 宽限期已过）→ 可以写；
+    ///   - `.unknown`：本设备还没确认过云端内容（首次下载没到货 / 刚登录 iCloud /
+    ///     弱网）→ **只读不写**，等 `didChangeExternallyNotification` 或宽限期。
+    enum CloudReadState: Equatable {
+        case unknown
+        case empty
+        case archive(Backup.Envelope)
+    }
+
+    /// 镜像判定用的进度概要（本地 / 云端各取一份对比）。
+    struct CloudSnapshot: Equatable {
+        var xp: Int
+        var lessonCount: Int
+        /// 空档 = 一节课没上、一点 XP 没有（刚装好的新设备）。
+        var isEmpty: Bool { lessonCount == 0 && xp <= 0 }
+
+        init(xp: Int, lessonCount: Int) {
+            self.xp = xp
+            self.lessonCount = lessonCount
+        }
+
+        init(_ p: UserProgress) {
+            self.init(xp: p.xp, lessonCount: p.completedLessons.count)
+        }
+
+        init(_ envelope: Backup.Envelope) {
+            self.init(xp: envelope.data.xp, lessonCount: envelope.data.completedLessons.count)
+        }
+    }
+
+    /// **纯判定**：当前本地进度该不该覆盖云端那份备份（iosstore-1 / integration-1）。
+    ///
+    /// 换机丢档的根因是「无条件覆盖」：新设备第一帧就把空档写进 KVS，真实备份
+    /// 当场蒸发，恢复弹窗也因为读回自己写的空信封而永不出现。四道闸门：
+    ///   1. `restorePending`：用户还没决定要不要恢复 —— 一个字节都不许写；
+    ///   2. 本地是空档 —— 空档没有任何值得备份的东西，绝不覆盖；
+    ///   3. `cloudReadConfirmed == false`（`cloud == nil` 时）—— 「读不到」不等于
+    ///      「云端没有」：KVS 首次下载是异步的，未知态一律只读不写（iosstore-4）；
+    ///   4. 本地进度弱于云端（XP 或完成课数更少）—— 只可能是「云端才是真身」
+    ///      的场景（新装 / 重置），保留云端，等本地追上再镜像。
+    ///
+    /// 第 4 道闸门保护的是**尚未被恢复的用户存档**。用户在恢复弹窗里明确选了
+    /// 「暂不恢复 / 从头开始」之后，那份档就与这台设备两清了（`cloudArchiveDisowned`），
+    /// 闸门必须放行 —— 否则新学习者的进度长期弱于那份旧档，这台设备学一整年都
+    /// 写不出一份备份，再换机时一年进度全丢（iosstore-5）。
+    static func shouldMirrorBackup(
+        local: CloudSnapshot,
+        cloud: CloudSnapshot?,
+        restorePending: Bool,
+        cloudArchiveDisowned: Bool = false,
+        cloudReadConfirmed: Bool = true
+    ) -> Bool {
+        if restorePending { return false }
+        if local.isEmpty { return false }
+        guard let cloud else { return cloudReadConfirmed }
+        if cloud.isEmpty { return true }
+        if cloudArchiveDisowned { return true }
+        return local.xp >= cloud.xp && local.lessonCount >= cloud.lessonCount
+    }
+
+    /// 云端档的身份标记：优先导出时间，缺失时退回「进度指纹」。
+    /// 用来记「用户放弃的是哪一份档」—— 换成另一份（别的设备刚推上来的真备份）
+    /// 时标记对不上，单调性闸门自动重新生效。
+    static func archiveMark(_ envelope: Backup.Envelope) -> String {
+        envelope.exportedAt.isEmpty
+            ? "xp\(envelope.data.xp)-lessons\(envelope.data.completedLessons.count)"
+            : envelope.exportedAt
+    }
+
+    /// 这份云端档是不是用户已经明确「了断」过的那一份？
+    func isCloudArchiveDisowned(_ envelope: Backup.Envelope) -> Bool {
+        guard let mark = UserDefaults.standard.string(forKey: Self.cloudArchiveDisownedKey),
+              !mark.isEmpty
+        else { return false }
+        return mark == Self.archiveMark(envelope)
+    }
+
+    /// 记下「本设备已与这份云端档做过了断」（恢复 / 暂不恢复都算）。
+    private func rememberCloudArchiveDecision(_ envelope: Backup.Envelope?) {
+        guard let envelope else { return }
+        UserDefaults.standard.set(Self.archiveMark(envelope), forKey: Self.cloudArchiveDisownedKey)
+    }
+
+    /// 标记「本设备确认读到过 iCloud 键值库的内容」（读到值 / 收到变更通知 /
+    /// 自己写成功过）—— 之后 `nil` 就可以放心当成「云端没有备份」。
+    private func markCloudReadConfirmed() {
+        UserDefaults.standard.set(true, forKey: Self.cloudReadConfirmedKey)
+    }
+
+    /// 读不到值时，能否认定「云端确实没有备份」？
+    /// 确认过一次就永久成立；否则从首次尝试起等满 `cloudUnknownGraceSeconds`。
+    private func isCloudEmptinessConfirmed(now: Date) -> Bool {
+        let defaults = UserDefaults.standard
+        if defaults.bool(forKey: Self.cloudReadConfirmedKey) { return true }
+        let firstAttempt = defaults.double(forKey: Self.cloudFirstReadAtKey)
+        guard firstAttempt > 0 else {
+            defaults.set(now.timeIntervalSince1970, forKey: Self.cloudFirstReadAtKey)
+            return false
+        }
+        guard now.timeIntervalSince1970 - firstAttempt >= Self.cloudUnknownGraceSeconds
+        else { return false }
+        markCloudReadConfirmed()
+        return true
+    }
+
+    /// 读云端（三态）。坏档按「云端为空」处理 —— 读不懂的字节没有任何值得
+    /// 保护的内容，继续拦着只会让这台设备永远备份不了。
+    func cloudRead(now: Date = Date()) -> CloudReadState {
+        let store = NSUbiquitousKeyValueStore.default
+        // synchronize() 只把本地改动落盘；远端内容由系统异步下载 —— 所以下面
+        // 读不到值时绝不能直接下「云端没有备份」的结论。
+        store.synchronize()
+        if let data = store.data(forKey: Self.cloudBackupKey) {
+            markCloudReadConfirmed()
+            if case .success(let envelope) = Backup.validate(data) { return .archive(envelope) }
+            return .empty
+        }
+        return isCloudEmptinessConfirmed(now: now) ? .empty : .unknown
+    }
+
     /// 把当前进度镜像进 iCloud 键值存储。任何失败（超限 / 无 iCloud /
     /// 无授权）都静默 —— 镜像是加分项，绝不打扰学习。
+    ///
+    /// 写之前先读云端比对（见 `shouldMirrorBackup`）：镜像只会让云端变得更新，
+    /// 永远不会用更弱的进度盖掉更强的存档；云端状态未知时干脆不写。
     func mirrorBackupToCloud(now: Date = Date()) {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-uitest") { return }
         #endif
+        let local = CloudSnapshot(progress)
+        // 空档 / 待决定：连云端都不必读（后两个参数取最宽松值，只留这两道闸门）。
+        guard Self.shouldMirrorBackup(
+            local: local,
+            cloud: nil,
+            restorePending: pendingCloudRestore != nil,
+            cloudArchiveDisowned: true,
+            cloudReadConfirmed: true
+        ) else { return }
+
+        let cloudSnapshot: CloudSnapshot?
+        let disowned: Bool
+        switch cloudRead(now: now) {
+        case .unknown:
+            return                      // 还没确认过云端内容 —— 只读不写
+        case .empty:
+            cloudSnapshot = nil
+            disowned = false
+        case .archive(let envelope):
+            cloudSnapshot = CloudSnapshot(envelope)
+            disowned = isCloudArchiveDisowned(envelope)
+        }
+        guard Self.shouldMirrorBackup(
+            local: local,
+            cloud: cloudSnapshot,
+            restorePending: false,
+            cloudArchiveDisowned: disowned,
+            cloudReadConfirmed: true     // 走到这里云端状态已确认
+        ) else { return }
+
         guard let data = try? JSONEncoder().encode(exportBackupEnvelope(now: now)),
               data.count < Self.cloudBackupByteLimit else { return }
         let store = NSUbiquitousKeyValueStore.default
         store.set(data, forKey: Self.cloudBackupKey)
         store.synchronize()
+        // 自己写进去的值之后一定读得到 —— 云端状态从此确定。
+        markCloudReadConfirmed()
     }
 
-    /// 启动时探测：本地是新装（没进度、没做过引导），云端有备份 → 弹恢复
-    /// 提示。只问一次，「暂不」后不再打扰。
-    func checkCloudRestoreOffer() {
+    /// 探测：本地还是空档、用户也没对云端那份档做过决定，而云端有真档 →
+    /// 立起恢复提示。启动、每次回前台、以及 iCloud 值到货时都会重跑。
+    ///
+    /// ⚠️ 门槛只看「本地是不是空档」，**不看引导有没有做完**（iosstore-6）：
+    /// 换机首启时 KVS 常常还没到货，用户会先把引导走完 —— 拿
+    /// `hasCompletedOnboarding` 当闸门等于把弹窗永久关死，用户主观就是「换机丢档」。
+    func checkCloudRestoreOffer(now: Date = Date()) {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-uitest") { return }
         #endif
-        guard !hasCompletedOnboarding,
-              progress.completedLessons.isEmpty,
-              progress.xp == 0,
-              !UserDefaults.standard.bool(forKey: Self.cloudRestoreHandledKey)
-        else { return }
-        let store = NSUbiquitousKeyValueStore.default
-        store.synchronize()
-        guard let data = store.data(forKey: Self.cloudBackupKey),
-              case .success(let envelope) = Backup.validate(data),
+        guard Self.shouldOfferCloudRestore(
+            local: CloudSnapshot(progress),
+            restoreHandled: UserDefaults.standard.bool(forKey: Self.cloudRestoreHandledKey),
+            promptShowing: pendingCloudRestore != nil
+        ) else { return }
+        guard case .archive(let envelope) = cloudRead(now: now),
               !envelope.data.completedLessons.isEmpty || envelope.data.xp > 0
         else { return }
         pendingCloudRestore = envelope
     }
 
+    /// **纯判定**：本地这一侧允不允许弹「从 iCloud 恢复」？
+    ///
+    /// 只看两件事：本地还是不是空档、用户有没有对云端那份档做过决定。
+    /// 刻意**不看引导有没有做完** —— 那是第一轮修复把弹窗押在时序上的根因。
+    static func shouldOfferCloudRestore(
+        local: CloudSnapshot,
+        restoreHandled: Bool,
+        promptShowing: Bool
+    ) -> Bool {
+        if promptShowing { return false }
+        if restoreHandled { return false }
+        return local.isEmpty
+    }
+
+    /// iCloud 值到货 / 账号切换：确认云端状态，并重跑一次恢复探测。
+    /// （KVS 首次下载是异步的，冷启动那一下往往什么都读不到。）
+    func handleCloudStoreChangedExternally(now: Date = Date()) {
+        markCloudReadConfirmed()
+        checkCloudRestoreOffer(now: now)
+    }
+
+    /// 注册 iCloud 键值库的外部变更监听（值到货 / 账号切换 / 配额）。
+    private func startObservingCloudChanges() {
+        guard cloudChangeObserver == nil else { return }
+        cloudChangeObserver = NotificationCenter.default.addObserver(
+            forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
+            object: NSUbiquitousKeyValueStore.default,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.handleCloudStoreChangedExternally() }
+        }
+    }
+
     /// 接受云端恢复：导入 + 跳过引导 + 尽力选回原来的课本。
     func acceptCloudRestore(now: Date = Date()) {
         guard let envelope = pendingCloudRestore else { return }
-        importBackup(envelope)
+        applyCloudRestore(envelope, now: now)
+    }
+
+    /// 用一份云端信封覆盖本地进度（恢复弹窗 / 设置页手动恢复共用）。
+    func applyCloudRestore(_ envelope: Backup.Envelope, now: Date = Date()) {
+        importBackup(envelope, now: now)
         // 恢复的老学员不需要再走新手引导；课本落到最近学过的一本。
         if let latest = progress.completedLessons.values.max(by: { $0.completedAt < $1.completedAt }),
            let bookId = Backup.bookId(fromLessonId: latest.lessonId) {
@@ -1221,14 +1599,25 @@ final class ProgressStore: ObservableObject {
         hasCompletedOnboarding = true
         persistPrefs()
         UserDefaults.standard.set(true, forKey: Self.cloudRestoreHandledKey)
+        rememberCloudArchiveDecision(envelope)
         pendingCloudRestore = nil
         refreshForNow(now: now)
     }
 
-    /// 「暂不恢复」：记住选择，不再打扰。
-    func declineCloudRestore() {
+    /// 「暂不恢复 / 从头开始」：记住选择，不再打扰。
+    ///
+    /// 「暂不」≠「删掉云端存档」，但**确实**等于「这台设备与那份档两清了」：
+    /// 决定必须落盘（`rememberCloudArchiveDecision`），否则那份旧档会一直当这台
+    /// 设备的上位档，把此后每一次镜像都拦下来 —— 新学习者学一整年也备份不了。
+    func declineCloudRestore(now: Date = Date()) {
         UserDefaults.standard.set(true, forKey: Self.cloudRestoreHandledKey)
+        // 正常路径上弹窗手里就攥着那份信封；万一没有（防御性调用），现读一次。
+        var archive = pendingCloudRestore
+        if archive == nil, case .archive(let envelope) = cloudRead(now: now) { archive = envelope }
+        rememberCloudArchiveDecision(archive)
         pendingCloudRestore = nil
+        // 决定做完了，把之前被挡下的每日结算补上（此时不会再写云端空档）。
+        refreshForNow(now: now)
     }
 
     // MARK: - Achievement ledger (permanent, never re-locks)

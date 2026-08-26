@@ -23,6 +23,11 @@ export interface QuestionRendererProps {
   phase: QuestionPhase;
   isCorrect: boolean | null;
   onChange: (value: string) => void;
+  /**
+   * 🔒 遮罩打开时为 true（退出确认 / 断心遮罩 / 设置弹层 / 课前讲解）。
+   * 各题型必须据此停掉键盘快捷键、点击与自动提交，避免用户在弹层前面把题判掉。
+   */
+  locked?: boolean;
 }
 
 export function QuestionRenderer(props: QuestionRendererProps) {

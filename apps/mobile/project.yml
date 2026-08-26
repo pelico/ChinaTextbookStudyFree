@@ -42,6 +42,9 @@ targets:
       properties:
         com.apple.security.application-groups:
           - group.com.example.ChinaTextbookStudy
+        # 换机存档恢复走 NSUbiquitousKeyValueStore；没有这条 entitlement 时
+        # KVS 只在本机落盘、不与 iCloud 同步，云备份会静默空转。
+        com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)$(CFBundleIdentifier)
     dependencies:
       - package: ZIPFoundation
       - target: ChinaTextbookStudyWidget

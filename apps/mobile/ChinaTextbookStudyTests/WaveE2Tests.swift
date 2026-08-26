@@ -121,7 +121,7 @@ final class WaveE2Tests: XCTestCase {
           "g1up-u1-kp1": {"stars": 3, "accuracy": 1, "completedAt": "2026-08-01T00:00:00Z"},
           "g1up-u1-kp2": {"stars": 2, "accuracy": 0.85, "completedAt": "2026-08-02T00:00:00Z"}
         },
-        "completedReadings": {"chinese-g1up-p1": "2026-08-03"},
+        "completedReadings": {"passage-chinese-g1up-p1-listen": "2026-08-03"},
         "perfectedLessons": {"g1up-u1-kp1": true},
         "mistakesBank": [
           {"lessonId": "g1up-u1-kp1", "questionId": 4, "box": 2, "correctCount": 1,
@@ -169,7 +169,9 @@ final class WaveE2Tests: XCTestCase {
         // 带快照的错题保留；没快照又查不到题库的丢弃
         XCTAssertEqual(p.mistakesBank.count, 1)
         XCTAssertEqual(p.mistakesBank.first?.question.answer, "2")
-        XCTAssertEqual(p.completedReadings, ["chinese-g1up-p1"])
+        // parity-1: web 的历史键 `passage-{id}-listen` 与 iOS 的裸 id 现在都被
+        // 归一到 core 的规范阅读 id，跨端导入才不会丢「已读」状态。
+        XCTAssertEqual(p.completedReadings, ["reading:listen:chinese-g1up-p1"])
         XCTAssertEqual(p.claimedChests?["g1up-u1-c1"], true)
         XCTAssertEqual(p.claimedStreakRewards, [3])
         XCTAssertEqual(p.lastDailyRewardDate, "2026-08-20")

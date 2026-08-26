@@ -35,15 +35,38 @@ export interface SrsMistakeEntry {
   graduated?: boolean;
 }
 
-/** 毕业线：box 3 且累计答对次数达到该值（与 iOS reviewMistake 移除条件一致）。 */
+/** 毕业线（盒子）：至少升到 box 3。 */
+export const SRS_GRADUATE_MIN_BOX = 3;
+/** 毕业线（答对次数）：累计答对达到该值（与 iOS reviewMistake 移除条件一致）。 */
 export const SRS_GRADUATE_MIN_CORRECT = 2;
 
 /**
- * 条目是否达到毕业语义：显式 graduated 标记，或 box ≥ 3 且答对次数达标。
+ * 毕业判定只需要这三个字段——刻意收窄成最小输入，
+ * 让错题本条目、备份里的 BackupMistake、iOS 的 MistakeEntry 都能直接喂进来。
  */
-export function isSrsGraduated(entry: SrsMistakeEntry): boolean {
-  if (entry.graduated) return true;
-  return (entry.box ?? 1) >= 3 && (entry.correctCount ?? 0) >= SRS_GRADUATE_MIN_CORRECT;
+export interface SrsGraduationState {
+  graduated?: boolean;
+  box?: number;
+  correctCount?: number;
+}
+
+/**
+ * 条目是否达到毕业语义：**显式 graduated 标记，或 box ≥ 3 且累计答对 ≥ 2**。
+ *
+ * ⚠️ 这是派生判定，不是"只认显式标记"：老档 / 另一端导入的条目常常只有
+ * box + correctCount 而没有 graduated 字段，只认标记会让它们永远留在
+ * due 队列里反复出现。
+ *
+ * ⚠️ iOS `Domain/SRS.swift` 必须逐行镜像本判定（due 过滤也必须用它，
+ * 不能只判 `graduated != true`）。spec/golden-vectors.json 的 `srsGraduation`
+ * 组是双端对照的黄金向量，任何一端改判定都会让两端测试同时飘红。
+ */
+export function isSrsGraduated(entry: SrsGraduationState): boolean {
+  if (entry.graduated === true) return true;
+  return (
+    (entry.box ?? 1) >= SRS_GRADUATE_MIN_BOX &&
+    (entry.correctCount ?? 0) >= SRS_GRADUATE_MIN_CORRECT
+  );
 }
 
 function todayStr(): string {
@@ -101,6 +124,8 @@ export function reviewSrsEntry(
  *   1. box 等级低的优先（box 1 > box 2 > box 3）
  *   2. 同 box 内按 lastReviewedAt 旧的优先
  *   3. 没有 nextReviewDate 的视作立即可复习
+ *
+ * 毕业过滤必须走 isSrsGraduated（派生判定），iOS 侧同名过滤要逐行镜像。
  */
 export function getDueSrsEntries(
   entries: SrsMistakeEntry[],
