@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/cn";
 import { MathText } from "@/components/MathText";
@@ -9,6 +9,7 @@ import { playSfx } from "@/lib/sfx";
 import { haptic } from "@/lib/haptic";
 import { playTTS } from "@/lib/tts";
 import { useAutoNarrate } from "@/lib/useAutoNarrate";
+import { shouldIgnoreKey } from "./keyboard";
 import type { QuestionRendererProps } from "./QuestionRenderer";
 
 interface Ripple {
@@ -21,7 +22,14 @@ function normalizeOpt(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, "");
 }
 
-export function ChoiceQuestion({ question, answer, phase, isCorrect, onChange }: QuestionRendererProps) {
+export function ChoiceQuestion({
+  question,
+  answer,
+  phase,
+  isCorrect,
+  onChange,
+  locked = false,
+}: QuestionRendererProps) {
   const rawCorrect = question.answer.trim();
   let correctLetter = rawCorrect.toUpperCase().charAt(0);
   // 若 answer 不是单字母 A-D，则在 options 里反查对应字母
@@ -39,8 +47,9 @@ export function ChoiceQuestion({ question, answer, phase, isCorrect, onChange }:
   // 自动朗读题干（只在进入该题时一次；点选项立即打断）
   const cancelNarrate = useAutoNarrate([question.audio?.question], question.id);
 
-  function handleTap(letter: string, e: React.MouseEvent<HTMLButtonElement>) {
-    if (phase === "checked") return;
+  /** 选中某个选项（点击 / 键盘共用）：朗读 + 音效 + 触感 + 写回 answer */
+  function selectLetter(letter: string) {
+    if (locked || phase === "checked") return;
     cancelNarrate();
     // 选中选项时自动朗读该选项
     const idx = letter.charCodeAt(0) - 65;
@@ -48,6 +57,11 @@ export function ChoiceQuestion({ question, answer, phase, isCorrect, onChange }:
     if (optAudio) void playTTS(optAudio);
     playSfx("tap");
     haptic("light");
+    onChange(letter);
+  }
+
+  function handleTap(letter: string, e: React.MouseEvent<HTMLButtonElement>) {
+    if (locked || phase === "checked") return;
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -59,8 +73,23 @@ export function ChoiceQuestion({ question, answer, phase, isCorrect, onChange }:
         [letter]: (prev[letter] ?? []).filter(r => r.id !== id),
       }));
     }, 600);
-    onChange(letter);
+    selectLetter(letter);
   }
+
+  // 键盘快捷键（web-lesson-3）：数字 1-4 选选项
+  useEffect(() => {
+    if (locked || phase !== "answering") return; // 遮罩打开时不接管键盘（webrunner-5）
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (shouldIgnoreKey(e)) return;
+      const n = Number(e.key);
+      if (!Number.isInteger(n) || n < 1 || n > Math.min(4, question.options.length)) return;
+      e.preventDefault();
+      selectLetter(String.fromCharCode(64 + n));
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, question.id, locked]);
 
   return (
     <div className="w-full">
@@ -114,7 +143,8 @@ export function ChoiceQuestion({ question, answer, phase, isCorrect, onChange }:
                 <span className="flex-1">
                   <MathText text={display} />
                 </span>
-                {/* Duolingo 风格：右下角数字角标（1/2/3/4） */}
+                {/* Duolingo 风格：右下角数字角标（1/2/3/4）
+                    仅在有物理键盘的桌面端（pointer:fine）显示 —— 触屏上是噪音 */}
                 <motion.span
                   animate={
                     selected
@@ -122,7 +152,7 @@ export function ChoiceQuestion({ question, answer, phase, isCorrect, onChange }:
                       : { scale: 1 }
                   }
                   transition={{ duration: 0.25 }}
-                  className="ml-3 w-7 h-7 rounded-md border-2 border-bg-softer flex items-center justify-center font-extrabold text-ink-softer text-xs tabular-nums shrink-0"
+                  className="ml-3 w-7 h-7 rounded-md border-2 border-bg-softer hidden [@media(pointer:fine)]:flex items-center justify-center font-extrabold text-ink-softer text-xs tabular-nums shrink-0"
                 >
                   {idx + 1}
                 </motion.span>

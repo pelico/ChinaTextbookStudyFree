@@ -1,11 +1,16 @@
 import SwiftUI
 
-/// Last-7-days XP bar chart with a week-over-week delta — the offline stand-in
-/// for a leaderboard: you compete with your own previous week.
+/// 本周（**日历周：周一 → 周日**，parity-6）每天的 XP 柱状图 + 周同比 —— 离线版
+/// 排行榜：和上周的自己比。
+///
+/// 注意：柱子按周一 → 周日排列，「今天」可能落在任意一格（周三就在第 3 格），
+/// 所以高亮一律按日期键比对 `Week.dateKey()`，**不能**用「最后一格」。
 struct WeeklyReportCard: View {
     @ObservedObject var progressStore: ProgressStore
 
-    private var days: [(date: String, xp: Int)] { progressStore.recentXP(days: 7) }
+    private var days: [(date: String, xp: Int)] { progressStore.weekXPEntries() }
+    /// 今天的日期键；柱子/星期标高亮用它比对。
+    private var todayKey: String { Week.dateKey() }
     private var thisWeek: Int { progressStore.weeklyTotal() }
     private var lastWeek: Int { progressStore.weeklyTotal(endingDaysAgo: 7) }
     private var delta: Int { thisWeek - lastWeek }
@@ -31,20 +36,21 @@ struct WeeklyReportCard: View {
             }
 
             HStack(alignment: .bottom, spacing: 8) {
-                ForEach(Array(days.enumerated()), id: \.offset) { i, day in
+                ForEach(Array(days.enumerated()), id: \.offset) { _, day in
+                    let isToday = day.date == todayKey
                     VStack(spacing: 6) {
                         ZStack(alignment: .bottom) {
                             RoundedRectangle(cornerRadius: 4)
                                 .fill(DuoColors.surfaceAlt)
                                 .frame(height: 68)
                             RoundedRectangle(cornerRadius: 4)
-                                .fill(i == days.count - 1 ? DuoColors.primary : DuoColors.secondary)
+                                .fill(isToday ? DuoColors.primary : DuoColors.secondary)
                                 .frame(height: max(day.xp > 0 ? 6 : 0, 68 * CGFloat(day.xp) / CGFloat(peak)))
                         }
                         .frame(maxWidth: .infinity)
                         Text(weekdayLabel(day.date))
                             .duoFont(.micro)
-                            .foregroundStyle(i == days.count - 1 ? DuoColors.ink : DuoColors.inkMuted)
+                            .foregroundStyle(isToday ? DuoColors.ink : DuoColors.inkMuted)
                     }
                 }
             }

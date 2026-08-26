@@ -3,7 +3,7 @@
 /**
  * BottomNav —— 移动端底部固定导航栏
  *
- * 4 个真实 tab：学习 / 错题本 / 商店 / 我的
+ * 5 个真实 tab：学习 / 排行榜 / 错题本 / 商店 / 我的
  */
 
 import { useEffect, useState } from "react";
@@ -11,9 +11,14 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import {
   Home as HomeIcon,
+  HomeFill,
+  Trophy,
+  TrophyFill,
   Bookmark,
+  BookmarkFill,
   Gem,
   User,
+  UserFill,
   type IconProps,
 } from "@/components/icons";
 import { playSfx } from "@/lib/sfx";
@@ -21,12 +26,15 @@ import { haptic } from "@/lib/haptic";
 import { useProgressStore } from "@/store/progress";
 import { ALL_COSMETICS } from "@/lib/cosmetics";
 import { hasUnseenAchievements } from "@/lib/achievements";
+import { isImmersivePath } from "@/lib/immersiveRoutes";
 import type { ComponentType } from "react";
 
 interface NavItem {
   href: string;
   label: string;
   Icon: ComponentType<IconProps>;
+  /** 激活态的粗填充变体（web-shell-19），视觉重量对齐 iOS */
+  IconActive: ComponentType<IconProps>;
   /** 命中前缀判断 active */
   matchPrefix: string;
   /** 激活态主色 */
@@ -40,14 +48,25 @@ const NAV_ITEMS: NavItem[] = [
     href: "/",
     label: "学习",
     Icon: HomeIcon,
+    IconActive: HomeFill,
     matchPrefix: "/",
     activeColor: "text-primary",
     activeBg: "bg-primary/10",
   },
   {
+    href: "/league/",
+    label: "排行榜",
+    Icon: Trophy,
+    IconActive: TrophyFill,
+    matchPrefix: "/league",
+    activeColor: "text-gold",
+    activeBg: "bg-gold/15",
+  },
+  {
     href: "/review/",
     label: "错题本",
     Icon: Bookmark,
+    IconActive: BookmarkFill,
     matchPrefix: "/review",
     activeColor: "text-warning",
     activeBg: "bg-warning/15",
@@ -56,26 +75,28 @@ const NAV_ITEMS: NavItem[] = [
     href: "/shop/",
     label: "商店",
     Icon: Gem,
+    IconActive: Gem,
     matchPrefix: "/shop",
-    activeColor: "text-purple-600",
-    activeBg: "bg-purple-100",
+    activeColor: "text-secondary",
+    activeBg: "bg-secondary/15",
   },
   {
     href: "/profile/",
     label: "我的",
     Icon: User,
+    IconActive: UserFill,
     matchPrefix: "/profile",
     activeColor: "text-secondary-dark",
     activeBg: "bg-secondary/15",
   },
 ];
 
-/** 沉浸式路径，不显示底部导航 */
-const HIDDEN_PREFIXES = ["/lesson/", "/reading/"];
-
 function isActive(pathname: string, item: NavItem): boolean {
   if (item.matchPrefix === "/") {
-    return pathname === "/" || /^\/grade\//.test(pathname) || /^\/book\//.test(pathname);
+    return (
+      pathname === "/" ||
+      /^\/(grade|book|lesson|stories|reading)\//.test(pathname)
+    );
   }
   return pathname.startsWith(item.matchPrefix);
 }
@@ -93,6 +114,12 @@ export function BottomNav() {
   const mistakes = useProgressStore(s => s.mistakesBank);
   const gems = useProgressStore(s => s.gems);
   const ownedCosmetics = useProgressStore(s => s.ownedCosmetics);
+  const claimableQuestCount = useProgressStore(s => s.claimableQuestCount);
+  // claimableQuestCount 是派生函数（引用恒定），订阅其依赖字段驱动徽章实时刷新
+  useProgressStore(
+    s =>
+      `${s.dailyQuestDate}|${s.lastXpDate}|${s.todayXp}|${s.dailyLessons}|${s.dailyReviews}|${s.dailyReadings}|${Object.keys(s.claimedQuests).length}`,
+  );
 
   // 错题本徽章：今日可复习的数量
   const today = todayStr();
@@ -105,32 +132,45 @@ export function BottomNav() {
     ? ALL_COSMETICS.some(c => !ownedCosmetics[c.id] && c.cost > 0 && gems >= c.cost)
     : false;
 
-  // 个人中心徽章：未读成就
+  // 个人中心徽章：可领取的每日任务（计数优先），其次未读成就红点
+  const claimableQuests = hydrated ? claimableQuestCount() : 0;
   const profileHasUnseen = hydrated && hasUnseenAchievements();
 
-  // 内嵌路径检查：sub-route 上的 lesson runner / reading 隐藏
-  if (HIDDEN_PREFIXES.some(p => pathname.startsWith(p))) return null;
+  // 沉浸式路径（课程 / 跳级 / 复习 runner / 阅读器）隐藏底部导航，
+  // 否则固定底栏会盖住这些页面底部的「检查 / 继续」按钮。
+  if (isImmersivePath(pathname)) return null;
 
   function getBadge(item: NavItem): { count?: number; dot?: boolean } | null {
     if (item.matchPrefix === "/review" && reviewBadge > 0) return { count: reviewBadge };
     if (item.matchPrefix === "/shop" && shopHasAffordable) return { dot: true };
-    if (item.matchPrefix === "/profile" && profileHasUnseen) return { dot: true };
+    if (item.matchPrefix === "/profile") {
+      if (claimableQuests > 0) return { count: claimableQuests };
+      if (profileHasUnseen) return { dot: true };
+    }
     return null;
   }
 
   return (
+    <>
+    {/* 占位条：把页面内容顶出固定导航的高度（含安全区），
+        代替旧版全局 body pb-16 —— 导航隐藏时占位也随之消失 */}
+    <div
+      aria-hidden="true"
+      className="md:hidden"
+      style={{ height: "calc(3.5rem + max(env(safe-area-inset-bottom), 0px))" }}
+    />
     <nav
-      className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t-2 border-bg-softer"
+      className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t-2 border-bg-softer"
       style={{
         paddingBottom: "max(env(safe-area-inset-bottom), 0px)",
         boxShadow: "0 -2px 12px rgba(0,0,0,0.04)",
       }}
       aria-label="主导航"
     >
-      <div className="grid grid-cols-4 max-w-md mx-auto h-14">
+      <div className="grid grid-cols-5 max-w-md mx-auto h-14">
         {NAV_ITEMS.map(item => {
           const active = isActive(pathname, item);
-          const Icon = item.Icon;
+          const Icon = active ? item.IconActive : item.Icon;
           const badge = getBadge(item);
           return (
             <Link
@@ -186,5 +226,6 @@ export function BottomNav() {
         })}
       </div>
     </nav>
+    </>
   );
 }

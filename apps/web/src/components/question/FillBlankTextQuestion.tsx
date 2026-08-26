@@ -35,8 +35,34 @@ function seededShuffle<T>(arr: T[], seed: number): T[] {
   return a;
 }
 
+/** 英文干扰字母池（web-lesson-14）：小写元音 + 高频辅音，不再混中文字 */
+const EN_VOWELS = "aeiou";
+const EN_CONSONANTS = "bcdfghklmnprstwy";
+
 /** 根据答案生成候选字列表（答案字 + 干扰字，打散） */
 function buildCandidates(answerStr: string, questionId: number): string[] {
+  // === 英文单词答案：干扰项用小写字母（元音/辅音合理配比），不混中文字 ===
+  if (/^[a-zA-Z][a-zA-Z\s'-]*$/.test(answerStr.trim())) {
+    const answerChars = [
+      ...new Set(answerStr.toLowerCase().replace(/[^a-z]/g, "").split("")),
+    ];
+    const need = Math.max(9, answerChars.length + 4);
+    const distractorCount = need - answerChars.length;
+    // 干扰项约 1/3 元音、2/3 辅音，贴近英文字母的自然分布
+    const vowelWanted = Math.max(1, Math.round(distractorCount / 3));
+    const vowelPool = seededShuffle(
+      EN_VOWELS.split("").filter(c => !answerChars.includes(c)),
+      questionId + 13,
+    );
+    const consonantPool = seededShuffle(
+      EN_CONSONANTS.split("").filter(c => !answerChars.includes(c)),
+      questionId + 7,
+    );
+    const distractors = vowelPool.slice(0, Math.min(vowelWanted, vowelPool.length));
+    distractors.push(...consonantPool.slice(0, distractorCount - distractors.length));
+    return seededShuffle([...answerChars, ...distractors], questionId);
+  }
+
   const answerChars = [...new Set(answerStr.split(""))];
   // 干扰字数量：至少让总数 >= 9，最多 12
   const need = Math.max(9, answerChars.length + 4);
@@ -57,6 +83,7 @@ export function FillBlankTextQuestion({
   phase,
   isCorrect,
   onChange,
+  locked = false,
 }: QuestionRendererProps) {
   const disabled = phase === "checked";
   const cancelNarrate = useAutoNarrate([question.audio?.question], question.id);
@@ -67,7 +94,7 @@ export function FillBlankTextQuestion({
   );
 
   function handleKey(k: string) {
-    if (disabled) return;
+    if (locked || disabled) return; // 遮罩打开时停摆（webrunner-5）
     cancelNarrate();
     playSfx("tap");
     haptic("light");
@@ -142,7 +169,7 @@ export function FillBlankTextQuestion({
               "h-14 rounded-2xl text-2xl font-extrabold bg-white border-2 border-bg-softer text-ink",
               "hover:border-secondary/60 active:translate-y-[2px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed transition-colors",
             )}
-            style={{ boxShadow: "0 3px 0 0 #e5e5e5" }}
+            style={{ boxShadow: "0 3px 0 0 var(--shadow-card-color)" }}
           >
             {ch}
           </motion.button>
@@ -157,7 +184,7 @@ export function FillBlankTextQuestion({
             "h-14 rounded-2xl text-2xl font-extrabold bg-white border-2 border-bg-softer text-danger",
             "hover:border-danger/40 active:translate-y-[2px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed transition-colors",
           )}
-          style={{ boxShadow: "0 3px 0 0 #e5e5e5" }}
+          style={{ boxShadow: "0 3px 0 0 var(--shadow-card-color)" }}
         >
           ⌫
         </motion.button>

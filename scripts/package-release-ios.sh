@@ -135,6 +135,17 @@ PY
   DATA_ZIP="$OUT/data-$BOOK.zip"
   rm -f "$DATA_ZIP"
   (cd "$DATA_SRC" && zip -qr "$DATA_ZIP" "books/$BOOK")
+
+  # 4b) 故事插画（content-8）：把本书的 story-images/<bookId>/ 一并放进
+  #     data zip。iOS 端把 data zip 解压到 Application Support/cstf/data/，
+  #     插画随之落在 data/story-images/<bookId>/<storyId>.jpg，
+  #     由 AssetDownloader.storyImageURL 解析；没有插画的书自然跳过。
+  STORY_IMG_DIR="$WEB_PUBLIC/story-images/$BOOK"
+  if [ -d "$STORY_IMG_DIR" ]; then
+    (cd "$WEB_PUBLIC" && zip -qr "$DATA_ZIP" "story-images/$BOOK" -x '*.DS_Store')
+    echo "  故事插画: $(find "$STORY_IMG_DIR" -name '*.jpg' | wc -l | tr -d ' ') 张"
+  fi
+
   DATA_BYTES=$(stat -f %z "$DATA_ZIP")
   DATA_SHA=$(shasum -a 256 "$DATA_ZIP" | awk '{print $1}')
 

@@ -90,7 +90,7 @@ export function GradePicker() {
                 style={{
                   boxShadow: selected
                     ? "0 4px 0 0 #1899D6"
-                    : "0 3px 0 0 #e5e5e5",
+                    : "0 3px 0 0 var(--shadow-card-color)",
                 }}
               >
                 <div

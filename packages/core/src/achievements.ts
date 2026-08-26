@@ -10,7 +10,23 @@
  *     markAllSeen，依赖 localStorage + Zustand store。RN 端会有自己的 seen-tracking 实现。
  */
 
+import { getStarterCosmetics } from "./cosmetics";
+
 export type AchievementCategory = "milestone" | "streak" | "perfection" | "shop" | "review";
+
+/**
+ * 新档白送的初始美妆 id 集合 —— "解锁第一件美妆道具"要排除它们。
+ * 用 cosmetics 的 starter 标记推导（而不是减一个魔法数），
+ * 将来增删 starter 或用户只拥有部分 starter 都不会错档。
+ */
+const STARTER_COSMETIC_IDS: ReadonlySet<string> = new Set(
+  getStarterCosmetics().map(c => c.id),
+);
+
+/** 自己买/赚来的美妆件数（不含初始白送的）。 */
+function ownedNonStarterCount(ownedCosmetics: Record<string, unknown>): number {
+  return Object.keys(ownedCosmetics).filter(id => !STARTER_COSMETIC_IDS.has(id)).length;
+}
 
 /**
  * 成就计算所需的进度快照——只声明 ALL_ACHIEVEMENTS 真正读到的字段。
@@ -25,6 +41,11 @@ export interface AchievementProgressSnapshot {
   ownedCosmetics: Record<string, unknown>;
   mistakesBank: ReadonlyArray<{ correctCount?: number }>;
 }
+
+/**
+ * 成就奖励分量（宝石）：轻量 20 / 中量 50 / 重量 100。
+ */
+export type AchievementRewardGems = 20 | 50 | 100;
 
 export interface Achievement {
   id: string;
@@ -44,6 +65,8 @@ export interface Achievement {
     | "sparkle";
   color: string;
   goal: number;
+  /** 解锁奖励宝石（只发一次，解锁写入永久 unlockedAchievements 账本） */
+  reward: AchievementRewardGems;
   getProgress: (s: AchievementProgressSnapshot) => number;
 }
 
@@ -57,6 +80,7 @@ const A: Achievement[] = [
     iconKey: "rocket",
     color: "#1CB0F6",
     goal: 1,
+    reward: 20,
     getProgress: s => Object.keys(s.completedLessons).length,
   },
   {
@@ -67,6 +91,7 @@ const A: Achievement[] = [
     iconKey: "bookmark",
     color: "#1CB0F6",
     goal: 10,
+    reward: 50,
     getProgress: s => Object.keys(s.completedLessons).length,
   },
   {
@@ -77,6 +102,7 @@ const A: Achievement[] = [
     iconKey: "trophy",
     color: "#A855F7",
     goal: 50,
+    reward: 100,
     getProgress: s => Object.keys(s.completedLessons).length,
   },
 
@@ -89,6 +115,7 @@ const A: Achievement[] = [
     iconKey: "lightning",
     color: "#1CB0F6",
     goal: 100,
+    reward: 20,
     getProgress: s => s.xp,
   },
   {
@@ -99,6 +126,7 @@ const A: Achievement[] = [
     iconKey: "lightning",
     color: "#A855F7",
     goal: 1000,
+    reward: 50,
     getProgress: s => s.xp,
   },
   {
@@ -109,6 +137,7 @@ const A: Achievement[] = [
     iconKey: "lightning",
     color: "#FFC800",
     goal: 5000,
+    reward: 100,
     getProgress: s => s.xp,
   },
 
@@ -121,6 +150,7 @@ const A: Achievement[] = [
     iconKey: "flame",
     color: "#FF9600",
     goal: 3,
+    reward: 20,
     getProgress: s => s.streak,
   },
   {
@@ -131,6 +161,7 @@ const A: Achievement[] = [
     iconKey: "flame",
     color: "#FF9600",
     goal: 7,
+    reward: 50,
     getProgress: s => s.streak,
   },
   {
@@ -141,6 +172,7 @@ const A: Achievement[] = [
     iconKey: "flame",
     color: "#FF4B4B",
     goal: 30,
+    reward: 100,
     getProgress: s => s.streak,
   },
   {
@@ -151,6 +183,7 @@ const A: Achievement[] = [
     iconKey: "flame",
     color: "#FFC800",
     goal: 100,
+    reward: 100,
     getProgress: s => s.streak,
   },
 
@@ -163,6 +196,7 @@ const A: Achievement[] = [
     iconKey: "star",
     color: "#FFC800",
     goal: 1,
+    reward: 20,
     getProgress: s => Object.keys(s.perfectedLessons).length,
   },
   {
@@ -173,6 +207,7 @@ const A: Achievement[] = [
     iconKey: "star",
     color: "#FFC800",
     goal: 10,
+    reward: 50,
     getProgress: s => Object.keys(s.perfectedLessons).length,
   },
   {
@@ -183,6 +218,7 @@ const A: Achievement[] = [
     iconKey: "crown",
     color: "#A855F7",
     goal: 50,
+    reward: 100,
     getProgress: s => Object.keys(s.perfectedLessons).length,
   },
 
@@ -195,7 +231,8 @@ const A: Achievement[] = [
     iconKey: "sparkle",
     color: "#A855F7",
     goal: 1,
-    getProgress: s => Math.max(0, Object.keys(s.ownedCosmetics).length - 3),
+    reward: 20,
+    getProgress: s => ownedNonStarterCount(s.ownedCosmetics),
   },
   {
     id: "gem-collector",
@@ -205,6 +242,7 @@ const A: Achievement[] = [
     iconKey: "gem",
     color: "#A855F7",
     goal: 500,
+    reward: 50,
     getProgress: s => s.lifetimeGems,
   },
 
@@ -217,6 +255,7 @@ const A: Achievement[] = [
     iconKey: "medal",
     color: "#58CC02",
     goal: 1,
+    reward: 20,
     getProgress: s => s.mistakesBank.filter(m => (m.correctCount ?? 0) > 0).length,
   },
 ];
@@ -236,4 +275,27 @@ export function diffNewlyUnlocked(
 ): Achievement[] {
   const beforeSet = new Set(computeUnlockedAchievementIds(before));
   return ALL_ACHIEVEMENTS.filter(a => a.getProgress(after) >= a.goal && !beforeSet.has(a.id));
+}
+
+/**
+ * 永久解锁账本合并（只进不出）：把「当前按进度算出来的解锁集合」并进
+ * 已持久化的 unlockedAchievements 账本。连胜回落等导致进度倒退时，
+ * 已解锁的成就不会被「回锁」，奖励也因此只会发一次。
+ *
+ * 返回的数组保持 prevLedger 原有顺序，新解锁的按 currentUnlockedIds
+ * 顺序追加；结果去重。入参不被修改。
+ */
+export function latchUnlocked(
+  prevLedger: ReadonlyArray<string>,
+  currentUnlockedIds: ReadonlyArray<string>,
+): string[] {
+  const seen = new Set(prevLedger);
+  const merged = [...prevLedger];
+  for (const id of currentUnlockedIds) {
+    if (!seen.has(id)) {
+      seen.add(id);
+      merged.push(id);
+    }
+  }
+  return merged;
 }

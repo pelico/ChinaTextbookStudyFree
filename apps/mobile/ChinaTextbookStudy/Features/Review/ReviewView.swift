@@ -12,6 +12,9 @@ struct ReviewView: View {
         ScrollView {
             VStack(spacing: 16) {
                 hero(due: due.count, total: all.count)
+                if !all.isEmpty {
+                    bucketsBar
+                }
                 if !due.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("待复习").duoFont(.caption).tracking(1).foregroundStyle(DuoColors.inkMuted)
@@ -55,6 +58,43 @@ struct ReviewView: View {
         .padding(20)
         .background(DuoColors.surface, in: .rect(cornerRadius: Radius.large))
         .overlay { RoundedRectangle(cornerRadius: Radius.large).strokeBorder(DuoColors.border, lineWidth: 2) }
+    }
+
+    /// SRS 四桶概览：今天 / 明天 / 之后 / 已掌握（对照 web ReviewClient）。
+    /// 已毕业的条目只进「已掌握」，其余按 nextReviewDate 分桶。
+    ///
+    /// ⚠️ 毕业判定必须走 `SRS.isGraduated`（派生语义），不能手抄
+    /// `graduated != true`：老档 / 从 web 导入的条目常常只有 box + correctCount，
+    /// 手抄判定会把它们算进「今天要复习」，而 hero 用的 `dueMistakes` 又不算 ——
+    /// 同一屏给出两个互相打架的数字（core-2）。
+    private var bucketsBar: some View {
+        let bank = progressStore.progress.mistakesBank
+        let active = bank.filter { !SRS.isGraduated($0) }
+        let today = SRS.todayString()
+        let tomorrow = SRS.dateString(daysFromNow: 1)
+        let todayCount = active.filter { ($0.nextReviewDate ?? today) <= today }.count
+        let tomorrowCount = active.filter { $0.nextReviewDate == tomorrow }.count
+        let laterCount = active.filter { ($0.nextReviewDate ?? "") > tomorrow }.count
+        let graduatedCount = bank.count - active.count
+
+        return HStack(spacing: 8) {
+            srsBucket(label: "今天", count: todayCount, tint: DuoColors.danger)
+            srsBucket(label: "明天", count: tomorrowCount, tint: DuoColors.fox)
+            srsBucket(label: "之后", count: laterCount, tint: DuoColors.secondary)
+            srsBucket(label: "已掌握", count: graduatedCount, tint: DuoColors.primary)
+        }
+    }
+
+    private func srsBucket(label: String, count: Int, tint: Color) -> some View {
+        VStack(spacing: 3) {
+            Text("\(count)").duoNumeral(.heading).foregroundStyle(tint)
+            Text(label).duoFont(.micro).tracking(1).foregroundStyle(DuoColors.inkMuted)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(tint.opacity(0.10), in: .rect(cornerRadius: Radius.control))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(label) \(count) 道题")
     }
 
     private func miniStat(value: Int, label: String, tint: Color) -> some View {

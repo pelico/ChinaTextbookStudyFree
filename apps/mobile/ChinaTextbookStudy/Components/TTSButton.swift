@@ -26,6 +26,10 @@ struct TTSButton: View {
                     .foregroundStyle(.tint)
                     .padding(8)
                     .background(Color.accentColor.opacity(0.12), in: .circle)
+                    // ≥44pt hit target (ios-feel-18): pad the tappable area out
+                    // without growing the visual circle.
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel("朗读")
             .accessibilityIdentifier("tts-play")

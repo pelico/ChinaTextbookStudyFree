@@ -175,7 +175,7 @@ export function DailyGoalRing({ size = 120 }: DailyGoalRingProps) {
                     ? "border-primary bg-primary/10 text-primary-dark"
                     : "border-bg-softer text-ink hover:border-primary"
                 }`}
-                style={{ boxShadow: "0 3px 0 0 #e5e5e5" }}
+                style={{ boxShadow: "0 3px 0 0 var(--shadow-card-color)" }}
               >
                 {opt} XP
               </button>

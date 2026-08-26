@@ -12,8 +12,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { BookOpen, Close } from "@/components/icons";
+import { BookOpen, Close, Target } from "@/components/icons";
 import { TTSButton } from "@/components/TTSButton";
+import { MathText } from "@/components/MathText";
 import { cn } from "@/lib/cn";
 import { playSfx } from "@/lib/sfx";
 import { haptic } from "@/lib/haptic";
@@ -113,7 +114,7 @@ export function GuideClient({ book, unit, summaries }: GuideClientProps) {
               第 {unit.unit_number} 单元 · {unit.title}
             </div>
             <div className="text-lg font-extrabold text-ink mt-1 text-center leading-snug max-w-lg">
-              {current.point}
+              <MathText text={current.point} />
             </div>
 
             {/* 书本图标 —— 柔和的"这是什么"视觉 */}
@@ -139,8 +140,31 @@ export function GuideClient({ book, unit, summaries }: GuideClientProps) {
 
             {/* 描述（核心概念） */}
             <div className="mt-3 text-[15px] text-ink-light leading-relaxed text-center max-w-lg">
-              {current.core_concept}
+              <MathText text={current.core_concept} />
             </div>
+
+            {/* 公式卡（content-10）：key_formula 大字居中 + TTS */}
+            {current.key_formula && (
+              <div className="mt-6 rounded-2xl bg-primary/5 border-2 border-primary/25 p-4 max-w-lg w-full">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Target className="w-3.5 h-3.5 text-primary" />
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-primary">
+                    记住这个
+                  </span>
+                  {current.audio?.key_formula && (
+                    <TTSButton
+                      src={current.audio.key_formula}
+                      size="sm"
+                      className="ml-auto"
+                      label="朗读公式"
+                    />
+                  )}
+                </div>
+                <div className="text-lg text-ink font-bold leading-relaxed text-center">
+                  <MathText text={current.key_formula} />
+                </div>
+              </div>
+            )}
 
             {/* 小贴士 */}
             {current.tips && (
@@ -153,7 +177,9 @@ export function GuideClient({ book, unit, summaries }: GuideClientProps) {
                     <div className="text-[10px] font-extrabold uppercase tracking-wider text-gold mb-1">
                       小贴士
                     </div>
-                    <div className="text-sm text-ink leading-snug">{current.tips}</div>
+                    <div className="text-sm text-ink leading-snug">
+                      <MathText text={current.tips} />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -175,7 +201,9 @@ export function GuideClient({ book, unit, summaries }: GuideClientProps) {
                           className="mt-0.5"
                         />
                       )}
-                      <span className="flex-1">{m}</span>
+                      <span className="flex-1">
+                        <MathText text={m} />
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -197,7 +225,7 @@ export function GuideClient({ book, unit, summaries }: GuideClientProps) {
                 setIdx(i => Math.max(0, i - 1));
               }}
               className="shrink-0 h-14 px-5 rounded-2xl bg-white border-2 border-bg-softer text-ink font-extrabold text-sm"
-              style={{ boxShadow: "0 4px 0 0 #e5e5e5" }}
+              style={{ boxShadow: "0 4px 0 0 var(--shadow-card-color)" }}
             >
               上一步
             </button>

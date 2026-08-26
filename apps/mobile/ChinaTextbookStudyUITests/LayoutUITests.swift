@@ -35,6 +35,11 @@ final class LayoutUITests: XCTestCase {
                       "bottom tab bar did not render")
         attach(name: "shell-launch")
 
+        // Wave E1: 排行 tab（-uitest 零进度 → 未解锁引导页）。
+        app.buttons["tab-league"].tap()
+        XCTAssertTrue(app.staticTexts["排行榜还没解锁"].waitForExistence(timeout: 4),
+                      "league tab did not open the locked guide")
+
         app.buttons["tab-review"].tap()
         XCTAssertTrue(app.navigationBars["错题本"].waitForExistence(timeout: 4),
                       "review tab did not open 错题本")
@@ -87,6 +92,11 @@ final class LayoutUITests: XCTestCase {
         let settings = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "设置")).firstMatch
         XCTAssertTrue(settings.waitForExistence(timeout: 4))
         revealAndTap(app, settings)
+        // Wave F transitions can shift frames mid-tap; retry once if the push
+        // didn't land.
+        if !app.navigationBars["设置"].waitForExistence(timeout: 4), settings.isHittable {
+            settings.tap()
+        }
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 4),
                       "profile did not navigate to 设置")
     }
@@ -106,6 +116,10 @@ final class LayoutUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["本周报告"].waitForExistence(timeout: 4),
                       "weekly report card missing from profile")
 
+        // Wave D header: the join date ("加入于 yyyy年M月") must render.
+        XCTAssertTrue(app.staticTexts["profile-joined-date"].waitForExistence(timeout: 4),
+                      "joined-date line missing from profile header")
+
         // Fresh state has no progress, so nothing is claimable yet.
         XCTAssertEqual(app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "quest-claim-")
@@ -124,7 +138,7 @@ final class LayoutUITests: XCTestCase {
             return
         }
 
-        for label in ["错题本", "商店", "我的", "成就墙"] {
+        for label in ["排行", "错题本", "商店", "我的", "成就墙"] {
             let cell = app.cells.containing(NSPredicate(format: "label CONTAINS %@", label)).firstMatch
             XCTAssertTrue(cell.waitForExistence(timeout: 4), "sidebar row \(label) not found on iPad")
         }

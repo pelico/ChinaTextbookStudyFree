@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Play, Pause } from "lucide-react";
+import { readingId } from "@cstf/core/reading";
 import { Volume, Check, XMark, Star, Lightning } from "@/components/icons";
 import { InnerHeader } from "@/components/InnerHeader";
 import { QuestionRenderer, type QuestionPhase } from "@/components/question/QuestionRenderer";
@@ -17,27 +18,6 @@ import type { Story, StoryQuestion, Question } from "@/types";
 const XP_STORY_READ = 5;
 const XP_QUIZ_GOOD = 10;
 const GOOD_THRESHOLD = 0.8;
-
-const STORY_REWARDS_KEY = "csf-story-rewards-v1";
-function hasStoryReward(storyId: string): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    const raw = window.localStorage.getItem(STORY_REWARDS_KEY);
-    const set: string[] = raw ? JSON.parse(raw) : [];
-    return set.includes(storyId);
-  } catch { return false; }
-}
-function markStoryReward(storyId: string): void {
-  if (typeof window === "undefined") return;
-  try {
-    const raw = window.localStorage.getItem(STORY_REWARDS_KEY);
-    const set: string[] = raw ? JSON.parse(raw) : [];
-    if (!set.includes(storyId)) {
-      set.push(storyId);
-      window.localStorage.setItem(STORY_REWARDS_KEY, JSON.stringify(set));
-    }
-  } catch { /* silent */ }
-}
 
 type Phase = "reading" | "quiz" | "result";
 type PlayMode = "idle" | "playing";
@@ -76,7 +56,7 @@ export default function StoryReaderClient({ story, backHref }: Props) {
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
   const [correctCount, setCorrectCount] = useState(0);
 
-  const recordXp = useProgressStore(s => s.recordLessonComplete);
+  const completeReading = useProgressStore(s => s.completeReading);
 
   // 离开页面时停止
   useEffect(() => {
@@ -171,11 +151,10 @@ export default function StoryReaderClient({ story, backHref }: Props) {
       setIsCorrect(null);
     } else {
       const accuracy = story.questions.length > 0 ? correctCount / story.questions.length : 0;
-      if (!hasStoryReward(story.id)) {
-        markStoryReward(story.id);
-        const xp = accuracy >= GOOD_THRESHOLD ? XP_STORY_READ + XP_QUIZ_GOOD : XP_STORY_READ;
-        recordXp(`story-${story.id}`, story.title, accuracy, xp);
-      }
+      // 阅读奖励：纯 XP，首次完成才发（completeReading 内部按 id 查重幂等）。
+      // id 走 core 规范键 `reading:story:{storyId}`，与 iOS / 备份同一键空间。
+      const xp = accuracy >= GOOD_THRESHOLD ? XP_STORY_READ + XP_QUIZ_GOOD : XP_STORY_READ;
+      completeReading(readingId("story", story.id), xp);
       setPhase("result");
       playSfx("star");
       haptic("success");
@@ -421,7 +400,7 @@ export default function StoryReaderClient({ story, backHref }: Props) {
 
       {/* 底部操作栏 — 仅阅读阶段 */}
       {phase === "reading" && (
-        <div className="fixed bottom-0 inset-x-0 bg-white border-t border-bg-softer shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
+        <div className="fixed bottom-0 inset-x-0 z-40 bg-white border-t border-bg-softer shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
           <div className="max-w-md lg:max-w-6xl mx-auto px-4 py-3 flex gap-3">
             <motion.button
               type="button"

@@ -5,6 +5,7 @@ import { BookOpen, Volume } from "@/components/icons";
 import { SoundLink } from "@/components/SoundLink";
 import { SubjectBadge } from "@/components/SubjectBadge";
 import { InnerHeader } from "@/components/InnerHeader";
+import { AppShell } from "@/components/layout/AppShell";
 import type { BookPassages, SiteIndex } from "@/types";
 
 async function getIndex(): Promise<SiteIndex> {
@@ -68,15 +69,17 @@ export default async function ReadingListPage({
   if (!doc) notFound();
 
   return (
-    <main className="min-h-screen bg-bg-soft">
+    <AppShell centerMaxWidth={720}>
+    <main className="min-h-screen bg-bg-soft lg:bg-transparent">
       <InnerHeader
         backHref={`/book/${bookId}/`}
         title={`${book.textbookName}·课文`}
         subtitle={`${doc.passages.length} 篇课文 · 听读 / 跟读`}
         badge={<SubjectBadge book={book} />}
+        flatOnDesktop
       />
 
-      <div className="max-w-md lg:max-w-4xl mx-auto px-4 py-5 space-y-3 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-3">
+      <div className="max-w-md lg:max-w-none mx-auto px-4 lg:px-0 py-5 lg:pt-2 space-y-3 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-3">
         {doc.passages.map(p => {
           const audioReady = p.sentences.some(s => s.audio);
           const kindLabel = KIND_LABEL[p.kind] ?? "";
@@ -122,5 +125,6 @@ export default async function ReadingListPage({
         })}
       </div>
     </main>
+    </AppShell>
   );
 }

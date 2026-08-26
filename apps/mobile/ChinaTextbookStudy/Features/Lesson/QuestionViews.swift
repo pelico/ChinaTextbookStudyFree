@@ -61,7 +61,8 @@ private struct ChoiceQuestionView: View {
                     }
                 } label: {
                     HStack(spacing: 12) {
-                        Text(opt)
+                        // 只做显示转换；判分仍走原始 opt/letter，不受影响。
+                        Text(MathText.render(opt))
                             .multilineTextAlignment(.leading)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         checkMark(for: state)
@@ -71,6 +72,8 @@ private struct ChoiceQuestionView: View {
                 .buttonStyle(OptionCardButtonStyle(state: state))
                 .disabled(phase == .checked)
                 .modifier(ShakeEffect(animatableData: CGFloat(state == .wrong ? shakeTrigger : 0)))
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+                .accessibilityValue(optionA11yValue(for: state))
             }
         }
         .onChange(of: phase) { _, newPhase in
@@ -90,6 +93,16 @@ private struct ChoiceQuestionView: View {
     private func letterFor(_ i: Int) -> String {
         guard let scalar = Unicode.Scalar(65 + i) else { return "?" }
         return String(scalar)
+    }
+}
+
+/// VoiceOver：判卷后把「对 / 错」读出来（ios-lesson-21）。
+private func optionA11yValue(for state: OptionCardState) -> String {
+    switch state {
+    case .correct: return "正确答案"
+    case .wrong:   return "答错了"
+    case .selected: return "已选择"
+    default:       return ""
     }
 }
 
@@ -152,6 +165,8 @@ private struct TrueFalseQuestionView: View {
         .disabled(phase == .checked)
         .modifier(ShakeEffect(animatableData: CGFloat(state == .wrong ? shakeTrigger : 0)))
         .accessibilityIdentifier("tf-\(value)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityValue(optionA11yValue(for: state))
     }
 
     private func tfCardState(value: String, isSelected: Bool) -> OptionCardState {
@@ -285,6 +300,24 @@ private struct WordOrderQuestionView: View {
                     }
                 }
             }
+
+            // 答错后把正确答案拼成可读的句子展示（ios-lesson-21）：
+            // 英文词块空格连接，中文直接连接，不再露出逗号串。
+            if phase == .checked, !Grade.gradeAnswer(question: question, userAnswer: answer) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("正确的句子是：")
+                        .duoFont(.caption)
+                        .foregroundStyle(DuoColors.inkMuted)
+                    Text(MathText.render(WordOrderFormat.readableAnswer(question.answer)))
+                        .duoFont(.subhead)
+                        .foregroundStyle(DuoColors.primary)
+                        .multilineTextAlignment(.leading)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(DuoColors.primary.opacity(0.08), in: .rect(cornerRadius: Radius.card))
+                .transition(.opacity)
+            }
         }
         .onChange(of: picked) { _, newValue in
             let text = newValue.map { question.options[$0] }.joined(separator: ",")
@@ -303,7 +336,7 @@ private struct WordOrderQuestionView: View {
 
     private func chip(text: String, filled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(text)
+            Text(MathText.render(text))
                 .duoFont(.subhead)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
@@ -313,16 +346,36 @@ private struct WordOrderQuestionView: View {
                     Capsule().strokeBorder(filled ? DuoColors.primary : DuoColors.border, lineWidth: 2)
                 }
         }
-        .buttonStyle(.plain)
+        // ios-feel-9：词块 3pt 底座按压（与大按钮同款手感）。
+        .buttonStyle(ChunkyChipStyle(
+            ledgeColor: filled ? DuoColors.primaryDark : DuoColors.border,
+            isCapsule: true
+        ))
     }
 
     private func chipGhost(text: String) -> some View {
-        Text(text)
+        Text(MathText.render(text))
             .duoFont(.subhead)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .foregroundStyle(.clear)
             .background(DuoColors.surfaceAlt.opacity(0.5), in: .capsule)
+            // 底座样式给真词块加了 3pt 底边距，幽灵占位补齐防止货架抖动。
+            .padding(.bottom, 3)
+    }
+}
+
+/// wordOrder 正确答案的「人话」格式化：
+/// 含英文/拉丁词块 → 空格连接；纯中文 → 直接连接。
+enum WordOrderFormat {
+    static func readableAnswer(_ answer: String) -> String {
+        let parts = answer
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard !parts.isEmpty else { return answer }
+        let hasLatin = parts.contains { $0.range(of: "[A-Za-z]", options: .regularExpression) != nil }
+        return parts.joined(separator: hasLatin ? " " : "")
     }
 }
 
@@ -357,7 +410,7 @@ private struct MatchingQuestionView: View {
                         Button { if phase == .answering { tapLeft(key) } } label: {
                             matchTile(label: leftItems[safe: i] ?? "", side: .left, key: key)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(ChunkyChipStyle(ledgeColor: tileLedge(side: .left, key: key), isCapsule: false))
                         .modifier(ShakeEffect(animatableData: CGFloat(flashWrong?.left == key ? shakeTrigger : 0)))
                     } else {
                         matchedGhost()
@@ -372,7 +425,7 @@ private struct MatchingQuestionView: View {
                         Button { if phase == .answering { tapRight(key) } } label: {
                             matchTile(label: rightItems[safe: i] ?? "", side: .right, key: key)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(ChunkyChipStyle(ledgeColor: tileLedge(side: .right, key: key), isCapsule: false))
                         .modifier(ShakeEffect(animatableData: CGFloat(flashWrong?.right == key ? shakeTrigger : 0)))
                     } else {
                         matchedGhost()
@@ -393,7 +446,9 @@ private struct MatchingQuestionView: View {
         guard let left = activeLeft else { return }
         if correctMap[left] == key {
             // Correct pair — flash green, then vanish both tiles.
-            HapticEngine.shared.correct(); SFXEngine.shared.play(.tap)
+            // ios-feel-10：配对成功播上行双音，每多配一对整体升一级音高。
+            HapticEngine.shared.correct()
+            SFXEngine.shared.play(.pairMatch, pitchStep: matched.count)
             pairs[left] = key
             withAnimation(Motion.reveal) {
                 _ = matched.insert(left)
@@ -418,6 +473,15 @@ private struct MatchingQuestionView: View {
         onChange(text)
     }
 
+    /// 方块底座颜色：跟着激活 / 错误状态换色，底座与描边一体。
+    private func tileLedge(side: Side, key: String) -> Color {
+        let isActive = side == .left && activeLeft == key
+        let isWrong = (side == .left && flashWrong?.left == key) || (side == .right && flashWrong?.right == key)
+        if isWrong { return DuoColors.dangerDark }
+        if isActive { return DuoColors.secondaryDark }
+        return DuoColors.border
+    }
+
     private func matchedGhost() -> some View {
         RoundedRectangle(cornerRadius: Radius.card)
             .fill(DuoColors.surfaceAlt.opacity(0.4))
@@ -428,6 +492,8 @@ private struct MatchingQuestionView: View {
                     .font(.system(size: 16, weight: .heavy))
                     .foregroundStyle(DuoColors.primary.opacity(0.6))
             }
+            // 补齐底座样式的 3pt 底边距，两列高度保持对齐。
+            .padding(.bottom, 3)
     }
 
     private func matchTile(label: String, side: Side, key: String) -> some View {
@@ -435,7 +501,7 @@ private struct MatchingQuestionView: View {
         let isWrong = (side == .left && flashWrong?.left == key) || (side == .right && flashWrong?.right == key)
         let border: Color = isWrong ? DuoColors.danger : (isActive ? DuoColors.secondary : DuoColors.border)
         let fill: Color = isWrong ? DuoColors.danger.opacity(0.14) : (isActive ? DuoColors.secondary.opacity(0.12) : DuoColors.surface)
-        return Text(label)
+        return Text(MathText.render(label))
             .duoFont(.subhead)
             .foregroundStyle(DuoColors.ink)
             .multilineTextAlignment(.leading)

@@ -20,18 +20,39 @@ import {
   type ReactNode,
 } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Lock, Star, Crown, Chest, Book, Owl, Sparkle } from "@/components/icons";
+import { Lock, Star, Crown, Chest, Book, Panda, Sparkle, Trophy } from "@/components/icons";
 import { cn } from "@/lib/cn";
 import { playSfx } from "@/lib/sfx";
 import { haptic } from "@/lib/haptic";
 import { LessonStartModal } from "./LessonStartModal";
 import { ChestModal } from "./ChestModal";
 import { SoundLink } from "./SoundLink";
-import { computeChestsForBook, rollChestReward, type ChestSlot } from "@/lib/chestLogic";
+import { useToast } from "./Toast";
+import {
+  computeChestsForBook,
+  rollChestReward,
+  type ChestSlot,
+  type ChestRewardTier,
+} from "@/lib/chestLogic";
 import { useProgressStore } from "@/store/progress";
 import type { PathLessonMeta, LessonStatus } from "@cstf/core";
 
 export type { PathLessonMeta, LessonStatus };
+
+/**
+ * 单元挑战节点（⚔️ exam 课）的展示元数据 —— 由 BookPathView
+ * 按「该单元全部普通课完成 → 解锁」的规则计算好传入。
+ */
+export interface ExamNodeMeta {
+  lessonId: string;
+  questionCount: number;
+  /** 该单元全部普通课已完成 → 可挑战 */
+  unlocked: boolean;
+  /** 已通关（completedLessons 有记录） */
+  completed: boolean;
+  /** accuracy ≥ 0.8 → 征服（奖杯金色态） */
+  conquered: boolean;
+}
 
 interface PathMapProps {
   bookId: string;
@@ -48,16 +69,21 @@ interface PathMapProps {
   backHref?: string;
   /** 在 sticky banner 上方渲染的插槽内容（随 banner 一起 sticky），桌面端专用 */
   topSlot?: ReactNode;
+  /** 单元挑战节点：unitNumber → meta（缺省 = 该单元没有挑战课） */
+  exams?: Record<number, ExamNodeMeta>;
 }
 
 type UnitItem =
   | { kind: "lesson"; lesson: PathLessonMeta }
-  | { kind: "chest"; slot: ChestSlot };
+  | { kind: "chest"; slot: ChestSlot }
+  | { kind: "exam"; unitNumber: number; unitTitle: string; meta: ExamNodeMeta };
 
 interface ActiveChestState {
   slot: ChestSlot;
   /** 本次开箱抽到的奖励 */
   gems: number;
+  /** 奖励档位（common/rare/epic）—— ChestModal 按档位分层演出 */
+  tier: ChestRewardTier;
 }
 
 /** Duolingo 各单元的颜色循环 —— 按 unit index 取模 */
@@ -83,9 +109,16 @@ export function PathMap({
   hasGuide,
   backHref,
   topSlot,
+  exams,
 }: PathMapProps) {
   const [activeLesson, setActiveLesson] = useState<PathLessonMeta | null>(null);
   const [activeChest, setActiveChest] = useState<ActiveChestState | null>(null);
+  // 点开的单元挑战（弹 LessonStartModal 挑战版）
+  const [activeExam, setActiveExam] = useState<{
+    meta: ExamNodeMeta;
+    unitNumber: number;
+  } | null>(null);
+  const toast = useToast();
 
   const claimedChests = useProgressStore(s => s.claimedChests);
   const addGems = useProgressStore(s => s.addGems);
@@ -99,7 +132,8 @@ export function PathMap({
     return m;
   }, [chestSlots]);
 
-  // 按单元分组，合并 lesson + chest 为一个 unitItems 列表
+  // 按单元分组，合并 lesson + chest 为一个 unitItems 列表；
+  // 单元末尾追加 ⚔️ 挑战节点（该单元有 exam 课时）
   const byUnit = useMemo(() => {
     const map = new Map<number, { title: string; items: UnitItem[] }>();
     for (const l of lessons) {
@@ -110,8 +144,21 @@ export function PathMap({
         map.get(l.unitNumber)!.items.push({ kind: "chest", slot: chest });
       }
     }
+    if (exams) {
+      for (const [unitNum, group] of map) {
+        const meta = exams[unitNum];
+        if (meta) {
+          group.items.push({
+            kind: "exam",
+            unitNumber: unitNum,
+            unitTitle: group.title,
+            meta,
+          });
+        }
+      }
+    }
     return map;
-  }, [lessons, chestByAfterLesson]);
+  }, [lessons, chestByAfterLesson, exams]);
 
   const unitEntries = useMemo(() => Array.from(byUnit.entries()), [byUnit]);
 
@@ -182,13 +229,26 @@ export function PathMap({
     playSfx("tap");
     haptic("medium");
     if (claimedChests[slot.id]) {
-      setActiveChest({ slot, gems: 0 });
+      // 已领取的宝箱不再进入开箱流程（避免开出 +0 的挫败感）
+      toast.info("这个宝箱已经开过啦");
       return;
     }
     const reward = rollChestReward();
     claimChest(slot.id);
     addGems(reward.gems);
-    setActiveChest({ slot, gems: reward.gems });
+    setActiveChest({ slot, gems: reward.gems, tier: reward.tier });
+  }
+
+  function handleExamClick(unitNumber: number, meta: ExamNodeMeta) {
+    if (!meta.unlocked) {
+      playSfx("tap");
+      haptic("light");
+      toast.info("先完成本单元全部课程，就能开启挑战啦");
+      return;
+    }
+    playSfx("tap");
+    haptic("medium");
+    setActiveExam({ meta, unitNumber });
   }
 
   // 当前 sticky banner 对应的单元元数据
@@ -197,6 +257,20 @@ export function PathMap({
   const activeUnit = unitEntries[safeIndex];
   const color = unitColor(safeIndex);
   const activeUnitTitle = activeUnit?.[1]?.title ?? "";
+
+  // ⚡ 跳级入口（E2）：当前可见单元「整个单元都还锁着」时，banner 上出现
+  // 「跳到这里」——测试通过即可解锁之前全部课程（口径见 /jump/）
+  const activeUnitFullyLocked = useMemo(() => {
+    const group = byUnit.get(activeUnitNum);
+    if (!group) return false;
+    const unitLessons = group.items.filter(
+      (it): it is Extract<UnitItem, { kind: "lesson" }> => it.kind === "lesson",
+    );
+    return (
+      unitLessons.length > 0 &&
+      unitLessons.every(it => (statuses[it.lesson.id] ?? "locked") === "locked")
+    );
+  }, [byUnit, activeUnitNum, statuses]);
 
   return (
     <div className="w-full max-w-md mx-auto lg:max-w-none lg:mx-0 px-4 lg:px-0 pb-6">
@@ -244,6 +318,19 @@ export function PathMap({
               <div className="text-lg font-extrabold leading-tight truncate tracking-tight mt-1.5">
                 {activeUnitTitle}
               </div>
+              {/* ⚡ 跳级入口：整个单元还锁着才出现 */}
+              {activeUnitFullyLocked && (
+                <SoundLink
+                  href={`/jump/?book=${bookId}&unit=${activeUnitNum}`}
+                  hapticIntensity="medium"
+                  className="mt-2 inline-flex items-center gap-1.5 px-3 h-8 rounded-xl bg-white/95 text-xs font-extrabold tracking-tight transition-colors hover:bg-white"
+                  style={{ color: color.bg, boxShadow: `0 2px 0 0 ${color.shadow}` }}
+                  aria-label={`跳级测试：直接跳到第 ${activeUnitNum} 单元`}
+                >
+                  <span aria-hidden>⚡</span>
+                  <span>跳到这里</span>
+                </SoundLink>
+              )}
             </div>
             {hasGuide && (
               <SoundLink
@@ -268,6 +355,7 @@ export function PathMap({
           claimedChests={claimedChests}
           onLesson={setActiveLesson}
           onChest={handleChestClick}
+          onExam={handleExamClick}
           sectionRefs={sectionRefs}
         />
       </div>
@@ -290,7 +378,23 @@ export function PathMap({
         <ChestModal
           open={!!activeChest}
           gems={activeChest.gems}
+          tier={activeChest.tier}
           onClose={() => setActiveChest(null)}
+        />
+      )}
+
+      {activeExam && (
+        <LessonStartModal
+          open={!!activeExam}
+          onClose={() => setActiveExam(null)}
+          bookId={bookId}
+          lessonId={activeExam.meta.lessonId}
+          title={`第 ${activeExam.unitNumber} 单元挑战`}
+          questionCount={activeExam.meta.questionCount}
+          unitNumber={activeExam.unitNumber}
+          kpIndex={0}
+          kpTotal={0}
+          isExam
         />
       )}
 
@@ -300,12 +404,11 @@ export function PathMap({
 
 /**
  * 单元内部的蛇形路径渲染：
- * - 使用 400px 宽的居中舞台 (viewBox -200..200)
+ * - 设计稿舞台宽 440px；窄容器（手机）按 容器宽/440 等比缩放横向坐标，杜绝横向溢出
  * - SVG cubic bezier 连接相邻节点（控制点放在中点 y 上，自然形成 S 曲线）
  * - 节点以绝对定位放置到同一坐标系
  */
 const STAGE_WIDTH = 440;
-const STAGE_HALF = STAGE_WIDTH / 2;
 const NODE_SIZE = 80;
 const STEP_Y = 120;
 const PAD_TOP = 16;
@@ -317,7 +420,7 @@ const PAD_BOTTOM = 28;
  * side：1=右，-1=左（贴近 stage 边缘）；
  * yOffset：相对该节点 y 的上下偏移（px）；
  */
-type DecoKind = "owl" | "sparkle" | "crown" | "star";
+type DecoKind = "panda" | "sparkle" | "crown" | "star";
 interface DecoSpec {
   atIndex: number;
   side: 1 | -1;
@@ -329,7 +432,7 @@ interface DecoSpec {
   delay: number;
 }
 
-const DECO_KINDS: DecoKind[] = ["owl", "sparkle", "star", "owl", "crown", "sparkle"];
+const DECO_KINDS: DecoKind[] = ["panda", "sparkle", "star", "panda", "crown", "sparkle"];
 const DECO_COLORS = ["#58CC02", "#FFC800", "#CE82FF", "#1CB0F6", "#FF9600", "#FF4B4B"];
 const DECO_Y_OFFSETS = [30, -12, 18, 6, -6, 24];
 const DECO_SIZES = [64, 36, 44, 60, 40, 56];
@@ -357,8 +460,8 @@ function generateDecorations(len: number): DecoSpec[] {
 function renderDecoIcon(kind: DecoKind, size: number) {
   const common = { className: "w-full h-full" };
   switch (kind) {
-    case "owl":
-      return <Owl {...common} size={size} />;
+    case "panda":
+      return <Panda {...common} size={size} />;
     case "sparkle":
       return <Sparkle {...common} size={size} />;
     case "crown":
@@ -368,9 +471,9 @@ function renderDecoIcon(kind: DecoKind, size: number) {
   }
 }
 
-function buildSnakePath(points: Array<{ x: number; y: number }>): string {
+function buildSnakePath(points: Array<{ x: number; y: number }>, stageHalf: number): string {
   if (points.length < 2) return "";
-  const toX = (x: number) => x + STAGE_HALF;
+  const toX = (x: number) => x + stageHalf;
   let d = `M ${toX(points[0].x)} ${points[0].y}`;
   for (let i = 1; i < points.length; i++) {
     const a = points[i - 1];
@@ -396,6 +499,7 @@ interface UnitPathProps {
   claimedChests: Record<string, boolean>;
   onLesson: (l: PathLessonMeta) => void;
   onChest: (slot: ChestSlot) => void;
+  onExam: (unitNumber: number, meta: ExamNodeMeta) => void;
   sectionRefs: React.MutableRefObject<Map<number, HTMLDivElement | null>>;
 }
 
@@ -406,8 +510,31 @@ function UnitPath({
   claimedChests,
   onLesson,
   onChest,
+  onExam,
   sectionRefs,
 }: UnitPathProps) {
+  // 响应式舞台宽：容器窄于设计稿 440px 时（iPhone 375-430 等）按比例收窄，
+  // 桌面（容器 ≥ 440）scale = 1，渲染与设计稿逐像素一致。
+  // SSR / 首帧安全初值取 STAGE_WIDTH，配合外层 overflow-x-clip 不会撑出横向滚动，
+  // useLayoutEffect 在首次绘制前同步测宽，避免可见跳动。
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState<number | null>(null);
+
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    setContainerWidth(el.clientWidth);
+    const observer = new ResizeObserver(() => {
+      setContainerWidth(el.clientWidth);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const stageWidth = Math.min(STAGE_WIDTH, containerWidth ?? STAGE_WIDTH);
+  const stageHalf = stageWidth / 2;
+  const scale = stageWidth / STAGE_WIDTH;
+
   const flat: FlatEntry[] = [];
   entries.forEach(([unitNum, group], gi) => {
     group.items.forEach((item, idx) => {
@@ -422,19 +549,20 @@ function UnitPath({
   });
 
   const positions = flat.map((_, i) => ({
-    x: snakeOffset(i),
+    x: snakeOffset(i) * scale,
     y: PAD_TOP + NODE_SIZE / 2 + i * STEP_Y,
   }));
   const height = PAD_TOP + NODE_SIZE + Math.max(0, flat.length - 1) * STEP_Y + PAD_BOTTOM;
-  const pathD = buildSnakePath(positions);
+  const pathD = buildSnakePath(positions, stageHalf);
 
   return (
-    <div className="relative mx-auto" style={{ width: STAGE_WIDTH, height }}>
+    <div ref={containerRef} className="w-full overflow-x-clip">
+    <div className="relative mx-auto" style={{ width: stageWidth, height }}>
       <svg
         className="absolute inset-0 pointer-events-none"
-        width={STAGE_WIDTH}
+        width={stageWidth}
         height={height}
-        viewBox={`0 0 ${STAGE_WIDTH} ${height}`}
+        viewBox={`0 0 ${stageWidth} ${height}`}
         aria-hidden
       >
         <path
@@ -451,7 +579,7 @@ function UnitPath({
       {generateDecorations(flat.length).map((d, i) => {
         if (d.atIndex >= flat.length) return null;
         const p = positions[d.atIndex];
-        const cx = d.side === 1 ? STAGE_WIDTH - d.size / 2 - 8 : d.size / 2 + 8;
+        const cx = d.side === 1 ? stageWidth - d.size / 2 - 8 : d.size / 2 + 8;
         const cy = p.y + d.yOffset;
         return (
           <motion.div
@@ -521,7 +649,7 @@ function UnitPath({
       {flat.map((entry, idx) => {
         const p = positions[idx];
         const style: CSSProperties = {
-          left: STAGE_HALF + p.x - NODE_SIZE / 2,
+          left: stageHalf + p.x - NODE_SIZE / 2,
           top: p.y - NODE_SIZE / 2,
           width: NODE_SIZE,
         };
@@ -535,7 +663,21 @@ function UnitPath({
                 status={status}
                 stars={stars[lesson.id] ?? 0}
                 breatheDelay={idx * 0.12}
+                color={unitColor(entry.unitOrderIndex)}
                 onSelect={() => onLesson(lesson)}
+              />
+            </div>
+          );
+        }
+        if (entry.item.kind === "exam") {
+          const { unitNumber, meta } = entry.item;
+          return (
+            <div key={meta.lessonId} className="absolute" style={style}>
+              <ExamNode
+                meta={meta}
+                stars={stars[meta.lessonId] ?? 0}
+                breatheDelay={idx * 0.12}
+                onSelect={() => onExam(unitNumber, meta)}
               />
             </div>
           );
@@ -556,6 +698,7 @@ function UnitPath({
         );
       })}
     </div>
+    </div>
   );
 }
 
@@ -570,10 +713,18 @@ interface PathNodeProps {
   status: LessonStatus;
   stars: number;
   breatheDelay: number;
+  /** 所属单元的循环色（web-shell-15）：current 节点底色/阴影/光晕随单元色 */
+  color: { bg: string; shadow: string };
   onSelect: () => void;
 }
 
-function PathNode({ lesson, status, stars, breatheDelay, onSelect }: PathNodeProps) {
+/** #RRGGBB → rgba 字符串（光晕用） */
+function hexToRgba(hex: string, alpha: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 0xff}, ${(n >> 8) & 0xff}, ${n & 0xff}, ${alpha})`;
+}
+
+function PathNode({ lesson, status, stars, breatheDelay, color, onSelect }: PathNodeProps) {
   const isLocked = status === "locked";
   const isCurrent = status === "current";
   const isCompleted = status === "completed";
@@ -597,17 +748,21 @@ function PathNode({ lesson, status, stars, breatheDelay, onSelect }: PathNodePro
         className={cn(
           "relative w-20 h-20 rounded-full flex items-center justify-center",
           "transition-colors duration-200",
-          isCurrent && "path-node-current",
+          isCurrent && "path-node-current text-white",
           isLocked && "bg-bg-softer text-ink-softer",
-          isCurrent && "bg-primary text-white",
           isCompleted && "bg-gold text-white",
         )}
         style={{
+          // current 节点底色/阴影/光晕跟随单元循环色（UNIT_COLORS）
+          backgroundColor: isCurrent ? color.bg : undefined,
           boxShadow: isLocked
             ? "0 4px 0 0 #d5d5d5"
             : isCompleted
               ? "0 5px 0 0 #c89600"
-              : "0 5px 0 0 #58a700",
+              : `0 5px 0 0 ${color.shadow}`,
+          ...(isCurrent
+            ? ({ "--node-glow-color": hexToRgba(color.bg, 0.35) } as CSSProperties)
+            : null),
         }}
       >
         {isLocked && <Lock className="w-7 h-7" />}
@@ -716,6 +871,119 @@ function ChestNode({ unlocked, claimed, breatheDelay, onSelect }: ChestNodeProps
       onClick={onSelect}
       className={unlocked ? "block w-full" : "block w-full cursor-not-allowed"}
       aria-label={claimed ? "已领取的宝箱" : unlocked ? "打开宝箱" : "未解锁宝箱"}
+    >
+      {node}
+    </button>
+  );
+}
+
+// ============================================================
+// ⚔️ 单元挑战节点（奖杯）—— 紫金配色，区别于普通课程节点
+//   locked    ：灰色 + 点按提示「先完成本单元全部课程」
+//   unlocked  ：紫底金边奖杯 + 脉冲光圈（可挑战）
+//   completed ：紫底 + 星数角标（通关但未征服）
+//   conquered ：金色奖杯（accuracy ≥ 0.8 征服态）
+// ============================================================
+
+interface ExamNodeProps {
+  meta: ExamNodeMeta;
+  stars: number;
+  breatheDelay: number;
+  onSelect: () => void;
+}
+
+function ExamNode({ meta, stars, breatheDelay, onSelect }: ExamNodeProps) {
+  const { unlocked, completed, conquered } = meta;
+
+  const background = !unlocked
+    ? "#E5E5E5"
+    : conquered
+      ? "linear-gradient(160deg, #FFC800, #FF9600)"
+      : "linear-gradient(160deg, #CE82FF, #7C3AED)";
+  const shadow = !unlocked
+    ? "0 4px 0 0 #d5d5d5"
+    : conquered
+      ? "0 5px 0 0 #C89600, 0 0 18px rgba(255,200,0,0.45)"
+      : "0 5px 0 0 #6B21A8";
+
+  const node = (
+    <motion.div
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, delay: breatheDelay * 0.4 }}
+      className="flex flex-col items-center"
+    >
+      <motion.div
+        animate={unlocked && !completed ? { y: [0, -4, 0] } : { y: 0 }}
+        transition={
+          unlocked && !completed
+            ? { duration: 2.4, repeat: Infinity, ease: "easeInOut", delay: breatheDelay }
+            : { duration: 0 }
+        }
+        whileHover={unlocked ? { scale: 1.08, y: -4 } : undefined}
+        whileTap={unlocked ? { scale: 0.95 } : undefined}
+        className={cn(
+          "relative w-20 h-20 rounded-full flex items-center justify-center",
+          !unlocked && "text-ink-softer",
+          unlocked && "text-white",
+        )}
+        style={{
+          background,
+          boxShadow: shadow,
+          // 紫金配色：可挑战 / 已通关（未征服）时挂一圈金边
+          border: unlocked && !conquered ? "3px solid #FFC800" : "none",
+        }}
+      >
+        {!unlocked ? <Lock className="w-7 h-7" /> : <Trophy className="w-9 h-9" />}
+
+        {/* 可挑战：金色脉冲光圈 */}
+        {unlocked && !completed && (
+          <motion.span
+            aria-hidden
+            className="absolute inset-0 rounded-full pointer-events-none"
+            animate={{ scale: [1, 1.22, 1], opacity: [0.45, 0, 0.45] }}
+            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+            style={{ boxShadow: "0 0 0 6px rgba(255, 200, 0, 0.4)" }}
+          />
+        )}
+
+        {/* 通关星数角标 */}
+        {completed && stars > 0 && (
+          <div className="absolute -bottom-1 -right-1 bg-white rounded-full px-1.5 py-0.5 shadow inline-flex items-center gap-0.5 text-gold">
+            {Array.from({ length: stars }).map((_, i) => (
+              <Star key={i} className="w-2.5 h-2.5 fill-current" />
+            ))}
+          </div>
+        )}
+      </motion.div>
+
+      {/* 节点小标签 */}
+      <div
+        className={cn(
+          "mt-1.5 text-center text-[11px] font-extrabold leading-tight tracking-tight",
+          !unlocked ? "text-ink-softer" : conquered ? "text-gold" : "text-purple-600",
+        )}
+      >
+        {conquered ? "已征服 ⚔️" : "单元挑战"}
+      </div>
+    </motion.div>
+  );
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={unlocked ? "block w-full" : "block w-full cursor-not-allowed"}
+      aria-label={
+        !unlocked
+          ? "单元挑战（先完成本单元全部课程）"
+          : conquered
+            ? "单元挑战（已征服）"
+            : completed
+              ? "单元挑战（已通关，可再战）"
+              : "开始单元挑战"
+      }
+      title="单元挑战"
     >
       {node}
     </button>

@@ -12,8 +12,15 @@ struct BookDetailView: View {
     @State private var outline: Outline?
     @State private var loadError: String?
     @State private var lessons: [PathLessonMeta] = []
+    /// 单元挑战槽位（outline 声明 + 本地 exam 课文件都齐才有）。
+    @State private var examSlots: [ExamSlot] = []
+    /// 课文听读 / 课外故事入口按数据实际存在与否条件渲染（content-8）。
+    @State private var hasPassages = false
+    @State private var hasStories = false
     /// A path chest the learner tapped and is currently opening.
     @State private var activeChest: ActiveChest?
+    /// 0 红心预拦截（ioslesson-2）：和首页路径一样，没心先弹红心详情。
+    @State private var showZeroHeartsSheet = false
 
     private struct ActiveChest: Identifiable { let id: String }
 
@@ -46,27 +53,51 @@ struct BookDetailView: View {
             DuoColors.darkBg.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Side entries (stories/reading) at top — dark themed
-                HStack(spacing: 12) {
-                    sideEntry(label: "课文听读", icon: "text.book.closed.fill", tint: DuoColors.secondary) {
-                        path.append(.reading(bookId: bookId))
+                // Side entries (stories/reading) at top — dark themed.
+                // Only shown for books that actually ship the content, so a
+                // math book no longer advertises empty 课文/故事 lists.
+                if hasPassages || hasStories {
+                    HStack(spacing: 12) {
+                        if hasPassages {
+                            sideEntry(label: "课文听读", icon: "text.book.closed.fill", tint: DuoColors.secondary) {
+                                path.append(.reading(bookId: bookId))
+                            }
+                        }
+                        if hasStories {
+                            sideEntry(label: "课外故事", icon: "book.closed.fill", tint: DuoColors.beetle) {
+                                path.append(.stories(bookId: bookId))
+                            }
+                        }
                     }
-                    sideEntry(label: "课外故事", icon: "book.closed.fill", tint: DuoColors.beetle) {
-                        path.append(.stories(bookId: bookId))
-                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
 
                 // Snake-shaped PathMap
-                PathMapView(lessons: buildPathNodes()) { node in
-                    if node.kind == .chest {
-                        activeChest = ActiveChest(id: node.id)
-                    } else {
-                        path.append(.lesson(bookId: bookId, lessonId: node.id))
+                PathMapView(
+                    lessons: buildPathNodes(),
+                    onTap: { node in
+                        if node.kind == .chest {
+                            activeChest = ActiveChest(id: node.id)
+                        } else {
+                            // 0 红心预拦截（ioslesson-2）：先结算回复计时器再看余量，
+                            // 没红心就弹红心详情（倒计时 + 宝石补满），不进课 ——
+                            // 与首页路径入口完全一致。
+                            guard hasHeartToSpend() else { return }
+                            path.append(.lesson(bookId: bookId, lessonId: node.id))
+                        }
+                    },
+                    onGuideTap: { unitNumber in
+                        path.append(.guide(bookId: bookId, unitNumber: unitNumber))
+                    },
+                    onJumpTap: { unitNumber in
+                        // 跳级失败要扣 1 心 —— 0 心时先弹补心，别让孩子白考，
+                        // 更别让点击「什么都没发生」。
+                        guard hasHeartToSpend() else { return }
+                        path.append(.jumpTest(bookId: bookId, unitNumber: unitNumber))
                     }
-                }
+                )
             }
         }
         // Chest open modal — full-screen cover so the back button / tab bar
@@ -81,6 +112,24 @@ struct BookDetailView: View {
             )
             .presentationBackground(.clear)
         }
+        // 0 心预拦截：先看倒计时/补心，别把孩子放进一节答不了错的课。
+        .sheet(isPresented: $showZeroHeartsSheet) {
+            HeartGateSheet(progressStore: progressStore)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+    }
+
+    /// 结算红心恢复计时器后判断还能不能开一局。没心时给触感 + 弹红心详情，
+    /// 返回 false 让调用方停下 —— 静默 return 会让点击像坏掉了一样。
+    private func hasHeartToSpend() -> Bool {
+        progressStore.tickHeartRecharge()
+        guard progressStore.hearts > 0 else {
+            HapticEngine.shared.wrong()
+            showZeroHeartsSheet = true
+            return false
+        }
+        return true
     }
 
     private func sideEntry(label: String, icon: String, tint: Color, action: @escaping () -> Void) -> some View {
@@ -105,7 +154,12 @@ struct BookDetailView: View {
 
     /// Lesson + chest nodes for the path (shared builder with the Home tab).
     private func buildPathNodes() -> [PathMapNode] {
-        PathNodeBuilder.nodes(bookId: bookId, lessons: lessons, progressStore: progressStore)
+        PathNodeBuilder.nodes(
+            bookId: bookId,
+            lessons: lessons,
+            progressStore: progressStore,
+            examSlots: examSlots
+        )
     }
 
     // MARK: - Loading
@@ -118,10 +172,99 @@ struct BookDetailView: View {
             self.lessons = outline.pathLessonMetas(bookId: bookId) { lessonId in
                 (try? DataLoader.shared.loadLesson(bookId: bookId, lessonId: lessonId).questions.count) ?? 0
             }
+            self.examSlots = outline.examSlots(bookId: bookId)
+            // Ground truth after download is the file itself (hasPassages /
+            // hasStories flags in the site index can lag behind the data zip).
+            self.hasPassages = (((try? DataLoader.shared.loadPassages(bookId: bookId)) ?? nil)?.passages.isEmpty == false)
+            self.hasStories = (((try? DataLoader.shared.loadStories(bookId: bookId)) ?? nil)?.stories.isEmpty == false)
             self.loadError = nil
         } catch {
             self.loadError = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
         }
     }
 
+}
+
+// MARK: - Heart gate sheet (ioslesson-2)
+
+/// 0 红心时挡在课程入口前的详情层：还剩几颗心、下一颗什么时候回来、
+/// 要不要用宝石补满。与首页的红心详情同一套内容与文案。
+private struct HeartGateSheet: View {
+    @ObservedObject var progressStore: ProgressStore
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var tick = Date()
+    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 22) {
+                Text("红心")
+                    .duoFont(.title, weight: .black)
+                    .foregroundStyle(DuoColors.darkInk)
+                    .padding(.top, 6)
+
+                HStack(spacing: 10) {
+                    ForEach(0..<ProgressStore.maxHearts, id: \.self) { i in
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 32, weight: .heavy))
+                            .foregroundStyle(i < progressStore.hearts ? DuoColors.danger : DuoColors.darkSurfaceAlt)
+                    }
+                }
+
+                if progressStore.hearts >= ProgressStore.maxHearts {
+                    Text("你的红心已满！")
+                        .duoFont(.body, weight: .heavy)
+                        .foregroundStyle(DuoColors.darkInkMuted)
+                } else if let next = progressStore.nextHeartAt {
+                    VStack(spacing: 4) {
+                        Text("下一颗红心还需")
+                            .duoFont(.caption, weight: .heavy)
+                            .foregroundStyle(DuoColors.darkInkMuted)
+                        Text(formatCountdown(to: next, now: tick))
+                            .font(.system(size: 40, weight: .black, design: .rounded))
+                            .foregroundStyle(DuoColors.danger)
+                            .monospacedDigit()
+                        Text("每 5 分钟恢复 1 颗红心")
+                            .duoFont(.micro)
+                            .foregroundStyle(DuoColors.darkInkMuted)
+                    }
+                }
+
+                Button {
+                    if progressStore.buyHeartRefill(cost: Economy.heartRefillCost) {
+                        HapticEngine.shared.success()
+                        SFXEngine.shared.play(.purchase)
+                    } else {
+                        HapticEngine.shared.wrong()
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "diamond.fill").font(.system(size: 13, weight: .heavy))
+                        Text("补满红心  \(Economy.heartRefillCost)")
+                    }
+                }
+                .buttonStyle(ChunkyButtonStyle(
+                    (progressStore.hearts < ProgressStore.maxHearts && progressStore.gems >= Economy.heartRefillCost) ? .secondary : .disabled
+                ))
+                .disabled(progressStore.hearts >= ProgressStore.maxHearts || progressStore.gems < Economy.heartRefillCost)
+
+                Button("知道了") { dismiss() }
+                    .buttonStyle(ChunkyButtonStyle(.primary))
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
+        }
+        .background(DuoColors.darkBg.ignoresSafeArea())
+        .accessibilityIdentifier("heart-gate-sheet")
+        .onReceive(timer) { _ in
+            tick = Date()
+            progressStore.tickHeartRecharge()
+        }
+    }
+
+    private func formatCountdown(to date: Date, now: Date) -> String {
+        let remaining = max(0, date.timeIntervalSince(now))
+        return String(format: "%d:%02d", Int(remaining) / 60, Int(remaining) % 60)
+    }
 }

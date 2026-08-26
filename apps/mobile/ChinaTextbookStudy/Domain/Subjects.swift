@@ -28,7 +28,7 @@ enum Subjects {
         ),
         .science: SubjectConfig(
             id: .science, label: "科学",
-            accent: Color(red: 1, green: 0.698, blue: 0),             // #FFB200
+            accent: Color(red: 1, green: 0.784, blue: 0),             // #FFC800 (parity-19: 与 web 一致)
             accentDark: Color(red: 0.898, green: 0.596, blue: 0)      // #E59800
         ),
     ]

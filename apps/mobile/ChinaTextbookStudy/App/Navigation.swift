@@ -17,6 +17,10 @@ enum AppRoute: Hashable {
     case shop
     case profile
     case settings
+    /// 单元知识手册（Wave E2）：聚合该单元各课 knowledge 的左右滑卡片页。
+    case guide(bookId: String, unitNumber: Int)
+    /// 跳级测试（Wave E2）：锁定单元 banner「⚡ 跳到这里」入口。
+    case jumpTest(bookId: String, unitNumber: Int)
 }
 
 /// Result of committing a finished lesson to the store — single source of
@@ -29,6 +33,16 @@ struct LessonOutcome: Hashable {
     var dailyGoalReachedNow: Bool = false
     var gemsGained: Int = 0
     var newAchievements: [Achievement] = []
+    /// Streak-milestone gems banked by this lesson (0 = no milestone hit).
+    var milestoneGems: Int = 0
+    /// Whether the weekend ×2 multiplier was applied to `xpGained`.
+    var weekendDoubled: Bool = false
+    /// Streak shields consumed covering missed days (ios-economy-6) — the
+    /// result screen shows「❄️ 护盾保住了你的连胜」when > 0.
+    var freezesConsumed: Int = 0
+    /// Whether the unit-challenge ×2 multiplier was applied to `xpGained`
+    /// (Wave E1) — the result screen shows the「⚔️ 挑战双倍 ×2」badge.
+    var examDoubled: Bool = false
     var streakIncreased: Bool { streakAfter > streakBefore }
 }
 
@@ -44,11 +58,5 @@ struct LessonRunResult: Hashable {
         guard questionCount > 0 else { return 0 }
         return Double(correctCount) / Double(questionCount)
     }
-    var stars: Int {
-        switch accuracy {
-        case 0.95...: return 3
-        case 0.80...: return 2
-        default:      return 1
-        }
-    }
+    var stars: Int { Economy.starsFromAccuracy(accuracy) }
 }

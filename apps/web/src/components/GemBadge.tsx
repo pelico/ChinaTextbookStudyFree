@@ -3,7 +3,7 @@
 /**
  * GemBadge —— 顶栏宝石计数胶囊。
  *
- * 和 StatsBar 上的 心数 / 连胜 / XP 保持一致的视觉风格（带边框的胶囊 + 图标 + 数字）。
+ * 和 StatsBar 上的 红心 / 连胜 / XP 保持一致的视觉风格（带边框的胶囊 + 图标 + 数字）。
  * 支持 gems 变化时弹跳 + 发光，用来强化"赚到"的正反馈。
  */
 
@@ -42,7 +42,7 @@ export function GemBadge({ className = "", asLink = true }: GemBadgeProps) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.12 }}
       whileTap={asLink ? { scale: 0.95 } : undefined}
-      className={`relative h-8 px-2.5 inline-flex items-center gap-1 rounded-full border-2 font-extrabold text-sm select-none tabular-nums border-purple-400/50 text-purple-600 bg-purple-100/70 ${asLink ? "hover:bg-purple-200/70 transition-colors cursor-pointer" : ""} ${className}`}
+      className={`relative h-8 px-2.5 inline-flex items-center gap-1 rounded-full border-2 font-extrabold text-sm select-none tabular-nums border-secondary/50 text-secondary-dark bg-secondary/10 ${asLink ? "hover:bg-secondary/20 transition-colors cursor-pointer" : ""} ${className}`}
       aria-label="宝石（点击进入商店）"
     >
       <Gem className="w-4 h-4" />
@@ -66,7 +66,7 @@ export function GemBadge({ className = "", asLink = true }: GemBadgeProps) {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.7, ease: "easeOut" }}
             className="absolute inset-0 rounded-full pointer-events-none"
-            style={{ boxShadow: "0 0 0 4px rgba(168, 85, 247, 0.45)" }}
+            style={{ boxShadow: "0 0 0 4px rgba(28, 176, 246, 0.45)" }}
           />
         )}
       </AnimatePresence>

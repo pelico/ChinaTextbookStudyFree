@@ -9,7 +9,14 @@ struct ProfileView: View {
     @State private var nameDraft = ""
 
     private var achievementSnapshot: AchievementProgressSnapshot { progressStore.achievementSnapshot }
-    private var unlockedCount: Int { Achievements.unlockedIds(for: achievementSnapshot).count }
+    private var unlockedCount: Int { progressStore.unlockedAchievementIds.count }
+
+    /// "加入于 2026年8月" from the D0 joinedDate (YYYY-MM-DD).
+    private var joinedLabel: String? {
+        let parts = progressStore.joinedDate.split(separator: "-")
+        guard parts.count >= 2, let year = Int(parts[0]), let month = Int(parts[1]) else { return nil }
+        return "加入于 \(year)年\(month)月"
+    }
 
     var body: some View {
         ScrollView {
@@ -23,14 +30,25 @@ struct ProfileView: View {
                 settingsRow
             }
             .padding(20)
+            // The floating tab bar does not reliably inset scroll content
+            // through the NavigationStack — reserve space so the last row
+            // (settings) can always scroll fully above the bar.
+            .padding(.bottom, 84)
         }
         .background(DuoColors.bg.ignoresSafeArea())
         .navigationTitle("我的")
         .navigationBarTitleDisplayMode(.inline)
-        .alert("修改昵称", isPresented: $editingName) {
-            TextField("昵称", text: $nameDraft)
-            Button("保存") { progressStore.displayName = nameDraft }
-            Button("取消", role: .cancel) {}
+        // ios-feel-20: 改名从系统 alert 换成品牌 sheet（圆角输入 + Chunky 保存）。
+        .sheet(isPresented: $editingName) {
+            RenameSheet(
+                draft: $nameDraft,
+                onSave: {
+                    progressStore.displayName = nameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                    HapticEngine.shared.success()
+                }
+            )
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
         }
     }
 
@@ -51,12 +69,22 @@ struct ProfileView: View {
                     Image(systemName: "pencil.circle.fill")
                         .font(.system(size: 22))
                         .foregroundStyle(DuoColors.inkSofter)
+                        // ≥44pt hit target (ios-feel-18) — visual stays 22pt.
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("修改昵称")
             }
             Text("已完成 \(progressStore.totalCompletedLessons) 节 · \(progressStore.progress.xp) XP")
                 .duoFont(.caption)
                 .foregroundStyle(DuoColors.inkMuted)
+            if let joinedLabel {
+                Text(joinedLabel)
+                    .duoFont(.micro)
+                    .foregroundStyle(DuoColors.inkMuted)
+                    .accessibilityIdentifier("profile-joined-date")
+            }
         }
         .frame(maxWidth: .infinity)
     }
@@ -65,7 +93,7 @@ struct ProfileView: View {
 
     private var statGrid: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-            statCard(icon: "flame.fill", value: "\(progressStore.progress.streak)", label: "连续天数", tint: DuoColors.fox)
+            statCard(icon: "flame.fill", value: "\(progressStore.progress.streak)", label: "连胜天数", tint: DuoColors.fox)
             statCard(icon: "bolt.fill", value: "\(progressStore.progress.xp)", label: "总经验值", tint: DuoColors.secondary)
             statCard(icon: "checkmark.seal.fill", value: "\(progressStore.totalCompletedLessons)", label: "完成课程", tint: DuoColors.primary)
             statCard(icon: "star.fill", value: "\(progressStore.perfectedLessonCount)", label: "完美通关", tint: DuoColors.bee)
@@ -123,6 +151,15 @@ struct ProfileView: View {
                     Text("已解锁 \(unlockedCount) / \(Achievements.all.count)").duoFont(.caption).foregroundStyle(DuoColors.inkMuted)
                 }
                 Spacer()
+                if progressStore.claimableAchievementCount > 0 {
+                    Text("\(progressStore.claimableAchievementCount) 个可领取")
+                        .duoFont(.micro)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(DuoColors.danger, in: .capsule)
+                        .accessibilityIdentifier("achievements-claimable-pill")
+                }
                 Image(systemName: "chevron.right").font(.system(size: 15, weight: .heavy)).foregroundStyle(DuoColors.inkSofter)
             }
             .padding(16)
@@ -148,5 +185,72 @@ struct ProfileView: View {
             .overlay { RoundedRectangle(cornerRadius: Radius.card).strokeBorder(DuoColors.border, lineWidth: 2) }
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - 改名品牌 sheet（ios-feel-20）
+
+private struct RenameSheet: View {
+    @Binding var draft: String
+    let onSave: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var focused: Bool
+
+    private var trimmed: String {
+        draft.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        VStack(spacing: 18) {
+            MascotView(mood: .happy, size: 72)
+                .padding(.top, 20)
+
+            Text("给自己起个名字")
+                .duoFont(.heading)
+                .foregroundStyle(DuoColors.ink)
+
+            TextField("昵称", text: $draft)
+                .duoFont(.subhead)
+                .foregroundStyle(DuoColors.ink)
+                .multilineTextAlignment(.center)
+                .submitLabel(.done)
+                .focused($focused)
+                .padding(.horizontal, 16)
+                .frame(height: 54)
+                .background(DuoColors.surfaceAlt, in: .rect(cornerRadius: Radius.card))
+                .overlay {
+                    RoundedRectangle(cornerRadius: Radius.card)
+                        .strokeBorder(focused ? DuoColors.primary : DuoColors.border, lineWidth: 2)
+                }
+                .padding(.horizontal, 24)
+                .accessibilityIdentifier("rename-field")
+
+            Text("最多 12 个字，随时可以再改")
+                .duoFont(.micro)
+                .foregroundStyle(DuoColors.inkMuted)
+
+            Spacer(minLength: 0)
+
+            VStack(spacing: 10) {
+                Button("保存") {
+                    onSave()
+                    dismiss()
+                }
+                .buttonStyle(ChunkyButtonStyle(trimmed.isEmpty ? .disabled : .primary))
+                .disabled(trimmed.isEmpty)
+                .accessibilityIdentifier("rename-save")
+
+                Button("取消") { dismiss() }
+                    .buttonStyle(ChunkyButtonStyle(.ghost))
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 20)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(DuoColors.bg.ignoresSafeArea())
+        .onAppear { focused = true }
+        .onChange(of: draft) { _, newValue in
+            if newValue.count > 12 { draft = String(newValue.prefix(12)) }
+        }
     }
 }

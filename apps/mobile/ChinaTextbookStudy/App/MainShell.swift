@@ -17,10 +17,15 @@ struct MainShell: View {
     @State private var path: [AppRoute] = []
     @State private var selectedSidebar: SidebarItem? = .home
     @State private var activeTab: AppTab = .learn
+    /// 聪聪's "我们马上开始第一课！" toast shown right after onboarding.
+    @State private var showFirstLessonToast = false
+    /// 自动进第一课只允许发生一次（iosretention-3），避免任何重复推进。
+    @State private var didAutoStartFirstLesson = false
 
     enum SidebarItem: Hashable, Identifiable {
         case home
         case grade(Int)
+        case league
         case review
         case shop
         case profile
@@ -29,6 +34,7 @@ struct MainShell: View {
             switch self {
             case .home: return "home"
             case .grade(let g): return "grade-\(g)"
+            case .league: return "league"
             case .review: return "review"
             case .shop: return "shop"
             case .profile: return "profile"
@@ -38,18 +44,89 @@ struct MainShell: View {
     }
 
     var body: some View {
-        if hSize == .regular {
-            regularLayout
-        } else {
-            compactLayout
+        Group {
+            if hSize == .regular {
+                regularLayout
+            } else {
+                compactLayout
+            }
         }
+        // 立刻进第一课 (ios-retention-11): the moment onboarding completes,
+        // push the learner straight into lesson one — no empty home screen
+        // between "I committed to a goal" and "I'm learning".
+        .onChange(of: progressStore.hasCompletedOnboarding) { _, done in
+            if done, isBrandNewLearner { startFirstLessonAfterOnboarding() }
+        }
+        .overlay(alignment: .top) {
+            if showFirstLessonToast {
+                firstLessonToast
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(10)
+            }
+        }
+    }
+
+    // MARK: - Post-onboarding first lesson (ios-retention-11)
+
+    /// `hasCompletedOnboarding` 变真有两条路：真的走完新手引导，以及
+    /// `acceptCloudRestore()` 里「恢复存档的老学员不用再走引导」（iosretention-3）。
+    /// 只有前者该被推进第一课 —— 带着一身进度回来的孩子被塞进第一课，
+    /// 既莫名其妙又会盖掉他真正的进度页。
+    ///
+    /// 判据用「一点进度都没有」：云端恢复提示本身就要求备份里
+    /// `completedLessons` 非空或 `xp > 0`（见 `checkCloudRestoreOffer`），
+    /// 所以恢复完成时这两项必有其一不为零，恒被挡在门外。
+    private var isBrandNewLearner: Bool {
+        progressStore.totalCompletedLessons == 0 && progressStore.progress.xp == 0
+    }
+
+    /// Resolve the active book's very first path lesson and push it. If the
+    /// book isn't downloaded yet (outline load throws) we simply stay on the
+    /// home screen, where the download card takes over.
+    private func startFirstLessonAfterOnboarding() {
+        guard !didAutoStartFirstLesson else { return }
+        guard
+            let bookId = progressStore.activeBookId,
+            let outline = try? DataLoader.shared.loadOutline(bookId: bookId),
+            let first = outline.pathLessonMetas(bookId: bookId).first
+        else { return }
+
+        didAutoStartFirstLesson = true
+        activeTab = .learn
+        selectedSidebar = .home
+        withAnimation(Motion.bounce) { showFirstLessonToast = true }
+        // Let the onboarding fade + toast land, then push the lesson.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            path.append(.lesson(bookId: bookId, lessonId: first.id))
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            withAnimation(.easeOut(duration: 0.3)) { showFirstLessonToast = false }
+        }
+    }
+
+    private var firstLessonToast: some View {
+        HStack(spacing: 10) {
+            MascotView(mood: .cheer, size: 52, reactTo: .correct)
+            Text("我们马上开始第一课！")
+                .duoFont(.subhead)
+                .foregroundStyle(DuoColors.ink)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+        .background(DuoColors.surface, in: .capsule)
+        .overlay { Capsule().strokeBorder(DuoColors.border, lineWidth: 2) }
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 4)
+        .padding(.top, 8)
+        .allowsHitTesting(false)
+        .accessibilityIdentifier("first-lesson-toast")
     }
 
     /// Whether the tab bar should be hidden (immersive screens).
     private var hideTabBar: Bool {
         guard let last = path.last else { return false }
         switch last {
-        case .lesson, .lessonResult, .reviewRunner, .storyReader, .passageReader, .reading:
+        case .lesson, .lessonResult, .reviewRunner, .storyReader, .passageReader, .reading,
+             .guide, .jumpTest:
             return true
         default:
             return false
@@ -97,6 +174,8 @@ struct MainShell: View {
                 siteIndex: siteIndex,
                 path: $path
             )
+        case .league:
+            LeagueView(progressStore: progressStore)
         case .review:
             ReviewView(progressStore: progressStore, path: $path)
         case .shop:
@@ -133,19 +212,28 @@ struct MainShell: View {
 
     private var sidebar: some View {
         List(selection: $selectedSidebar) {
-            Section("主菜单") {
+            Section {
                 row(.home, label: "学习", icon: "house.fill", tint: DuoColors.primary)
+                row(.league, label: "排行", icon: "trophy.fill", tint: DuoColors.bee)
                 row(.review, label: "错题本", icon: "book.fill", tint: DuoColors.fox)
                 row(.shop, label: "商店", icon: "bag.fill", tint: DuoColors.beetle)
                 row(.profile, label: "我的", icon: "person.crop.circle.fill", tint: DuoColors.secondary)
-                row(.achievements, label: "成就墙", icon: "rosette", tint: .purple)
+                row(.achievements, label: "成就墙", icon: "rosette", tint: DuoColors.beetle)
+            } header: {
+                sectionHeader("主菜单")
             }
-            Section("按年级") {
+            Section {
                 ForEach(1...6, id: \.self) { grade in
-                    row(.grade(grade), label: "\(grade) 年级", icon: "books.vertical.fill", tint: .green)
+                    row(.grade(grade), label: "\(grade) 年级", icon: "books.vertical.fill", tint: DuoColors.primary)
                 }
+            } header: {
+                sectionHeader("按年级")
             }
         }
+        // De-stock the iPad sidebar (ios-feel-14): brand surfaces instead of
+        // the system grouped-gray, heavy rounded labels instead of SF default.
+        .scrollContentBackground(.hidden)
+        .background(DuoColors.bg.ignoresSafeArea())
         .navigationTitle("课本学习")
         .onChange(of: selectedSidebar) { _, _ in
             // Reset the detail-column stack when the sidebar pick changes
@@ -154,13 +242,30 @@ struct MainShell: View {
         }
     }
 
+    private func sectionHeader(_ text: String) -> some View {
+        Text(text)
+            .duoFont(.caption)
+            .tracking(1)
+            .foregroundStyle(DuoColors.inkMuted)
+    }
+
     private func row(_ item: SidebarItem, label: String, icon: String, tint: Color) -> some View {
         Label {
             Text(label)
+                .duoFont(.subhead)
+                .foregroundStyle(DuoColors.ink)
         } icon: {
-            Image(systemName: icon).foregroundStyle(tint)
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .heavy))
+                .foregroundStyle(tint)
         }
+        .padding(.vertical, 2)
         .tag(item)
+        .listRowBackground(
+            RoundedRectangle(cornerRadius: Radius.control)
+                .fill(selectedSidebar == item ? DuoColors.surfaceAlt : DuoColors.bg)
+                .padding(.vertical, 2)
+        )
         .accessibilityIdentifier("sidebar-\(item.id)")
     }
 
@@ -182,6 +287,8 @@ struct MainShell: View {
                 siteIndex: siteIndex,
                 path: $path
             )
+        case .league:
+            LeagueView(progressStore: progressStore)
         case .review:
             ReviewView(progressStore: progressStore, path: $path)
         case .shop:
@@ -246,6 +353,15 @@ struct RouteView: View {
             ProfileView(progressStore: progressStore, path: $path)
         case .settings:
             SettingsView(progressStore: progressStore)
+        case .guide(let bookId, let unitNumber):
+            UnitGuideView(bookId: bookId, unitNumber: unitNumber)
+        case .jumpTest(let bookId, let unitNumber):
+            JumpTestView(
+                bookId: bookId,
+                unitNumber: unitNumber,
+                progressStore: progressStore,
+                path: $path
+            )
         }
     }
 }

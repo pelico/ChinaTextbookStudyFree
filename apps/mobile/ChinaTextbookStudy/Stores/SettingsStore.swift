@@ -53,6 +53,19 @@ final class SettingsStore: ObservableObject {
         didSet { defaults.set(streakReminderEnabled, forKey: Keys.streakReminder) }
     }
 
+    /// Reminder fire time (ios-retention-9). Default 20:00 — late enough to be
+    /// a genuine "don't lose it" nudge; the learner can move it in Settings.
+    @Published var reminderHour: Int {
+        didSet { defaults.set(reminderHour, forKey: Keys.reminderHour) }
+    }
+
+    @Published var reminderMinute: Int {
+        didSet { defaults.set(reminderMinute, forKey: Keys.reminderMinute) }
+    }
+
+    static let defaultReminderHour = 20
+    static let defaultReminderMinute = 0
+
     private let defaults = UserDefaults.standard
 
     private enum Keys {
@@ -61,6 +74,8 @@ final class SettingsStore: ObservableObject {
         static let haptic = "cstf.hapticEnabled"
         static let appearance = "cstf.appearance"
         static let streakReminder = "cstf.streakReminder"
+        static let reminderHour = "cstf.reminderHour"
+        static let reminderMinute = "cstf.reminderMinute"
     }
 
     init() {
@@ -72,6 +87,15 @@ final class SettingsStore: ObservableObject {
         let raw = defaults.string(forKey: Keys.appearance) ?? AppAppearance.light.rawValue
         self.appearance = AppAppearance(rawValue: raw) ?? .light
         self.streakReminderEnabled = defaults.bool(forKey: Keys.streakReminder)
+        let hour = defaults.object(forKey: Keys.reminderHour) as? Int ?? Self.defaultReminderHour
+        self.reminderHour = (0...23).contains(hour) ? hour : Self.defaultReminderHour
+        let minute = defaults.object(forKey: Keys.reminderMinute) as? Int ?? Self.defaultReminderMinute
+        self.reminderMinute = (0...59).contains(minute) ? minute : Self.defaultReminderMinute
+    }
+
+    /// "20:00"-style label for the hint line under the reminder toggle.
+    var reminderTimeLabel: String {
+        String(format: "%02d:%02d", reminderHour, reminderMinute)
     }
 
     func toggleMute() {

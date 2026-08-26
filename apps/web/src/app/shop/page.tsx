@@ -29,16 +29,23 @@ import {
   type LessonBackdrop,
   type UiTheme,
 } from "@/lib/cosmetics";
-import { useProgressStore } from "@/store/progress";
+import { useProgressStore, MAX_HEARTS } from "@/store/progress";
+import {
+  FREEZE_COST,
+  MAX_FREEZES,
+  HEART_REFILL_COST,
+} from "@cstf/core/economy";
 import { Mascot } from "@/components/Mascot";
 import {
   Gem,
   ArrowLeft,
   Check,
   Lock,
-  Owl,
+  Panda,
   Palette,
   Picture,
+  Snowflake,
+  Heart,
 } from "@/components/icons";
 import { GemBadge } from "@/components/GemBadge";
 import { AppShell } from "@/components/layout/AppShell";
@@ -52,7 +59,7 @@ const TABS: Array<{
   label: string;
   Icon: React.ComponentType<{ className?: string }>;
 }> = [
-  { id: "mascot_skin", label: "聪聪皮肤", Icon: Owl },
+  { id: "mascot_skin", label: "聪聪皮肤", Icon: Panda },
   { id: "ui_theme", label: "界面主题", Icon: Palette },
   { id: "lesson_backdrop", label: "课堂背景", Icon: Picture },
 ];
@@ -127,10 +134,10 @@ export default function ShopPage() {
   }
 
   return (
-    <AppShell right={null} centerMaxWidth={920}>
+    <AppShell centerMaxWidth={920}>
     <main className="min-h-screen bg-bg-soft lg:bg-transparent">
-      {/* Header —— 移动端白底 sticky；桌面端简化为 标题 + GemBadge */}
-      <div className="bg-white border-b border-bg-softer sticky top-0 z-10 lg:bg-transparent lg:border-0 lg:static lg:mb-2">
+      {/* Header —— 仅移动端：白底 sticky（lg+ 宝石数由右栏 RightRail HUD 常驻展示） */}
+      <div className="bg-white border-b border-bg-softer sticky top-0 z-10 lg:hidden">
         <div className="max-w-3xl mx-auto px-4 py-2.5 lg:px-0 flex items-center gap-3">
           <Link
             href="/"
@@ -149,6 +156,9 @@ export default function ShopPage() {
       </div>
 
       <div className="max-w-3xl mx-auto px-4 py-4 lg:py-2 lg:px-0">
+        {/* ⚡ 红心 & 连胜 —— 功能性道具（护盾 / 补心），与纯美妆分区 */}
+        <PowerUpsSection />
+
         {/* Tab 切换 —— 移动端 3 列等宽不溢出 / 桌面端横向 chip */}
         <div className="grid grid-cols-3 gap-2 mb-4 lg:flex lg:gap-2 lg:mb-6">
           {TABS.map(t => {
@@ -176,7 +186,7 @@ export default function ShopPage() {
                 style={
                   active
                     ? { boxShadow: "0 4px 0 0 #58A700" }
-                    : { boxShadow: "0 2px 0 0 #e5e5e5" }
+                    : { boxShadow: "0 2px 0 0 var(--shadow-card-color)" }
                 }
               >
                 <Icon className="w-4 h-4 lg:w-5 lg:h-5 shrink-0" />
@@ -206,6 +216,7 @@ export default function ShopPage() {
               owned={previewItem ? !!ownedCosmetics[previewItem.id] : false}
               equipped={previewItem ? isEquipped(previewItem) : false}
               canAfford={previewItem ? gems >= previewItem.cost : false}
+              gems={gems}
             />
             <UnlockBurst active={!!previewItem && unlockBurstId === previewItem.id} />
           </div>
@@ -235,10 +246,11 @@ export default function ShopPage() {
 
             {/* 底部说明 */}
             <p className="text-center text-xs text-ink-softer mt-8 max-w-md mx-auto inline-flex items-start gap-1.5">
-              <Gem className="w-3 h-3 text-purple-500 mt-0.5 shrink-0" />
+              <Gem className="w-3 h-3 text-secondary mt-0.5 shrink-0" />
               <span>
                 宝石全部通过学习获得：通关 +3 / 二星 +5 / 三星 +10 / 首次完美 +15 / 每日目标 +20 /
-                连胜里程碑 +30~800。无任何充值。
+                连胜里程碑 +30~800 / 路径宝箱 +10~50 / 每日登录签到 / 解锁成就 / 联赛周榜名次与晋级奖励。
+                无任何充值。
               </span>
             </p>
           </div>
@@ -251,6 +263,150 @@ export default function ShopPage() {
 }
 
 // ============================================================
+// ⚡ 红心 & 连胜 —— 连胜护盾 / 补满红心（功能性，非美妆）
+// ============================================================
+function PowerUpsSection() {
+  const toast = useToast();
+  const gems = useProgressStore(s => s.gems);
+  const freezes = useProgressStore(s => s.streakFreezes);
+  const hearts = useProgressStore(s => s.hearts);
+  const buyStreakFreeze = useProgressStore(s => s.buyStreakFreeze);
+  const buyHeartRefill = useProgressStore(s => s.buyHeartRefill);
+
+  const freezesFull = freezes >= MAX_FREEZES;
+  const heartsFull = hearts >= MAX_HEARTS;
+
+  function handleBuyFreeze() {
+    playSfx("tap");
+    haptic("light");
+    if (freezesFull) return;
+    if (buyStreakFreeze()) {
+      playSfx("unlock");
+      haptic("success");
+      toast.success("🛡️ 连胜护盾 +1！漏学一天也不怕啦");
+    } else {
+      playSfx("wrong");
+      toast.error("宝石不够，先去学习攒宝石吧");
+    }
+  }
+
+  function handleBuyRefill() {
+    playSfx("tap");
+    haptic("light");
+    if (heartsFull) return;
+    if (buyHeartRefill()) {
+      playSfx("unlock");
+      haptic("success");
+      toast.success("❤️ 红心已补满！");
+    } else {
+      playSfx("wrong");
+      toast.error("宝石不够，先去学习攒宝石吧");
+    }
+  }
+
+  return (
+    <section aria-label="红心 & 连胜" className="mb-5">
+      <div className="text-sm font-extrabold text-ink mb-2">红心 &amp; 连胜</div>
+      <div className="grid grid-cols-2 gap-3">
+        {/* 连胜护盾 */}
+        <PowerUpCard
+          icon={<Snowflake className="w-8 h-8" />}
+          iconColor="#1CB0F6"
+          title="连胜护盾"
+          desc={`漏学一天自动抵挡，保住连胜；每周一学习即可补 1 个（上限 ${MAX_FREEZES}）· 持有 ${Math.min(freezes, MAX_FREEZES)}/${MAX_FREEZES}`}
+          cost={FREEZE_COST}
+          disabled={freezesFull}
+          disabledLabel="已满 2/2"
+          canAfford={gems >= FREEZE_COST}
+          onBuy={handleBuyFreeze}
+        />
+        {/* 补满红心 */}
+        <PowerUpCard
+          icon={<Heart className="w-8 h-8" />}
+          iconColor="#FF4B4B"
+          title="补满红心"
+          desc={`立刻回满 ${MAX_HEARTS} 颗红心，继续闯关`}
+          cost={HEART_REFILL_COST}
+          disabled={heartsFull}
+          disabledLabel="红心已满"
+          canAfford={gems >= HEART_REFILL_COST}
+          onBuy={handleBuyRefill}
+        />
+      </div>
+    </section>
+  );
+}
+
+function PowerUpCard({
+  icon,
+  iconColor,
+  title,
+  desc,
+  cost,
+  disabled,
+  disabledLabel,
+  canAfford,
+  onBuy,
+}: {
+  icon: React.ReactNode;
+  iconColor: string;
+  title: string;
+  desc: string;
+  cost: number;
+  disabled: boolean;
+  disabledLabel: string;
+  canAfford: boolean;
+  onBuy: () => void;
+}) {
+  return (
+    <div
+      className="bg-white rounded-2xl border-2 border-bg-softer p-4 flex flex-col"
+      style={{ boxShadow: "0 4px 0 0 var(--shadow-card-color)" }}
+    >
+      <div className="flex items-center gap-2.5">
+        <div
+          className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0"
+          style={{ background: `${iconColor}1a`, color: iconColor }}
+        >
+          {icon}
+        </div>
+        <div className="min-w-0">
+          <div className="text-sm font-extrabold text-ink leading-tight">{title}</div>
+          <div className="text-[11px] text-ink-light leading-snug mt-0.5">{desc}</div>
+        </div>
+      </div>
+      {disabled ? (
+        <div className="mt-3 w-full inline-flex items-center justify-center gap-1.5 rounded-2xl py-2 font-extrabold text-sm bg-bg-softer text-ink-softer cursor-not-allowed">
+          <Check className="w-4 h-4" strokeWidth={3} />
+          <span>{disabledLabel}</span>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={onBuy}
+          disabled={!canAfford}
+          className={`mt-3 w-full inline-flex items-center justify-center gap-1.5 rounded-2xl py-2 font-extrabold text-sm transition-colors ${
+            canAfford ? "text-white" : "bg-bg-softer text-ink-softer cursor-not-allowed"
+          }`}
+          style={
+            canAfford
+              ? {
+                  background: "linear-gradient(135deg, #1CB0F6, #1899D6)",
+                  boxShadow: "0 4px 0 0 #0d7aa8",
+                }
+              : undefined
+          }
+        >
+          <Gem className="w-4 h-4" />
+          <span className="tabular-nums">{cost}</span>
+          <span>{canAfford ? "购买" : "宝石不够"}</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // 大预览面板（左 / 顶）
 // ============================================================
 function PreviewPane({
@@ -259,6 +415,7 @@ function PreviewPane({
   owned,
   equipped,
   canAfford,
+  gems,
   onTryEquip,
 }: {
   item: CosmeticItem | undefined;
@@ -266,6 +423,8 @@ function PreviewPane({
   owned: boolean;
   equipped: boolean;
   canAfford: boolean;
+  /** 当前宝石数（响应式订阅自父组件，「还差 N」随之实时更新） */
+  gems: number;
   onTryEquip: () => void;
 }) {
   if (!item) return null;
@@ -275,7 +434,7 @@ function PreviewPane({
     <motion.div
       layout
       className="bg-white rounded-3xl border-2 border-bg-softer overflow-hidden"
-      style={{ boxShadow: "0 5px 0 0 #e5e5e5" }}
+      style={{ boxShadow: "0 5px 0 0 var(--shadow-card-color)" }}
     >
       {/* 预览舞台 */}
       <PreviewStage item={item} />
@@ -317,8 +476,8 @@ function PreviewPane({
               onClick={onTryEquip}
               className="btn-chunky w-full text-white"
               style={{
-                background: "linear-gradient(135deg, #a855f7, #7c3aed)",
-                boxShadow: "0 5px 0 0 #6b21a8",
+                background: "linear-gradient(135deg, #1CB0F6, #1899D6)",
+                boxShadow: "0 5px 0 0 #0d7aa8",
               }}
             >
               <Gem className="w-4 h-4 mr-1.5" />
@@ -329,7 +488,7 @@ function PreviewPane({
             <div className="btn-chunky bg-bg-softer text-ink-softer cursor-not-allowed w-full">
               <Lock className="w-4 h-4 mr-1.5" />
               <span className="tabular-nums">{item.cost}</span>
-              <span className="ml-1.5">还差 {item.cost - useProgressStore.getState().gems}</span>
+              <span className="ml-1.5">还差 {item.cost - gems}</span>
             </div>
           )}
           {isHoverPreview && (
@@ -453,7 +612,7 @@ function UnlockBurst({ active }: { active: boolean }) {
             className="absolute w-20 h-20 rounded-full"
             style={{
               background:
-                "radial-gradient(circle, rgba(168,85,247,0.55), transparent 70%)",
+                "radial-gradient(circle, rgba(28,176,246,0.55), transparent 70%)",
             }}
           />
           {/* 8 颗散开的星星 */}
@@ -472,7 +631,7 @@ function UnlockBurst({ active }: { active: boolean }) {
                   rotate: 360,
                 }}
                 transition={{ duration: 0.95, ease: "easeOut" }}
-                className="absolute text-purple-500"
+                className="absolute text-secondary"
               >
                 <Sparkle className="w-5 h-5" />
               </motion.div>
@@ -540,7 +699,7 @@ function ItemCard({
           ? "0 4px 0 0 #58A700"
           : isHovered
             ? `0 4px 0 0 ${rarityColor}`
-            : "0 3px 0 0 #e5e5e5",
+            : "0 3px 0 0 var(--shadow-card-color)",
       }}
     >
       {/* 缩略预览 */}
@@ -587,7 +746,7 @@ function ItemCard({
           ) : (
             <span
               className={`inline-flex items-center gap-0.5 text-[10px] font-extrabold tabular-nums ${
-                canAfford ? "text-purple-600" : "text-ink-softer"
+                canAfford ? "text-secondary-dark" : "text-ink-softer"
               }`}
             >
               <Gem className="w-3 h-3" />

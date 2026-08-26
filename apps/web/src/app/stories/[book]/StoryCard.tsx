@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { readingId } from "@cstf/core/reading";
 import { Book, Volume, Star } from "@/components/icons";
 import { SoundLink } from "@/components/SoundLink";
 import { useProgressStore } from "@/store/progress";
@@ -13,20 +14,20 @@ interface Props {
 }
 
 export function StoryCard({ story, bookId }: Props) {
-  const completedLessons = useProgressStore(s => s.completedLessons);
+  const completedReadings = useProgressStore(s => s.completedReadings);
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => setHydrated(true), []);
 
   const audioReady = story.sentences.some(s => s.audio);
-  const result = hydrated ? completedLessons[`story-${story.id}`] : undefined;
-  const stars = result?.stars ?? 0;
+  // 查询键与写入键同源：core 规范阅读 id `reading:story:{storyId}`
+  const done = hydrated && completedReadings[readingId("story", story.id)] != null;
 
   return (
     <SoundLink
       href={`/stories/${bookId}/${story.id}/`}
       className={cn(
         "block rounded-2xl bg-white border overflow-hidden hover:border-primary/40 transition-colors",
-        stars > 0 ? "border-success/30" : "border-bg-softer",
+        done ? "border-primary/30" : "border-bg-softer",
       )}
     >
       {/* 配图 */}
@@ -44,7 +45,7 @@ export function StoryCard({ story, bookId }: Props) {
         <div
           className={cn(
             "shrink-0 w-10 h-10 rounded-full inline-flex items-center justify-center",
-            stars > 0 ? "bg-success/10 text-success" : "bg-gold/10 text-gold",
+            done ? "bg-primary/10 text-primary" : "bg-gold/10 text-gold",
           )}
         >
           <Book className="w-5 h-5" />
@@ -54,17 +55,10 @@ export function StoryCard({ story, bookId }: Props) {
             {story.title}
           </div>
           <div className="text-xs text-ink-light mt-0.5 flex items-center gap-1">
-            {stars > 0 ? (
-              <span className="inline-flex items-center gap-0.5">
-                {[1, 2, 3].map(n => (
-                  <Star
-                    key={n}
-                    className={cn(
-                      "w-3.5 h-3.5",
-                      n <= stars ? "fill-current text-gold" : "text-bg-softer",
-                    )}
-                  />
-                ))}
+            {done ? (
+              <span className="inline-flex items-center gap-1 text-primary font-bold">
+                <Star className="w-3.5 h-3.5 fill-current" />
+                已读完
               </span>
             ) : (
               <span>
@@ -74,7 +68,7 @@ export function StoryCard({ story, bookId }: Props) {
             )}
           </div>
         </div>
-        {audioReady && !stars && (
+        {audioReady && !done && (
           <Volume className="w-5 h-5 text-primary shrink-0" />
         )}
       </div>

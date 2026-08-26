@@ -69,7 +69,11 @@ enum DuoColors {
     // Text colors — adapt to light/dark mode automatically so the same
     // token reads as dark-gray on light backgrounds and white-ish on dark.
     static let ink       = adaptive(light: 0x4B4B4B, dark: 0xFFFFFF)
-    static let inkLight  = adaptive(light: 0x777777, dark: 0x93A7AF)
+    /// Secondary labels. Light value nudged 0x777777 → 0x707070 (Wave F) so
+    /// muted copy clears WCAG AA on white.
+    static let inkLight  = adaptive(light: 0x707070, dark: 0x93A7AF)
+    /// Decorative only (dividers, chevrons, ghost icons) — NOT for readable
+    /// copy; use `inkMuted` for any text a learner is expected to read.
     static let inkSofter = adaptive(light: 0xAFAFAF, dark: 0x52656D)
     /// Alias of `inkLight` — the canonical name for secondary labels.
     static let inkMuted  = inkLight

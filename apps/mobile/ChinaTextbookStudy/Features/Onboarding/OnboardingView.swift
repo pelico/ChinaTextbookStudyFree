@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// First-run onboarding: greet → pick grade & book → commit to a daily goal.
-/// Warm and animated, never a settings form.
+/// First-run onboarding: greet → pick grade & book → commit to a daily goal
+/// → notification soft-ask. Warm and animated, never a settings form.
 struct OnboardingView: View {
     @ObservedObject var progressStore: ProgressStore
     let siteIndex: SiteIndex
@@ -10,12 +10,17 @@ struct OnboardingView: View {
     @State private var step = 0
     @State private var selectedGrade = 1
     @State private var selectedBookId: String?
+    /// Guards double-taps on the primer buttons while the system alert is up.
+    @State private var requestingAuth = false
 
+    private let stepCount = 4
+
+    /// 每日目标档位 —— 与 Economy.dailyGoalOptions（20/50/100/200）一致。
     private let goals: [(label: String, xp: Int, sub: String)] = [
-        ("轻松", 50, "每天 1 节"),
-        ("标准", 100, "每天 2 节"),
-        ("认真", 200, "每天 4 节"),
-        ("学霸", 500, "冲刺满分"),
+        ("轻松", 20, "每天几分钟"),
+        ("标准", 50, "每天 1 节"),
+        ("认真", 100, "每天 2 节"),
+        ("学霸", 200, "每天 4 节"),
     ]
 
     var body: some View {
@@ -30,7 +35,8 @@ struct OnboardingView: View {
                     switch step {
                     case 0: greetStep
                     case 1: pickStep
-                    default: goalStep
+                    case 2: goalStep
+                    default: notifyStep
                     }
                 }
                 .transition(.asymmetric(
@@ -44,7 +50,7 @@ struct OnboardingView: View {
 
     private var progressDots: some View {
         HStack(spacing: 8) {
-            ForEach(0..<3, id: \.self) { i in
+            ForEach(0..<stepCount, id: \.self) { i in
                 Capsule()
                     .fill(i <= step ? DuoColors.primary : DuoColors.border)
                     .frame(width: i == step ? 28 : 10, height: 10)
@@ -204,8 +210,7 @@ struct OnboardingView: View {
         Button {
             HapticEngine.shared.success(); SFXEngine.shared.play(.complete)
             progressStore.setDailyGoal(goal.xp)
-            progressStore.completeOnboarding()
-            onDone()
+            withAnimation(Motion.reveal) { step = 3 }
         } label: {
             HStack(spacing: 14) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -226,5 +231,65 @@ struct OnboardingView: View {
             .overlay { RoundedRectangle(cornerRadius: Radius.card).strokeBorder(DuoColors.border, lineWidth: 2) }
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: - Step 3 — notification soft-ask primer (ios-retention-2)
+
+    /// 聪聪 asks first; the scary system alert only appears after an explicit
+    /// 「好呀」. A refusal here never re-prompts — the Settings toggle remains
+    /// the one place to opt in later.
+    private var notifyStep: some View {
+        VStack(spacing: Space.l) {
+            Spacer()
+            MascotView(mood: .wave, size: 130, reactTo: .correct)
+            SpeechBubbleView(text: "每天一条小提醒，帮你保住连胜 🔥", mood: .happy)
+            Text("要聪聪提醒你吗？")
+                .duoFont(.title)
+                .foregroundStyle(DuoColors.ink)
+            Text("每天最多一条，学过就不打扰，随时可以在设置里关掉")
+                .duoFont(.body)
+                .foregroundStyle(DuoColors.inkMuted)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            Spacer()
+            VStack(spacing: 10) {
+                Button("好呀") {
+                    guard !requestingAuth else { return }
+                    requestingAuth = true
+                    HapticEngine.shared.tap(); SFXEngine.shared.play(.tap)
+                    Task {
+                        let granted = await NotificationService.shared.requestAuthorization()
+                        if granted {
+                            SettingsStore.shared.streakReminderEnabled = true
+                            NotificationService.shared.rescheduleStreakReminder(
+                                streak: progressStore.reminderStreak,
+                                studiedToday: progressStore.studiedToday
+                            )
+                            HapticEngine.shared.success()
+                        }
+                        finish()
+                    }
+                }
+                .buttonStyle(ChunkyButtonStyle(.primary))
+                .accessibilityIdentifier("onboarding-notify-yes")
+
+                Button("暂时不用") {
+                    guard !requestingAuth else { return }
+                    HapticEngine.shared.tap()
+                    finish()
+                }
+                .buttonStyle(ChunkyButtonStyle(.ghost))
+                .accessibilityIdentifier("onboarding-notify-later")
+            }
+            .padding(.horizontal, 32)
+            .padding(.bottom, 40)
+        }
+    }
+
+    /// Common exit for the last step — mark onboarding done and hand control
+    /// back to the shell (which pushes the first lesson, ios-retention-11).
+    private func finish() {
+        progressStore.completeOnboarding()
+        onDone()
     }
 }

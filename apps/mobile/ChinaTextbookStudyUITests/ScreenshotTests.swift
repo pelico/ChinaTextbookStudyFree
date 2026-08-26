@@ -20,8 +20,14 @@ final class ScreenshotTests: XCTestCase {
         XCTAssertTrue(app.buttons["lesson-start"].waitForExistence(timeout: 5))
         attach(name: "02-start-popup")
 
-        // Lesson runner + feedback panel.
+        // 课前知识讲解（Wave E2）——顺手截一张，再翻到题目。
         app.buttons["lesson-start"].tap()
+        if app.buttons["intro-next"].waitForExistence(timeout: 3) || app.buttons["intro-start"].exists {
+            attach(name: "02b-knowledge-intro")
+        }
+        skipLessonIntroIfPresent(app)
+
+        // Lesson runner + feedback panel.
         XCTAssertTrue(app.buttons["检查答案"].waitForExistence(timeout: 8))
         attach(name: "03-lesson-question")
 
@@ -30,9 +36,10 @@ final class ScreenshotTests: XCTestCase {
         XCTAssertTrue(app.buttons["继续"].firstMatch.waitForExistence(timeout: 5))
         attach(name: "04-lesson-feedback")
 
-        // Leave the lesson.
+        // Leave the lesson via the custom quit overlay (ghost 「退出」).
         app.buttons["关闭"].firstMatch.tap()
-        app.buttons["退出练习"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["lesson-quit"].firstMatch.waitForExistence(timeout: 3))
+        app.buttons["lesson-quit"].firstMatch.tap()
         XCTAssertTrue(app.buttons["tab-review"].waitForExistence(timeout: 8))
 
         // Secondary tabs.

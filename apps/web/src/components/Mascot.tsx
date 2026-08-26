@@ -1,7 +1,11 @@
 "use client";
 
 /**
- * 聪聪 — 我们的吉祥物，灵感来自人教版小学数学教材里的猫头鹰角色。
+ * 聪聪 — 我们的吉祥物：一只熊猫幼崽。
+ * 几何与 iOS 版 MascotView.swift（Canvas 绘制）逐点对齐：
+ *   viewBox 0 0 120 120；耳朵 (34,30)/(86,30) r13；头 (60,50) rx40 ry37；
+ *   身体 (60,82) rx34 ry30；眼圈 (44,50)/(76,50)；眼睛水平线 y≈48；
+ *   鼻子 (60,60-68)；脚 (46,104)/(74,104)；手臂 (22,78)/(98,78)。
  *
  * 用纯 SVG 实现（不依赖任何素材），可通过 props 控制表情。
  * mood:
@@ -15,12 +19,12 @@
  *   - embarrassed: 尴尬（脸颊红晕 + 眼睛斜视）
  *
  * reactTo: 一次性动画触发器（由父组件通过 key 或 prop 切换）
- *   - 'correct':  scale 弹跳 + 翅膀挥
+ *   - 'correct':  scale 弹跳 + 挥手
  *   - 'wrong':    头摇摆 + 汗滴
  *   - 'levelup':  跳跃 + 金色光晕
  *
  * skin: 美妆系统加的"皮肤叠加层"。从 progress store 的 equippedMascotSkin
- *       读取，决定要不要叠加帽子/眼镜/披风等装饰 SVG。
+ *       读取，决定要不要叠加帽子/眼镜/配饰 SVG。
  */
 
 import { motion, useAnimation, useReducedMotion } from "framer-motion";
@@ -45,8 +49,12 @@ export interface MascotProps {
   skinOverride?: string | null;
 }
 
-// Eel #4B4B4B — Duolingo 官方眼珠/线条色
-const EEL = "#4B4B4B";
+// 与 iOS MascotView.swift 相同的熊猫调色
+const EEL = "#3A3A3A";
+const PANDA_BLACK = "#2E2E2E";
+const BODY_WHITE = "#FBFBFB";
+const BODY_SHADE = "#E9EDEF";
+const BLUSH = "#FF9AA8";
 
 export function Mascot({
   mood = "happy",
@@ -58,7 +66,7 @@ export function Mascot({
 }: MascotProps) {
   const prefersReduced = useReducedMotion();
   const controls = useAnimation();
-  const wingControls = useAnimation();
+  const armControls = useAnimation();
   const [blinkClose, setBlinkClose] = useState(false);
   const [showSweat, setShowSweat] = useState(false);
   const [showGlow, setShowGlow] = useState(false);
@@ -103,7 +111,7 @@ export function Mascot({
         y: [0, -6, 0],
         transition: { duration: 0.55, ease: "easeOut" },
       });
-      wingControls.start({
+      armControls.start({
         rotate: [0, -25, 0, -18, 0],
         transition: { duration: 0.55 },
       });
@@ -122,13 +130,13 @@ export function Mascot({
         scale: [1, 1.1, 1, 1.05, 1],
         transition: { duration: 0.9, ease: "easeOut" },
       });
-      wingControls.start({
+      armControls.start({
         rotate: [0, -30, 0, -30, 0],
         transition: { duration: 0.9 },
       });
       setTimeout(() => setShowGlow(false), 1400);
     }
-  }, [reactTo, reactKey, controls, wingControls, prefersReduced]);
+  }, [reactTo, reactKey, controls, armControls, prefersReduced]);
 
   return (
     <div style={{ width: size, height: size, position: "relative", display: "inline-block" }}>
@@ -155,18 +163,41 @@ export function Mascot({
         aria-label="聪聪"
         style={{ display: "block" }}
       >
-        {/* 身体 (圆鼓鼓的椭圆) */}
-        <ellipse cx="60" cy="72" rx="38" ry="36" fill="#9DD7F2" />
-        {/* 肚皮 (浅色椭圆) */}
-        <ellipse cx="60" cy="80" rx="22" ry="22" fill="#FFF6D6" />
+        {/* 耳朵（黑色圆） */}
+        <circle cx="34" cy="30" r="13" fill={PANDA_BLACK} />
+        <circle cx="86" cy="30" r="13" fill={PANDA_BLACK} />
 
-        {/* 头部羽毛簇 (左右两撮) */}
-        <path d="M 28 38 Q 24 18 38 28 Z" fill="#7BC4E5" />
-        <path d="M 92 38 Q 96 18 82 28 Z" fill="#7BC4E5" />
+        {/* 左手臂（黑色，reactTo 时会挥动；wave 表情抬高） */}
+        <motion.ellipse
+          cx="22"
+          cy="78"
+          rx="9"
+          ry="15"
+          fill={PANDA_BLACK}
+          style={{ originX: "60px", originY: "78px" } as React.CSSProperties}
+          animate={armControls}
+          transform={mood === "wave" ? "rotate(-40 22 78)" : undefined}
+        />
+        {/* 右手臂 */}
+        <ellipse cx="98" cy="78" rx="9" ry="15" fill={PANDA_BLACK} />
 
-        {/* 眼眶 (两个大白圈) */}
-        <circle cx="44" cy="48" r="14" fill="#FFFFFF" stroke={EEL} strokeWidth="2.5" />
-        <circle cx="76" cy="48" r="14" fill="#FFFFFF" stroke={EEL} strokeWidth="2.5" />
+        {/* 脚（黑色，底部） */}
+        <ellipse cx="46" cy="104" rx="11" ry="8" fill={PANDA_BLACK} />
+        <ellipse cx="74" cy="104" rx="11" ry="8" fill={PANDA_BLACK} />
+
+        {/* 身体 + 头（白色圆润团子） */}
+        <ellipse cx="60" cy="82" rx="34" ry="30" fill={BODY_WHITE} />
+        <ellipse cx="60" cy="50" rx="40" ry="37" fill={BODY_WHITE} />
+        {/* 肚皮淡影 */}
+        <ellipse cx="60" cy="84" rx="20" ry="18" fill={BODY_SHADE} opacity={0.6} />
+
+        {/* 黑眼圈（斜椭圆） */}
+        <ellipse cx="44" cy="50" rx="12" ry="15" fill={PANDA_BLACK} />
+        <ellipse cx="76" cy="50" rx="12" ry="15" fill={PANDA_BLACK} />
+
+        {/* 眼圈上的白色眼窝 */}
+        <circle cx="45" cy="48" r="8.5" fill={BODY_WHITE} />
+        <circle cx="75" cy="48" r="8.5" fill={BODY_WHITE} />
 
         {/* 眼珠（按 mood 切换；blinkClose 时盖上眼皮） */}
         {blinkClose && (mood === "happy" || mood === "think" || mood === "wave") ? (
@@ -178,26 +209,27 @@ export function Mascot({
           <Eyes mood={mood} />
         )}
 
-        {/* 喙（橙色三角 Fox） */}
-        <path d="M 54 60 L 66 60 L 60 70 Z" fill="#FF9600" stroke="#E68A00" strokeWidth="1.5" />
-
-        {/* 左翅膀（反应时会挥动） */}
-        <motion.ellipse
-          cx="22"
-          cy="76"
-          rx="8"
-          ry="14"
-          fill="#7BC4E5"
-          style={{ originX: "60px", originY: "76px" } as React.CSSProperties}
-          animate={wingControls}
-          transform={mood === "wave" ? "rotate(-45 22 76)" : "rotate(-15 22 76)"}
+        {/* 鼻子（黑色圆角三角） */}
+        <path
+          d="M 54 60 Q 60 58 66 60 Q 66 66 60 68 Q 54 66 54 60 Z"
+          fill={PANDA_BLACK}
         />
-        {/* 右翅膀 */}
-        <ellipse cx="98" cy="76" rx="8" ry="14" fill="#7BC4E5" transform="rotate(15 98 76)" />
+        {/* 嘴（鼻下小微笑） */}
+        <path
+          d="M 60 68 L 60 72 Q 64 76 68 74 M 60 72 Q 56 76 52 74"
+          fill="none"
+          stroke={PANDA_BLACK}
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
 
-        {/* 脚（橙色小爪 Fox） */}
-        <ellipse cx="48" cy="106" rx="6" ry="3" fill="#FF9600" />
-        <ellipse cx="72" cy="106" rx="6" ry="3" fill="#FF9600" />
+        {/* 尴尬红晕 */}
+        {mood === "embarrassed" && (
+          <>
+            <ellipse cx="32" cy="62" rx="6" ry="3.5" fill={BLUSH} opacity={0.7} />
+            <ellipse cx="88" cy="62" rx="6" ry="3.5" fill={BLUSH} opacity={0.7} />
+          </>
+        )}
 
         {/* 汗滴（答错时） */}
         {showSweat && (
@@ -205,14 +237,14 @@ export function Mascot({
             initial={{ opacity: 0, y: -4 }}
             animate={{ opacity: [0, 1, 1, 0], y: [-4, 2, 8, 14] }}
             transition={{ duration: 1.1 }}
-            d="M 92 28 Q 96 36 92 40 Q 88 36 92 28 Z"
+            d="M 96 24 Q 100 32 96 36 Q 92 32 96 24 Z"
             fill="#7EC4F0"
             stroke="#1CB0F6"
             strokeWidth="1.2"
           />
         )}
 
-        {/* 皮肤叠加层（帽子 / 眼镜 / 披风 / 装饰） */}
+        {/* 皮肤叠加层（帽子 / 眼镜 / 配饰） */}
         <MascotSkinOverlay skinId={skinId} />
       </motion.svg>
     </div>
@@ -270,14 +302,11 @@ function Eyes({ mood }: { mood: MascotMood }) {
         </>
       );
     case "embarrassed":
-      // 斜视小眼 + 脸颊红晕
+      // 斜视小眼（红晕在主体层画）
       return (
         <>
           <circle cx="44" cy="50" r="3.5" fill={EEL} />
           <circle cx="76" cy="50" r="3.5" fill={EEL} />
-          {/* 脸颊红晕 */}
-          <ellipse cx="36" cy="62" rx="6" ry="3" fill="#FFB3B3" opacity={0.75} />
-          <ellipse cx="84" cy="62" rx="6" ry="3" fill="#FFB3B3" opacity={0.75} />
         </>
       );
     case "wave":

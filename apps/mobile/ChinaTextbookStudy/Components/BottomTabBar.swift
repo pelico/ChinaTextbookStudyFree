@@ -50,7 +50,7 @@ struct BottomTabBar: View {
 
                 if let count = badge?.count, count > 0 {
                     Text(count > 99 ? "99+" : "\(count)")
-                        .font(.system(size: 10, weight: .heavy, design: .rounded))
+                        .duoFont(.micro, weight: .heavy)
                         .foregroundStyle(.white)
                         .padding(.horizontal, 5)
                         .frame(minWidth: 18, minHeight: 18)
@@ -69,17 +69,40 @@ struct BottomTabBar: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(tab.label)
+        .accessibilityLabel(accessibilityLabel(for: tab, badge: badge))
         .accessibilityIdentifier("tab-\(tab.rawValue)")
+    }
+
+    /// VoiceOver reads the badge, not just the tab name — "我的，3 个奖励可领取".
+    private func accessibilityLabel(for tab: AppTab, badge: BadgeInfo?) -> String {
+        if let count = badge?.count, count > 0 {
+            switch tab {
+            case .review:  return "\(tab.label)，\(count) 道错题待复习"
+            case .profile: return "\(tab.label)，\(count) 个奖励可领取"
+            default:       return "\(tab.label)，\(count) 条新提醒"
+            }
+        }
+        if badge?.dot == true {
+            return "\(tab.label)，有新内容"
+        }
+        return tab.label
     }
 
     private struct BadgeInfo { var count: Int?; var dot: Bool? }
 
     private func badge(for tab: AppTab) -> BadgeInfo? {
         switch tab {
+        case .league:
+            // 上周结算结果还没看 → 红点提醒。
+            return progressStore.pendingLeagueResult != nil ? BadgeInfo(dot: true) : nil
         case .review:
             let due = progressStore.dueMistakes.count
             return due > 0 ? BadgeInfo(count: due) : nil
+        case .profile:
+            // Claimable rewards waiting on the profile surfaces: finished
+            // daily quests + unlocked-but-unclaimed achievements.
+            let claimable = progressStore.claimableQuestCount + progressStore.claimableAchievementCount
+            return claimable > 0 ? BadgeInfo(count: claimable) : nil
         default: return nil
         }
     }
@@ -88,11 +111,12 @@ struct BottomTabBar: View {
 // MARK: - Tab Definition
 
 enum AppTab: String, CaseIterable {
-    case learn, review, shop, profile
+    case learn, league, review, shop, profile
 
     var label: String {
         switch self {
         case .learn:   return "学习"
+        case .league:  return "排行"
         case .review:  return "错题本"
         case .shop:    return "商店"
         case .profile: return "我的"
@@ -102,6 +126,7 @@ enum AppTab: String, CaseIterable {
     var symbol: String {
         switch self {
         case .learn:   return "house.fill"
+        case .league:  return "trophy.fill"
         case .review:  return "book.fill"
         case .shop:    return "bag.fill"
         case .profile: return "person.crop.circle.fill"
@@ -111,6 +136,7 @@ enum AppTab: String, CaseIterable {
     var activeColor: Color {
         switch self {
         case .learn:   return DuoColors.primary       // green — the flagship tab
+        case .league:  return DuoColors.bee           // gold — the trophy tab
         case .review:  return DuoColors.fox           // orange
         case .shop:    return DuoColors.beetle        // purple
         case .profile: return DuoColors.secondary     // blue

@@ -3,6 +3,7 @@ import path from "path";
 import { notFound } from "next/navigation";
 import { SubjectBadge } from "@/components/SubjectBadge";
 import { InnerHeader } from "@/components/InnerHeader";
+import { AppShell } from "@/components/layout/AppShell";
 import type { BookStories, SiteIndex } from "@/types";
 import { StoryCard } from "./StoryCard";
 
@@ -53,15 +54,17 @@ export default async function StoryListPage({
   const units = [...byUnit.entries()].sort((a, b) => a[0] - b[0]);
 
   return (
-    <main className="min-h-screen bg-bg-soft">
+    <AppShell centerMaxWidth={720}>
+    <main className="min-h-screen bg-bg-soft lg:bg-transparent">
       <InnerHeader
         backHref={`/book/${bookId}/`}
         title={`${book.textbookName}·故事`}
         subtitle={`${doc.stories.length} 篇故事 · 阅读理解`}
         badge={<SubjectBadge book={book} />}
+        flatOnDesktop
       />
 
-      <div className="max-w-md lg:max-w-4xl mx-auto px-4 py-5 space-y-6">
+      <div className="max-w-md lg:max-w-none mx-auto px-4 lg:px-0 py-5 lg:pt-2 space-y-6">
         {units.map(([unitNum, stories]) => (
           <div key={unitNum}>
             <div className="text-xs font-extrabold text-ink-softer uppercase tracking-wider mb-2 px-1">
@@ -76,5 +79,6 @@ export default async function StoryListPage({
         ))}
       </div>
     </main>
+    </AppShell>
   );
 }

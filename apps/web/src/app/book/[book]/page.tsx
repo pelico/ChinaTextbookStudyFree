@@ -4,6 +4,11 @@ import { BookOpen } from "@/components/icons";
 import { StatsBar } from "@/components/StatsBar";
 import { SoundLink } from "@/components/SoundLink";
 import { AppShell } from "@/components/layout/AppShell";
+import {
+  ActiveBookSync,
+  ContinueLearningCard,
+  CurrentBookBadge,
+} from "@/components/ContinueLearningCard";
 import type { SiteIndex } from "@/types";
 import type { BookOutlineWithLessons } from "./BookPathView";
 import BookPathSection from "./BookPathSection";
@@ -30,15 +35,30 @@ export default async function BookPage({ params }: { params: Promise<{ book: str
   if (!book) return <div>未找到教材</div>;
 
   const outline = await getBookOutline(bookId);
+  const gradeBooks = index.books.filter(b => b.grade === book.grade);
 
   return (
     <AppShell centerMaxWidth={720}>
     <main className="min-h-screen bg-bg-soft lg:bg-transparent">
-      {/* 移动端 stats 顶栏：返回和教材/单元信息已并入 PathMap sticky banner */}
+      {/* 访问即成为「当前教材」（首页据此直达本页） */}
+      <ActiveBookSync bookId={bookId} grade={book.grade} />
+
+      {/* 移动端顶栏：当前教材徽章（可换书） + stats */}
       <div className="lg:hidden bg-white border-b border-bg-softer sticky top-0 z-30">
-        <div className="max-w-md mx-auto px-4 py-2 flex items-center justify-end">
+        <div className="max-w-md mx-auto px-4 py-2 flex items-center justify-between gap-2">
+          <CurrentBookBadge book={book} gradeBooks={gradeBooks} />
           <StatsBar compact />
         </div>
+      </div>
+
+      {/* 桌面端：当前教材徽章行 */}
+      <div className="hidden lg:flex items-center mb-3">
+        <CurrentBookBadge book={book} gradeBooks={gradeBooks} />
+      </div>
+
+      {/* 续学 CTA —— 有未完成课程会话时出现 */}
+      <div className="max-w-md lg:max-w-none mx-auto px-4 lg:px-0 pt-3 lg:pt-0 empty:hidden">
+        <ContinueLearningCard />
       </div>
 
       {/* 移动端：课文听读 + 故事阅读小条 */}

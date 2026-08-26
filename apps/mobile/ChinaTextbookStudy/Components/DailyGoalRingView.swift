@@ -83,8 +83,10 @@ struct DailyGoalRingView: View {
                 .font(.subheadline)
                 .foregroundStyle(DuoColors.inkLight)
 
+            // 档位与 Economy.dailyGoalOptions 一致；老用户已选的历史值（如 500）
+            // 不会被改写，只是不再出现在选项里。
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 100))], spacing: 12) {
-                ForEach([50, 100, 200, 500], id: \.self) { goal in
+                ForEach(Economy.dailyGoalOptions, id: \.self) { goal in
                     let isSelected = progressStore.dailyGoal == goal
                     Button {
                         progressStore.setDailyGoal(goal)

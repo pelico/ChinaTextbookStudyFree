@@ -3,8 +3,13 @@ import UIKit
 
 /// CAEmitterLayer-based confetti burst — ported from `ConfettiCanvas.tsx`.
 /// ~140 particles × 3 shapes × 8 Duolingo colors.
+///
+/// Wave F：`burstDuration` 控制喷射时长（epic 开箱要更长的余韵）；
+/// Reduce Motion 打开时整个礼花直接跳过。
 struct ConfettiView: UIViewRepresentable {
     var active: Bool
+    /// 持续喷射的秒数（默认 0.3 = 原短爆）。
+    var burstDuration: Double = 0.3
 
     func makeUIView(context: Context) -> ConfettiHostView {
         ConfettiHostView()
@@ -12,7 +17,7 @@ struct ConfettiView: UIViewRepresentable {
 
     func updateUIView(_ uiView: ConfettiHostView, context: Context) {
         if active {
-            uiView.fire()
+            uiView.fire(burstDuration: burstDuration)
         }
     }
 }
@@ -20,9 +25,11 @@ struct ConfettiView: UIViewRepresentable {
 final class ConfettiHostView: UIView {
     private var hasFired = false
 
-    func fire() {
+    func fire(burstDuration: Double = 0.3) {
         guard !hasFired else { return }
         hasFired = true
+        // Reduce Motion：不放礼花（声音与文字反馈仍在）。
+        guard !UIAccessibility.isReduceMotionEnabled else { return }
 
         let colors: [UIColor] = [
             UIColor(red: 0.345, green: 0.8, blue: 0.008, alpha: 1),     // feather
@@ -71,12 +78,12 @@ final class ConfettiHostView: UIView {
             emitter.emitterCells = cells
             layer.addSublayer(emitter)
 
-            // Stop emitting after a short burst
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            // Stop emitting after the requested burst window
+            DispatchQueue.main.asyncAfter(deadline: .now() + burstDuration) {
                 emitter.birthRate = 0
             }
             // Remove layer after particles die
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + burstDuration + 3.7) {
                 emitter.removeFromSuperlayer()
             }
         }

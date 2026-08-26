@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// A horizontal "shake" — the classic error nudge. Drive it by bumping an
 /// integer trigger inside `withAnimation`; the effect interpolates the shake.
@@ -8,12 +9,18 @@ import SwiftUI
 /// someCard.modifier(ShakeEffect(animatableData: CGFloat(shakes)))
 /// // on wrong: withAnimation(.linear(duration: 0.4)) { shakes += 1 }
 /// ```
+///
+/// Respects Reduce Motion: when the user has it on, the shake collapses to a
+/// no-op so error feedback stays color/sound-only.
 struct ShakeEffect: GeometryEffect {
     var amount: CGFloat = 8
     var shakesPerUnit: CGFloat = 3
     var animatableData: CGFloat
 
     func effectValue(size: CGSize) -> ProjectionTransform {
+        guard !UIAccessibility.isReduceMotionEnabled else {
+            return ProjectionTransform(.identity)
+        }
         let dx = amount * sin(animatableData * .pi * shakesPerUnit * 2)
         return ProjectionTransform(CGAffineTransform(translationX: dx, y: 0))
     }

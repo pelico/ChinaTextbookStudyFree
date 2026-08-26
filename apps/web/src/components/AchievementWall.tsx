@@ -16,6 +16,8 @@ import {
   type Achievement,
 } from "@/lib/achievements";
 import { useProgressStore } from "@/store/progress";
+import { ShareCardButton } from "@/components/ShareCardButton";
+import { renderBadgeCard } from "@/lib/shareCard";
 import {
   Lightning,
   Flame,
@@ -44,7 +46,17 @@ const ICON_MAP = {
 
 export function AchievementWall() {
   const state = useProgressStore();
-  const unlockedIds = useMemo(() => computeUnlockedAchievementIds(state), [state]);
+  // 账本 ∪ 实时集：已解锁（进账本）的成就永不"回灰"，
+  // 实时集兜底账本尚未写入的瞬间（Watcher 稍后补账）
+  const unlockedIds = useMemo(
+    () => [
+      ...new Set([
+        ...Object.keys(state.unlockedAchievements),
+        ...computeUnlockedAchievementIds(state),
+      ]),
+    ],
+    [state],
+  );
   const unlockedSet = useMemo(() => new Set(unlockedIds), [unlockedIds]);
 
   useEffect(() => {
@@ -57,7 +69,7 @@ export function AchievementWall() {
   return (
     <section
       className="bg-white rounded-3xl border-2 border-bg-softer p-5"
-      style={{ boxShadow: "0 4px 0 0 #e5e5e5" }}
+      style={{ boxShadow: "0 4px 0 0 var(--shadow-card-color)" }}
       aria-label="成就墙"
     >
       <div className="flex items-center justify-between mb-4">
@@ -107,7 +119,7 @@ function AchievementBadge({
       }`}
       style={{
         borderColor: unlocked ? ach.color : "#E5E5E5",
-        boxShadow: unlocked ? `0 3px 0 0 ${ach.color}` : "0 2px 0 0 #e5e5e5",
+        boxShadow: unlocked ? `0 3px 0 0 ${ach.color}` : "0 2px 0 0 var(--shadow-card-color)",
       }}
     >
       <div
@@ -138,9 +150,21 @@ function AchievementBadge({
           />
         </div>
       ) : (
-        <div className="text-[9px] font-extrabold mt-1.5" style={{ color: ach.color }}>
-          已解锁
-        </div>
+        // 📤 成就分享卡（E2）：本地渲染徽章卡 → 系统分享 / 降级下载
+        <ShareCardButton
+          makeBlob={() =>
+            renderBadgeCard({
+              heading: "成就解锁",
+              title: ach.name,
+              subtitle: ach.description,
+            })
+          }
+          filename={`chengjiu-${ach.id}.png`}
+          shareText={`我在聪聪学堂解锁了成就「${ach.name}」！`}
+          className="mt-1.5 inline-flex items-center gap-0.5 text-[9px] font-extrabold rounded-full px-2 py-0.5 border transition-colors hover:bg-bg-soft"
+        >
+          <span style={{ color: ach.color }}>分享 📤</span>
+        </ShareCardButton>
       )}
     </motion.div>
   );
