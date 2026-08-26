@@ -35,8 +35,34 @@ function seededShuffle<T>(arr: T[], seed: number): T[] {
   return a;
 }
 
+/** 英文干扰字母池（web-lesson-14）：小写元音 + 高频辅音，不再混中文字 */
+const EN_VOWELS = "aeiou";
+const EN_CONSONANTS = "bcdfghklmnprstwy";
+
 /** 根据答案生成候选字列表（答案字 + 干扰字，打散） */
 function buildCandidates(answerStr: string, questionId: number): string[] {
+  // === 英文单词答案：干扰项用小写字母（元音/辅音合理配比），不混中文字 ===
+  if (/^[a-zA-Z][a-zA-Z\s'-]*$/.test(answerStr.trim())) {
+    const answerChars = [
+      ...new Set(answerStr.toLowerCase().replace(/[^a-z]/g, "").split("")),
+    ];
+    const need = Math.max(9, answerChars.length + 4);
+    const distractorCount = need - answerChars.length;
+    // 干扰项约 1/3 元音、2/3 辅音，贴近英文字母的自然分布
+    const vowelWanted = Math.max(1, Math.round(distractorCount / 3));
+    const vowelPool = seededShuffle(
+      EN_VOWELS.split("").filter(c => !answerChars.includes(c)),
+      questionId + 13,
+    );
+    const consonantPool = seededShuffle(
+      EN_CONSONANTS.split("").filter(c => !answerChars.includes(c)),
+      questionId + 7,
+    );
+    const distractors = vowelPool.slice(0, Math.min(vowelWanted, vowelPool.length));
+    distractors.push(...consonantPool.slice(0, distractorCount - distractors.length));
+    return seededShuffle([...answerChars, ...distractors], questionId);
+  }
+
   const answerChars = [...new Set(answerStr.split(""))];
   // 干扰字数量：至少让总数 >= 9，最多 12
   const need = Math.max(9, answerChars.length + 4);

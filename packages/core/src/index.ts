@@ -8,3 +8,4 @@ export * from "./chestLogic";
 export * from "./economy";
 export * from "./mascotTriggers";
 export * from "./achievements";
+export * from "./quests";

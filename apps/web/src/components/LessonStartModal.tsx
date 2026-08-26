@@ -8,7 +8,7 @@
  */
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Modal } from "./Modal";
 import { Mascot } from "./Mascot";
 import { Lightning, Heart, Gem } from "./icons";
@@ -56,10 +56,24 @@ export function LessonStartModal({
   const buyHeartRefill = useProgressStore(s => s.buyHeartRefill);
   const activeLesson = useProgressStore(s => s.activeLesson);
   const clearLessonSession = useProgressStore(s => s.clearLessonSession);
+  const dailyTimeLimitReached = useProgressStore(s => s.dailyTimeLimitReached);
+
+  // hydrate 后才读时间上限（persist 恢复前恒为未达标，避免水合不一致）
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
 
   // 周末双倍 XP —— 预估所见即所得
   const [weekend] = useState(() => isWeekendXpActive());
-  const canStart = hearts > 0;
+
+  // 是否存在同一课程的未完成会话？（已开始的课不受时间上限影响）
+  const resume0 =
+    activeLesson && activeLesson.lessonId === lessonId && activeLesson.index > 0
+      ? activeLesson
+      : null;
+
+  // ⏱️ 家长时间关怀：达到每日上限后不再开新课；继续已开始的课不受影响
+  const timeUp = hydrated && !resume0 && dailyTimeLimitReached();
+  const canStart = hearts > 0 && !timeUp;
   const msToNext = nextHeartAt ? Math.max(0, nextHeartAt - now) : 0;
   const estimatedXp =
     questionCount * XP_PER_CORRECT * (weekend ? WEEKEND_XP_MULTIPLIER : 1);
@@ -78,11 +92,7 @@ export function LessonStartModal({
     }
   }
 
-  // 是否存在同一课程的未完成会话？
-  const resume =
-    activeLesson && activeLesson.lessonId === lessonId && activeLesson.index > 0
-      ? activeLesson
-      : null;
+  const resume = resume0;
   const remaining = resume ? Math.max(0, questionCount - resume.index) : questionCount;
 
   function handleStart() {
@@ -148,7 +158,19 @@ export function LessonStartModal({
           </div>
         </div>
 
-        {!canStart && (
+        {/* ⏱️ 每日学习时间到上限：温柔劝休息（家长设置，防沉迷） */}
+        {timeUp && (
+          <div className="mt-4 w-full rounded-2xl border-2 border-secondary/30 bg-secondary/10 px-4 py-3">
+            <div className="text-secondary-dark font-extrabold">
+              今天学习时间到啦，休息一下眼睛 🌙
+            </div>
+            <div className="mt-1 text-xs text-ink-light">
+              明天再来继续闯关吧～已开始的课程不受影响
+            </div>
+          </div>
+        )}
+
+        {hearts <= 0 && !timeUp && (
           <div className="mt-4 w-full rounded-2xl border-2 border-danger/30 bg-danger/10 px-4 py-3">
             <div className="flex items-center justify-center gap-2 text-danger font-extrabold">
               <Heart className="w-5 h-5" />
@@ -197,7 +219,7 @@ export function LessonStartModal({
           disabled={!canStart}
           className={canStart ? "btn-chunky-primary w-full mt-6" : "btn-chunky-disabled w-full mt-6"}
         >
-          {canStart ? (resume ? "继续学习" : "开始") : "等待恢复"}
+          {canStart ? (resume ? "继续学习" : "开始") : timeUp ? "明天再来" : "等待恢复"}
         </button>
 
         {resume && canStart && (

@@ -64,3 +64,6 @@ scripts/tts/ui_manifest.json
 data/passages/
 data/stories/
 release-assets/
+
+# generated content source (real dir in main tree, symlink in worktrees)
+/data

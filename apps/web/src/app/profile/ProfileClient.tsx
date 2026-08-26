@@ -7,6 +7,7 @@ import { useProgressStore } from "@/store/progress";
 import { Mascot } from "@/components/Mascot";
 import { StatsBar } from "@/components/StatsBar";
 import { DailyGoalRing } from "@/components/DailyGoalRing";
+import { DailyQuestsPanel } from "@/components/DailyQuestsPanel";
 import { AchievementWall } from "@/components/AchievementWall";
 import { WeeklyReportCard } from "@/components/WeeklyReportCard";
 import { AppShell } from "@/components/layout/AppShell";
@@ -72,6 +73,11 @@ export function ProfileClient() {
       </div>
 
       <div className="max-w-2xl lg:max-w-4xl mx-auto px-4 py-8">
+        {/* 📋 每日任务（移动端专属入口；桌面端在首页右栏 RightRail 展示同一组件） */}
+        <div className="lg:hidden mb-6">
+          <DailyQuestsPanel />
+        </div>
+
         {/* 顶部：聪聪 + 问候 + 每日目标环 */}
         <div className="flex items-center gap-6 mb-8">
           <motion.div

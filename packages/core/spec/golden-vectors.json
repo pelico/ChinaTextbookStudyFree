@@ -58,6 +58,32 @@
     { "streakAfter": 100, "expGems": 800 },
     { "streakAfter": 101, "expGems": 0 }
   ],
+  "quests": [
+    {
+      "date": "2026-01-01",
+      "expQuests": [
+        { "kind": "earnXP", "target": 60, "reward": 15, "id": "earnXP-60" },
+        { "kind": "reviewMistakes", "target": 3, "reward": 20, "id": "reviewMistakes-3" },
+        { "kind": "finishLessons", "target": 2, "reward": 20, "id": "finishLessons-2" }
+      ]
+    },
+    {
+      "date": "2026-08-25",
+      "expQuests": [
+        { "kind": "earnXP", "target": 30, "reward": 10, "id": "earnXP-30" },
+        { "kind": "finishLessons", "target": 1, "reward": 10, "id": "finishLessons-1" },
+        { "kind": "readTexts", "target": 1, "reward": 15, "id": "readTexts-1" }
+      ]
+    },
+    {
+      "date": "2026-12-31",
+      "expQuests": [
+        { "kind": "earnXP", "target": 100, "reward": 25, "id": "earnXP-100" },
+        { "kind": "reviewMistakes", "target": 1, "reward": 10, "id": "reviewMistakes-1" },
+        { "kind": "readTexts", "target": 1, "reward": 15, "id": "readTexts-1" }
+      ]
+    }
+  ],
   "chestSlot": [
     { "lessonsCompletedInUnit": 1, "expChests": 0 },
     { "lessonsCompletedInUnit": 2, "expChests": 0 },

@@ -102,6 +102,30 @@ function stripOptionPrefix(opt: string): string {
   return opt.replace(/^[A-Da-d][.、]\s*/, "");
 }
 
+// ============================================================
+// 题型改派（web-lesson-13）：fill_blank / calculation 走数字键盘，
+// 但部分题的答案含非数字字符（汉字/单位/①② 等），数字键盘根本打不出来
+// → 构建时自动改派为 fill_blank_text（文字输入，汉字键盘可答）。
+// ============================================================
+
+/** 数字键盘可输入的字符集：0-9 . / -（分数、小数、负数、比号用斜杠） */
+const NUMERIC_ANSWER_RE = /^[0-9./-]+$/;
+
+let retypedQuestionCount = 0;
+
+/**
+ * 答案无法用数字键盘作答的 fill_blank / calculation 题，改派为
+ * fill_blank_text。返回（可能被改派过的）同一个对象。
+ */
+function normalizeQuestionType(q: Question): Question {
+  if (q.type !== "fill_blank" && q.type !== "calculation") return q;
+  const answer = (q.answer ?? "").trim();
+  if (answer !== "" && NUMERIC_ANSWER_RE.test(answer)) return q;
+  q.type = "fill_blank_text";
+  retypedQuestionCount++;
+  return q;
+}
+
 function decorateQuestion(q: Question): Question {
   const audio: NonNullable<Question["audio"]> = {};
   const qa = audioFor(q.question);
@@ -515,8 +539,8 @@ async function processTextbook(
     }
 
     quiz.knowledge_summary.forEach(decorateKnowledge);
-    quiz.unit_test.questions.forEach(decorateQuestion);
-    quiz.exam?.questions?.forEach(decorateQuestion);
+    quiz.unit_test.questions.forEach(q => decorateQuestion(normalizeQuestionType(q)));
+    quiz.exam?.questions?.forEach(q => decorateQuestion(normalizeQuestionType(q)));
 
     const ksByPoint = new Map(quiz.knowledge_summary.map(ks => [ks.point, ks]));
     const allUnitQuestions = quiz.unit_test.questions;
@@ -709,6 +733,9 @@ async function main() {
   console.log(`   教材: ${books.length} 本`);
   console.log(`   课程: ${totalLessons} 节`);
   console.log(`   题目: ${totalQuestions} 道`);
+  console.log(
+    `   题型改派: ${retypedQuestionCount} 道（fill_blank/calculation 答案含非数字字符 → fill_blank_text）`,
+  );
   // 按学科分组打印
   const bySubject = new Map<SubjectId, number>();
   for (const b of books) {

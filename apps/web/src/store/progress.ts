@@ -21,11 +21,14 @@ import {
   DEFAULT_DAILY_GOAL,
   DAILY_GOAL_BONUS,
   FIRST_PERFECT_XP_BONUS,
+  advanceStreak,
 } from "@cstf/core/economy";
 import {
   ALL_ACHIEVEMENTS,
   computeUnlockedAchievementIds,
 } from "@cstf/core/achievements";
+import { dailyQuests, type Quest, type QuestKind } from "@cstf/core/quests";
+import { reviewSrsEntry, isSrsGraduated } from "@cstf/core/srs";
 
 /**
  * 错题条目，含 SRS（间隔重复）字段。
@@ -44,6 +47,8 @@ interface MistakeEntry {
   lastReviewedAt?: string;
   /** 下次复习日期（YYYY-MM-DD），<= today 即可复习 */
   nextReviewDate?: string;
+  /** 已毕业（box3 + 答对≥2）：保留展示「已掌握」，不再进入 due 队列 */
+  graduated?: boolean;
 }
 
 /**
@@ -58,6 +63,38 @@ export interface ActiveLessonSession {
   mistakeCount: number;
   combo: number;
   startedAt: number; // ms timestamp
+  // —— 以下为可选扩展字段（错题重排队列持久化），老会话缺省不影响恢复 ——
+  /** 剩余待答题目 id 队列（含错题重排回队尾的顺序） */
+  queueIds?: number[];
+  /** 已答对（离场）的题目 id */
+  solvedIds?: number[];
+  /** 本次会话最高连击 */
+  maxCombo?: number;
+  /** 本次会话已累计 XP（展示用） */
+  sessionXp?: number;
+}
+
+/**
+ * 通关结算单 —— recordLessonComplete 的原子返回值，
+ * 对齐 iOS ProgressStore.completeLesson 的 LessonOutcome 形态。
+ * 结算页/庆祝动画只读这里的数字，不再自己扒 store 二次推算。
+ */
+export interface LessonOutcome {
+  /** 实际入账 XP（调用方经 xpForLesson 算好传入，含周末 ×2） */
+  xpGained: number;
+  /** 本课宝石总额（drip：基础+星级+首次三星+每日目标 +20，全含） */
+  gemsGained: number;
+  stars: 1 | 2 | 3;
+  streakBefore: number;
+  streakAfter: number;
+  /** 本次通关是否推进了连胜（今天首次学习） */
+  streakIncreased: boolean;
+  /** 本次入账是否让今日 XP 首次跨过每日目标 */
+  dailyGoalReachedNow: boolean;
+  /** 本次触发的连胜里程碑宝石（0 = 未到里程碑），已计入余额 */
+  milestoneGems: number;
+  /** 是否该课历史首次三星 */
+  isFirstPerfect: boolean;
 }
 
 interface ProgressState {
@@ -134,9 +171,33 @@ interface ProgressState {
   /** 最近一次发放但尚未庆祝的连胜里程碑（DailyRewardWatcher 消费后清空） */
   pendingStreakMilestone: { streak: number; gems: number } | null;
 
+  // 🗓️ v9：每日任务计数（对齐 iOS rollDailyIfNeeded 的 dailyXxx 三计数）
+  /** 计数所属日期（YYYY-MM-DD），跨日清零 */
+  dailyQuestDate: string;
+  /** 今日完成课程数 */
+  dailyLessons: number;
+  /** 今日复习错题道数 */
+  dailyReviews: number;
+  /** 今日读完的课文/故事篇数 */
+  dailyReadings: number;
+  /** 任务领取账本，key = "YYYY-MM-DD:questId"（防重复领取） */
+  claimedQuests: Record<string, true>;
+
+  // ⏱️ v9：学习时长独立换日字段（修复 addLearningTimeMs 污染 lastXpDate）
+  lastTimeDate: string;
+
+  // 🏠 v9：首页 IA——当前正在学的教材
+  activeBookId: string | null;
+
   // actions
   setSelectedGrade: (grade: number | null) => void;
-  recordLessonComplete: (lessonId: string, lessonTitle: string, accuracy: number, xpGained: number) => void;
+  /** 设置首页当前教材（null = 未选择，回到选书流程） */
+  setActiveBookId: (bookId: string | null) => void;
+  /**
+   * 通关记账（原子）：XP/宝石/星级/连胜推进/里程碑/每日任务计数一次完成，
+   * 返回结算单 LessonOutcome 供结算页展示。
+   */
+  recordLessonComplete: (lessonId: string, lessonTitle: string, accuracy: number, xpGained: number) => LessonOutcome;
   /** 完成一篇阅读（课文听读/跟读/故事）：幂等，首次才发 XP，不发通关宝石、不写课程记录 */
   completeReading: (id: string, xp: number) => void;
   addMistake: (lessonId: string, lessonTitle: string, question: Question) => void;
@@ -197,8 +258,36 @@ interface ProgressState {
   /** 里程碑庆祝已展示，清除 pending 标记 */
   clearPendingStreakMilestone: () => void;
 
-  // 📚 SRS：复习答题后的更新
-  reviewMistake: (lessonId: string, questionId: number, isCorrect: boolean) => void;
+  // 📚 SRS：复习答题后的更新（core reviewSrsEntry 单一事实源）。
+  // 返回 true 表示本次复习让该题「新毕业」（box3 + 答对≥2），供 UI 庆祝。
+  reviewMistake: (lessonId: string, questionId: number, isCorrect: boolean) => boolean;
+
+  /**
+   * 复习会话结算：每答对一题 +5 XP（走统一记账，含每日目标判定与
+   * 达标 +20 宝石），dailyReviews += reviewedCount，推进连胜。
+   * 对齐 iOS ProgressStore.awardReviewXP。返回本次入账的 XP。
+   */
+  awardReviewXP: (correctCount: number, reviewedCount: number) => number;
+
+  // 🗓️ 每日任务
+  /** 今天的三条任务（core dailyQuests，确定性，与 iOS 同日同任务） */
+  todayQuests: () => Quest[];
+  /** 某类任务今天的进度值（earnXP 用今日 XP，其余用 daily 计数） */
+  questProgress: (kind: QuestKind) => number;
+  /**
+   * 领取一条已完成任务的宝石：按 "今天:questId" 记账防重复。
+   * 实发数额以任务池为准（reward 入参仅为调用方便/接口对齐）。
+   * 返回 true = 领取成功。
+   */
+  claimQuest: (questId: string, reward: number) => boolean;
+  /** 已完成且未领取的任务数（首页红点/角标用） */
+  claimableQuestCount: () => number;
+
+  // ⏱️ 时间关怀 selectors
+  /** 今天已学习的毫秒数（跨日自动归零口径） */
+  todayLearningTimeMs: () => number;
+  /** 是否已达到家长设置的每日时长上限（未设置上限恒为 false） */
+  dailyTimeLimitReached: () => boolean;
 }
 
 /** 每多少课出现一个宝箱节点（真值在 @cstf/core/chestLogic 中，这里 re-export 保持向后兼容） */
@@ -309,6 +398,22 @@ function effectiveStreakOf(
   return alive ? streak : 0;
 }
 
+/**
+ * rollQuestDayIfNeeded 的纯函数内核：跨日时把每日任务计数清零。
+ * 返回需要合并进 set() 的补丁（同日返回空对象），保证与本次埋点在
+ * 同一个 set 里原子生效。
+ */
+function questDayRollover(
+  state: Pick<ProgressState, "dailyQuestDate" | "dailyLessons" | "dailyReviews" | "dailyReadings">,
+  today: string,
+): Partial<Pick<ProgressState, "dailyQuestDate" | "dailyLessons" | "dailyReviews" | "dailyReadings">> {
+  if (state.dailyQuestDate === today) return {};
+  return { dailyQuestDate: today, dailyLessons: 0, dailyReviews: 0, dailyReadings: 0 };
+}
+
+/** 复习错题：每答对一题的 XP（与 iOS MistakeReviewRunnerView.xpPerCorrect 一致） */
+export const REVIEW_XP_PER_CORRECT = 5;
+
 // ============================================================
 // Store
 // ============================================================
@@ -370,14 +475,43 @@ export const useProgressStore = create<ProgressState>()(
       unlockedAchievements: {},
       pendingStreakMilestone: null,
 
+      // v9：每日任务计数 + 时长独立换日 + 首页教材
+      dailyQuestDate: "",
+      dailyLessons: 0,
+      dailyReviews: 0,
+      dailyReadings: 0,
+      claimedQuests: {},
+      lastTimeDate: "",
+      activeBookId: null,
+      setActiveBookId: bookId => set({ activeBookId: bookId }),
+
       recordLessonComplete: (lessonId, lessonTitle, accuracy, xpGained) => {
         // ⚠️ XP 公式（含周末 ×2）由调用方经 @cstf/core xpForLesson 算好传入，
         //    这里不再二次翻倍 —— 保证「结算展示值 == 入账值」。
+        // 整个通关记账（XP/宝石/连胜/里程碑/每日任务计数）在一个 set 里
+        // 原子完成，返回结算单 —— 对齐 iOS ProgressStore.completeLesson。
         const stars = starsFromAccuracy(accuracy);
         const today = todayStr();
-        const isFirstPerfect = stars === 3 && !get().perfectedLessons[lessonId];
+
+        let outcome: LessonOutcome = {
+          xpGained,
+          gemsGained: 0,
+          stars,
+          streakBefore: 0,
+          streakAfter: 0,
+          streakIncreased: false,
+          dailyGoalReachedNow: false,
+          milestoneGems: 0,
+          isFirstPerfect: false,
+        };
 
         set(state => {
+          const isFirstPerfect = stars === 3 && !state.perfectedLessons[lessonId];
+
+          // 每日任务计数：跨日清零 + 今日课程数 +1
+          const roll = questDayRollover(state, today);
+          const dailyLessons = (roll.dailyLessons ?? state.dailyLessons) + 1;
+
           // XP / todayXp / xpHistory 记账 + 每日目标首次达成判定
           const xpAccount = applyXpGain(state, xpGained, today);
           const newLessonHistory = pruneHistory({
@@ -386,11 +520,43 @@ export const useProgressStore = create<ProgressState>()(
           });
           // 💎 每课宝石 drip —— 单一事实源 @cstf/core lessonGemDrip
           //（含每日目标 +20，不再叠加 goalBonusGems）
-          const totalGems = lessonGemDrip({
+          const dripGems = lessonGemDrip({
             stars,
             isFirstPerfect,
             crossedDailyGoal: xpAccount.goalBonusGems > 0,
           });
+
+          // === 🔥 连胜推进（core advanceStreak，含护盾消耗与周一补给）===
+          const streakBefore = state.streak;
+          let streakAfter = streakBefore;
+          let streakFreezes = state.streakFreezes;
+          const isNewDay = state.lastActiveDate !== today;
+          if (isNewDay) {
+            if (state.lastActiveDate === "") {
+              streakAfter = 1;
+            } else {
+              const adv = advanceStreak({
+                streak: state.streak,
+                freezes: state.streakFreezes,
+                gapDays: daysBetween(state.lastActiveDate, today),
+                isMonday: isMonday(),
+              });
+              streakAfter = adv.streak;
+              streakFreezes = adv.freezes;
+            }
+          }
+
+          // === 💎 连胜里程碑：3/7/14/30/60/100（每档一次，账本防重发）===
+          let milestoneGems = 0;
+          let claimedStreakRewards = state.claimedStreakRewards;
+          let pendingStreakMilestone = state.pendingStreakMilestone;
+          const milestone = STREAK_MILESTONE_REWARDS[streakAfter];
+          if (isNewDay && milestone && !state.claimedStreakRewards[streakAfter]) {
+            milestoneGems = milestone;
+            claimedStreakRewards = { ...state.claimedStreakRewards, [streakAfter]: true };
+            // 留给 DailyRewardWatcher 弹「连续 N 天！+M💎」庆祝
+            pendingStreakMilestone = { streak: streakAfter, gems: milestone };
+          }
 
           // === 只保留最好成绩：重玩得低星不回退（对齐 iOS ProgressStore）===
           // 仅当新星级 >= 旧星级时才覆盖；accuracy 取更优，completedAt 用最新
@@ -405,7 +571,23 @@ export const useProgressStore = create<ProgressState>()(
                   completedAt: new Date().toISOString(),
                 };
 
+          const totalGems = dripGems + milestoneGems;
+
+          outcome = {
+            xpGained,
+            gemsGained: dripGems,
+            stars,
+            streakBefore,
+            streakAfter,
+            streakIncreased: streakAfter > streakBefore,
+            dailyGoalReachedNow: xpAccount.goalBonusGems > 0,
+            milestoneGems,
+            isFirstPerfect,
+          };
+
           return {
+            ...roll,
+            dailyLessons,
             xp: xpAccount.xp,
             completedLessons: { ...state.completedLessons, [lessonId]: result },
             todayXp: xpAccount.todayXp,
@@ -414,14 +596,17 @@ export const useProgressStore = create<ProgressState>()(
             lifetimeGems: state.lifetimeGems + totalGems,
             xpHistory: xpAccount.xpHistory,
             lessonHistory: newLessonHistory,
+            streak: streakAfter,
+            lastActiveDate: today,
+            streakFreezes,
+            claimedStreakRewards,
+            pendingStreakMilestone,
+            perfectedLessons: outcome.isFirstPerfect
+              ? { ...state.perfectedLessons, [lessonId]: true as const }
+              : state.perfectedLessons,
           };
         });
 
-        if (isFirstPerfect) {
-          get().markPerfected(lessonId);
-        }
-
-        get().bumpStreakIfNeeded();
         // 通关后：如当前课程的错题都已掌握（用户通过），自动移除该课的错题
         // 保守起见：准确率 100% 才清理，否则保留待复习
         if (accuracy >= 0.999) {
@@ -429,6 +614,7 @@ export const useProgressStore = create<ProgressState>()(
         }
         // 记录 lessonTitle 到最近结果（未使用但便于未来）
         void lessonTitle;
+        return outcome;
       },
 
       // 📖 阅读完成（课文听读/跟读、故事）——对齐 iOS completeReading：
@@ -437,8 +623,12 @@ export const useProgressStore = create<ProgressState>()(
         if (get().completedReadings[id]) return; // 已完成过，幂等
         const today = todayStr();
         set(state => {
+          const roll = questDayRollover(state, today);
+          const dailyReadings = (roll.dailyReadings ?? state.dailyReadings) + 1;
           const xpAccount = applyXpGain(state, xp, today);
           return {
+            ...roll,
+            dailyReadings,
             xp: xpAccount.xp,
             todayXp: xpAccount.todayXp,
             lastXpDate: today,
@@ -704,15 +894,27 @@ export const useProgressStore = create<ProgressState>()(
 
       addLearningTimeMs: ms => {
         if (ms <= 0) return;
+        // 独立 lastTimeDate 换日：不再触碰 lastXpDate（修复「计时把 todayXp
+        // 的换日基准污染」的老 bug）
         const today = todayStr();
         set(state => {
-          const isSameDay = state.lastXpDate === today;
-          const prev = isSameDay ? state.todayTimeMs : 0;
+          const prev = state.lastTimeDate === today ? state.todayTimeMs : 0;
           return {
             todayTimeMs: prev + ms,
-            lastXpDate: today,
+            lastTimeDate: today,
           };
         });
+      },
+
+      todayLearningTimeMs: () => {
+        const { lastTimeDate, todayTimeMs } = get();
+        return lastTimeDate === todayStr() ? todayTimeMs : 0;
+      },
+
+      dailyTimeLimitReached: () => {
+        const { dailyTimeLimitMs } = get();
+        if (dailyTimeLimitMs <= 0) return false; // 0 = 家长未设上限
+        return get().todayLearningTimeMs() >= dailyTimeLimitMs;
       },
 
       // --------------------------------------------------------
@@ -724,38 +926,106 @@ export const useProgressStore = create<ProgressState>()(
       // --------------------------------------------------------
 
       reviewMistake: (lessonId, questionId, isCorrect) => {
+        // core reviewSrsEntry 单一事实源（box3 答对 → 7 天后），消灭内联 fork。
+        // 毕业语义：box3 + 答对≥2 → 打 graduated 标记（保留展示，不再进 due 队列）。
+        let newlyGraduated = false;
         set(state => ({
-          mistakesBank: state.mistakesBank
-            .map(m => {
-              if (m.lessonId !== lessonId || m.question.id !== questionId) return m;
-              const today = new Date();
-              const todayDateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-              if (!isCorrect) {
-                // 答错 → 重置回 box 1
-                return {
-                  ...m,
-                  box: 1 as const,
-                  correctCount: 0,
-                  lastReviewedAt: today.toISOString(),
-                  nextReviewDate: todayDateStr,
-                };
-              }
-              const correctCount = (m.correctCount ?? 0) + 1;
-              const currentBox = m.box ?? 1;
-              const nextBox: 1 | 2 | 3 = currentBox >= 3 ? 3 : ((currentBox + 1) as 2 | 3);
-              const intervalDays = nextBox === 2 ? 1 : nextBox === 3 ? 3 : 7;
-              const next = new Date(today);
-              next.setDate(next.getDate() + intervalDays);
-              const nextDateStr = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
-              return {
-                ...m,
-                box: nextBox,
-                correctCount,
-                lastReviewedAt: today.toISOString(),
-                nextReviewDate: nextDateStr,
-              };
-            }),
+          mistakesBank: state.mistakesBank.map(m => {
+            if (m.lessonId !== lessonId || m.question.id !== questionId) return m;
+            const wasGraduated = m.graduated === true;
+            const updated: MistakeEntry = { ...reviewSrsEntry(m, isCorrect) };
+            if (!isCorrect) {
+              // 防御性：答错回炉（毕业条目理论上不会再进队列）
+              updated.graduated = false;
+            } else if (isSrsGraduated(updated)) {
+              updated.graduated = true;
+              if (!wasGraduated) newlyGraduated = true;
+            }
+            return updated;
+          }),
         }));
+        return newlyGraduated;
+      },
+
+      awardReviewXP: (correctCount, reviewedCount) => {
+        // 对齐 iOS ProgressStore.awardReviewXP：0 对也算复习活动（计数+连胜），
+        // 但没有任何复习量时不做事。
+        const xpGained = Math.max(0, correctCount) * REVIEW_XP_PER_CORRECT;
+        const reviewed = Math.max(0, reviewedCount);
+        if (xpGained <= 0 && reviewed <= 0) return 0;
+        const today = todayStr();
+        set(state => {
+          const roll = questDayRollover(state, today);
+          const dailyReviews = (roll.dailyReviews ?? state.dailyReviews) + reviewed;
+          const xpAccount = applyXpGain(state, xpGained, today);
+          return {
+            ...roll,
+            dailyReviews,
+            xp: xpAccount.xp,
+            todayXp: xpAccount.todayXp,
+            lastXpDate: today,
+            xpHistory: xpAccount.xpHistory,
+            gems: state.gems + xpAccount.goalBonusGems,
+            lifetimeGems: state.lifetimeGems + xpAccount.goalBonusGems,
+          };
+        });
+        get().bumpStreakIfNeeded();
+        return xpGained;
+      },
+
+      // --------------------------------------------------------
+      // 🗓️ 每日任务
+      // --------------------------------------------------------
+
+      todayQuests: () => dailyQuests(todayStr()),
+
+      questProgress: kind => {
+        const state = get();
+        const today = todayStr();
+        // earnXP 有独立的 lastXpDate 口径；其余用每日任务计数
+        if (kind === "earnXP") return state.lastXpDate === today ? state.todayXp : 0;
+        if (state.dailyQuestDate !== today) return 0;
+        switch (kind) {
+          case "finishLessons":  return state.dailyLessons;
+          case "reviewMistakes": return state.dailyReviews;
+          case "readTexts":      return state.dailyReadings;
+          default:               return 0;
+        }
+      },
+
+      claimQuest: (questId, reward) => {
+        void reward; // 实发以任务池为准，入参仅作接口对齐
+        const today = todayStr();
+        const quest = dailyQuests(today).find(q => q.id === questId);
+        if (!quest) return false;
+        const key = `${today}:${questId}`;
+        if (get().claimedQuests[key]) return false;
+        if (get().questProgress(quest.kind) < quest.target) return false;
+        set(state => {
+          let claimed: Record<string, true> = { ...state.claimedQuests, [key]: true };
+          // 账本裁剪：key 以日期开头，字典序即时间序，只留最近 60 条
+          const keys = Object.keys(claimed).sort();
+          if (keys.length > 60) {
+            claimed = {};
+            for (const k of keys.slice(-60)) claimed[k] = true;
+          }
+          return {
+            claimedQuests: claimed,
+            gems: state.gems + quest.reward,
+            lifetimeGems: state.lifetimeGems + quest.reward,
+          };
+        });
+        return true;
+      },
+
+      claimableQuestCount: () => {
+        const state = get();
+        const today = todayStr();
+        return dailyQuests(today).filter(
+          q =>
+            state.questProgress(q.kind) >= q.target &&
+            !state.claimedQuests[`${today}:${q.id}`],
+        ).length;
       },
 
       claimDailyReward: () => {
@@ -825,7 +1095,10 @@ export const useProgressStore = create<ProgressState>()(
       //            passage-/story- 前缀的条目移入 completedReadings，课时统计尽力回退
       //   v7 → v8：成就永久解锁账本 unlockedAchievements（当前实时解锁集一次性写入，
       //            不补发奖励）+ pendingStreakMilestone + 护盾一次性迁移 max(现值, 2)
-      version: 8,
+      //   v8 → v9：每日任务计数 dailyQuestDate/dailyLessons/dailyReviews/dailyReadings
+      //            + claimedQuests 领取账本 + lastTimeDate（时长独立换日）
+      //            + activeBookId（首页当前教材）
+      version: 9,
       migrate: (persistedState: unknown) => {
         const state = (persistedState as Partial<ProgressState>) ?? {};
         const starterOwned = Object.fromEntries(
@@ -918,6 +1191,15 @@ export const useProgressStore = create<ProgressState>()(
           // v8
           unlockedAchievements,
           pendingStreakMilestone: state.pendingStreakMilestone ?? null,
+          // v9：每日任务计数默认零值（老档从今天起重新计数）+ 独立时长换日
+          dailyQuestDate: state.dailyQuestDate ?? "",
+          dailyLessons: state.dailyLessons ?? 0,
+          dailyReviews: state.dailyReviews ?? 0,
+          dailyReadings: state.dailyReadings ?? 0,
+          claimedQuests: state.claimedQuests ?? {},
+          // 时长换日基准：沿用旧档的 lastXpDate 口径起步（老实现用它换日）
+          lastTimeDate: state.lastTimeDate ?? state.lastXpDate ?? "",
+          activeBookId: state.activeBookId ?? null,
         } as ProgressState;
       },
     },

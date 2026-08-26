@@ -17,7 +17,8 @@
     "./chestLogic": "./src/chestLogic.ts",
     "./economy": "./src/economy.ts",
     "./mascotTriggers": "./src/mascotTriggers.ts",
-    "./achievements": "./src/achievements.ts"
+    "./achievements": "./src/achievements.ts",
+    "./quests": "./src/quests.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

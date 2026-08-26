@@ -1,6 +1,6 @@
 import { promises as fs } from "fs";
 import path from "path";
-import { PageHeader } from "@/components/PageHeader";
+import { StatsBar } from "@/components/StatsBar";
 import { SoundLink } from "@/components/SoundLink";
 import { AppShell } from "@/components/layout/AppShell";
 import { ChangeGradeButton } from "@/components/ChangeGradeButton";
@@ -83,13 +83,22 @@ export default async function GradePage({ params }: { params: Promise<{ grade: s
   }
 
   return (
-    <AppShell right={null} centerMaxWidth={840}>
+    <AppShell centerMaxWidth={840}>
     <main className="min-h-screen flex flex-col items-center px-4 pt-4 pb-8 lg:pt-2 lg:px-0">
-      <PageHeader
-        backHref={null}
-        title={`${gradeName}年级`}
-        rightExtra={<ChangeGradeButton />}
-      />
+      {/* 页头：移动端带 compact StatsBar；lg+ 由右栏 RightRail 常驻 HUD，不再重复 */}
+      <div className="w-full max-w-3xl lg:max-w-none">
+        <div className="lg:hidden flex justify-end mb-4">
+          <StatsBar compact />
+        </div>
+        <div className="flex items-end justify-between gap-3 mb-5 lg:mb-8">
+          <h1 className="text-2xl lg:text-4xl font-extrabold text-ink leading-tight truncate">
+            {gradeName}年级
+          </h1>
+          <div className="shrink-0">
+            <ChangeGradeButton />
+          </div>
+        </div>
+      </div>
       <div className="w-full">
 
         <div className="space-y-6">

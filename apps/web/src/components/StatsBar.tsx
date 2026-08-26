@@ -9,7 +9,15 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { MAX_HEARTS, HEART_REFILL_COST, useProgressStore } from "@/store/progress";
+import {
+  MAX_HEARTS,
+  HEART_REFILL_COST,
+  MAX_FREEZES,
+  FREEZE_COST,
+  STREAK_MAKEUP_COST,
+  STREAK_MILESTONE_REWARDS,
+  useProgressStore,
+} from "@/store/progress";
 import { Heart, Flame, Lightning, Snowflake, Gem } from "@/components/icons";
 import { useToast } from "./Toast";
 import { MuteToggle, AutoNarrateToggle, useSyncMute } from "./MuteToggle";
@@ -38,9 +46,13 @@ export function StatsBar({ compact = false }: StatsBarProps = {}) {
   const xp = useProgressStore(s => s.xp);
   const gems = useProgressStore(s => s.gems);
   const buyHeartRefill = useProgressStore(s => s.buyHeartRefill);
+  const buyStreakFreeze = useProgressStore(s => s.buyStreakFreeze);
+  const makeUpYesterdayStreak = useProgressStore(s => s.makeUpYesterdayStreak);
+  const xpHistory = useProgressStore(s => s.xpHistory);
 
   const [hydrated, setHydrated] = useState(false);
   const [showHearts, setShowHearts] = useState(false);
+  const [showStreak, setShowStreak] = useState(false);
   useEffect(() => setHydrated(true), []);
 
   const dHearts = hydrated ? hearts : MAX_HEARTS;
@@ -80,20 +92,28 @@ export function StatsBar({ compact = false }: StatsBarProps = {}) {
           <span>{dHearts}</span>
         </motion.button>
 
-        {/* 连续天数 */}
-        <motion.div
+        {/* 连续天数 —— 可点开连胜详情弹层 */}
+        <motion.button
+          type="button"
+          onClick={() => {
+            playSfx("tap");
+            haptic("light");
+            setShowStreak(true);
+          }}
           initial={{ opacity: 0, y: -6 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.05 }}
-          className={`h-8 px-2.5 inline-flex items-center gap-1 rounded-full border-2 font-extrabold text-sm select-none tabular-nums ${
+          whileTap={{ scale: 0.95 }}
+          className={`h-8 px-2.5 inline-flex items-center gap-1 rounded-full border-2 font-extrabold text-sm select-none tabular-nums transition-colors ${
             streakActive
               ? "border-fox text-fox bg-fox/10"
               : "border-bg-softer text-ink-softer bg-bg-soft"
           }`}
+          aria-label="连胜详情"
         >
           <Flame className="w-4 h-4" />
           <span>{dStreak}</span>
-        </motion.div>
+        </motion.button>
 
         {/* XP —— compact 模式隐藏 */}
         {!compact && (
@@ -211,7 +231,265 @@ export function StatsBar({ compact = false }: StatsBarProps = {}) {
           </button>
         </div>
       </Modal>
+
+      {/* 🔥 连胜详情弹窗 */}
+      <StreakModal
+        open={showStreak}
+        onClose={() => setShowStreak(false)}
+        streakDisplay={dStreak}
+        litToday={streakActive}
+        rawStreak={hydrated ? streak : 0}
+        lastActiveDate={hydrated ? lastActiveDate : ""}
+        freezes={dFreezes}
+        gems={hydrated ? gems : 0}
+        xpHistory={hydrated ? xpHistory : {}}
+        buyStreakFreeze={buyStreakFreeze}
+        makeUpYesterdayStreak={makeUpYesterdayStreak}
+      />
     </>
+  );
+}
+
+// ============================================================
+// 🔥 StreakModal —— 连胜弹层（周历 + 护盾 + 里程碑 + 补卡）
+// ============================================================
+
+/** 本周（周一起）的 7 个 YYYY-MM-DD */
+function currentWeekDates(): string[] {
+  const now = new Date();
+  const day = now.getDay(); // 0=周日
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  const dates: string[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + mondayOffset + i);
+    dates.push(
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
+    );
+  }
+  return dates;
+}
+
+const WEEK_LABELS = ["一", "二", "三", "四", "五", "六", "日"];
+
+function StreakModal({
+  open,
+  onClose,
+  streakDisplay,
+  litToday,
+  rawStreak,
+  lastActiveDate,
+  freezes,
+  gems,
+  xpHistory,
+  buyStreakFreeze,
+  makeUpYesterdayStreak,
+}: {
+  open: boolean;
+  onClose: () => void;
+  /** 展示口径的连胜（断签且救不回 = 0） */
+  streakDisplay: number;
+  litToday: boolean;
+  /** store 里的原始 streak（补卡判定用） */
+  rawStreak: number;
+  lastActiveDate: string;
+  freezes: number;
+  gems: number;
+  xpHistory: Record<string, number>;
+  buyStreakFreeze: () => boolean;
+  makeUpYesterdayStreak: () => boolean;
+}) {
+  const toast = useToast();
+  const today = todayStr();
+  const week = currentWeekDates();
+
+  // 断签可补卡：今天还没学 + 缺口 ≥ 2 天 + 护盾兜不住（与 store makeUpYesterdayStreak 同判据）
+  const gap = lastActiveDate ? daysBetween(lastActiveDate, today) : Infinity;
+  const broken = rawStreak > 0 && streakDisplay === 0 && lastActiveDate !== today && gap >= 2;
+
+  // 下一个连胜里程碑（3/7/14/30/60/100）
+  const milestones = Object.keys(STREAK_MILESTONE_REWARDS)
+    .map(Number)
+    .sort((a, b) => a - b);
+  const nextMilestone = milestones.find(m => m > streakDisplay) ?? null;
+  const prevMilestone = nextMilestone
+    ? milestones.filter(m => m <= streakDisplay).pop() ?? 0
+    : null;
+  const milestonePct =
+    nextMilestone !== null && prevMilestone !== null
+      ? Math.round(
+          ((streakDisplay - prevMilestone) / (nextMilestone - prevMilestone)) * 100,
+        )
+      : 100;
+
+  function handleBuyFreeze() {
+    playSfx("tap");
+    haptic("light");
+    const ok = buyStreakFreeze();
+    if (ok) {
+      playSfx("unlock");
+      haptic("success");
+      toast.success("❄️ 护盾 +1，连胜更安全了！");
+    } else if (freezes >= MAX_FREEZES) {
+      toast.error("护盾已经满啦（最多 2 个）");
+    } else {
+      toast.error("宝石不够，先去学习攒宝石吧");
+    }
+  }
+
+  function handleMakeup() {
+    playSfx("tap");
+    haptic("medium");
+    const ok = makeUpYesterdayStreak();
+    if (ok) {
+      playSfx("unlock");
+      haptic("success");
+      toast.success("🔥 补回昨天成功，去学一课点亮连胜吧！", 3600);
+    } else {
+      toast.error("补卡没有成功，再试试吧");
+    }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose}>
+      <div className="flex flex-col items-center text-center">
+        <Mascot mood={streakDisplay > 0 ? "cheer" : "think"} size={88} />
+        <h2 className="text-2xl font-extrabold text-ink mt-3">连胜</h2>
+        <div
+          className={`mt-2 inline-flex items-center gap-2 text-4xl font-extrabold tabular-nums ${
+            litToday ? "text-fox" : "text-ink-softer"
+          }`}
+        >
+          <Flame className="w-9 h-9" />
+          <span>{streakDisplay}</span>
+          <span className="text-base font-extrabold text-ink-light self-end mb-1.5">天</span>
+        </div>
+        {!litToday && streakDisplay > 0 && (
+          <p className="text-xs text-ink-light mt-1">今天还没学习，快去点亮火焰吧</p>
+        )}
+
+        {/* 本周 7 格日历：学过 = 火焰格；今天未学 = 高亮空格 */}
+        <div className="mt-5 w-full grid grid-cols-7 gap-1.5">
+          {week.map((date, i) => {
+            const learned = (xpHistory[date] ?? 0) > 0;
+            const isToday = date === today;
+            const isFuture = date > today;
+            return (
+              <div key={date} className="flex flex-col items-center gap-1">
+                <div className="text-[10px] font-extrabold text-ink-softer">
+                  {WEEK_LABELS[i]}
+                </div>
+                <div
+                  className={`w-9 h-9 rounded-xl flex items-center justify-center border-2 ${
+                    learned
+                      ? "bg-fox/15 border-fox text-fox"
+                      : isToday
+                        ? "bg-warning/10 border-warning border-dashed text-warning"
+                        : isFuture
+                          ? "bg-bg-soft border-bg-softer text-bg-softer"
+                          : "bg-bg-soft border-bg-softer text-ink-softer"
+                  }`}
+                  aria-label={`${date}${learned ? " 已学习" : isToday ? " 今天还没学" : ""}`}
+                >
+                  {learned ? <Flame className="w-4 h-4" /> : isToday ? "?" : ""}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* 下一里程碑进度 */}
+        {nextMilestone !== null && (
+          <div className="mt-5 w-full rounded-2xl border-2 border-bg-softer bg-bg-soft px-4 py-3 text-left">
+            <div className="flex items-center justify-between text-xs font-extrabold">
+              <span className="text-ink">
+                距 {nextMilestone} 天还差 {nextMilestone - streakDisplay} 天
+              </span>
+              <span className="inline-flex items-center gap-0.5 text-purple-600 tabular-nums">
+                <Gem className="w-3.5 h-3.5" />+{STREAK_MILESTONE_REWARDS[nextMilestone]}
+              </span>
+            </div>
+            <div className="mt-2 h-2.5 rounded-full bg-bg-softer overflow-hidden">
+              <div
+                className="h-full bg-fox rounded-full transition-all"
+                style={{ width: `${Math.max(4, milestonePct)}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* 连胜护盾：数量 + 购买 */}
+        <div className="mt-3 w-full rounded-2xl border-2 border-secondary/30 bg-secondary/10 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <Snowflake className="w-5 h-5 text-secondary" />
+            <span className="text-sm font-extrabold text-secondary-dark">
+              连胜护盾 {freezes}/{MAX_FREEZES}
+            </span>
+            <span className="ml-auto text-[10px] text-ink-light">漏学一天自动抵挡</span>
+          </div>
+          {freezes < MAX_FREEZES && (
+            <button
+              type="button"
+              onClick={handleBuyFreeze}
+              disabled={gems < FREEZE_COST}
+              className={`w-full mt-2.5 inline-flex items-center justify-center gap-1.5 rounded-2xl py-2 font-extrabold text-sm transition-colors ${
+                gems >= FREEZE_COST
+                  ? "text-white bg-secondary"
+                  : "bg-bg-softer text-ink-softer cursor-not-allowed"
+              }`}
+              style={gems >= FREEZE_COST ? { boxShadow: "0 3px 0 0 #0d7aa8" } : undefined}
+            >
+              <Gem className="w-4 h-4" />
+              <span className="tabular-nums">{FREEZE_COST}</span>
+              <span>买一个护盾</span>
+            </button>
+          )}
+        </div>
+
+        {/* 断签补卡入口 */}
+        {broken && (
+          <div className="mt-3 w-full rounded-2xl border-2 border-danger/30 bg-danger/10 px-4 py-3">
+            <div className="text-sm font-extrabold text-danger">
+              连胜断啦！花 {STREAK_MAKEUP_COST} 宝石补回昨天
+            </div>
+            <div className="mt-1 text-[11px] text-ink-light">
+              补卡后今天学一课，{rawStreak} 天连胜就能接上
+            </div>
+            <button
+              type="button"
+              onClick={handleMakeup}
+              disabled={gems < STREAK_MAKEUP_COST}
+              className={`w-full mt-2.5 inline-flex items-center justify-center gap-1.5 rounded-2xl py-2 font-extrabold text-sm transition-colors ${
+                gems >= STREAK_MAKEUP_COST
+                  ? "text-white bg-fox"
+                  : "bg-bg-softer text-ink-softer cursor-not-allowed"
+              }`}
+              style={gems >= STREAK_MAKEUP_COST ? { boxShadow: "0 3px 0 0 #C87500" } : undefined}
+            >
+              <Gem className="w-4 h-4" />
+              <span className="tabular-nums">{STREAK_MAKEUP_COST}</span>
+              <span>补回连胜</span>
+            </button>
+            {gems < STREAK_MAKEUP_COST && (
+              <div className="mt-1.5 text-[11px] text-ink-softer text-center">
+                宝石还差 {STREAK_MAKEUP_COST - gems} 颗
+              </div>
+            )}
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => {
+            playSfx("tap");
+            haptic("light");
+            onClose();
+          }}
+          className="btn-chunky-primary w-full mt-6"
+        >
+          知道了
+        </button>
+      </div>
+    </Modal>
   );
 }
 

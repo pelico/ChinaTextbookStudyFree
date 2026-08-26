@@ -70,12 +70,24 @@ const NAV_ITEMS: NavItem[] = [
   },
 ];
 
-/** 沉浸式路径，不显示底部导航 */
-const HIDDEN_PREFIXES = ["/lesson/", "/reading/"];
+/**
+ * 沉浸式路径，不显示底部导航：
+ *   - 课程答题 /lesson/**
+ *   - 课文阅读器 /reading/{book}/{passage}（列表页 /reading/{book}/ 保留导航）
+ *   - 故事阅读器 /stories/{book}/{story}（列表页 /stories/{book}/ 保留导航）
+ */
+const HIDDEN_PATTERNS = [
+  /^\/lesson\//,
+  /^\/reading\/[^/]+\/[^/]+/,
+  /^\/stories\/[^/]+\/[^/]+/,
+];
 
 function isActive(pathname: string, item: NavItem): boolean {
   if (item.matchPrefix === "/") {
-    return pathname === "/" || /^\/grade\//.test(pathname) || /^\/book\//.test(pathname);
+    return (
+      pathname === "/" ||
+      /^\/(grade|book|lesson|stories|reading)\//.test(pathname)
+    );
   }
   return pathname.startsWith(item.matchPrefix);
 }
@@ -93,6 +105,12 @@ export function BottomNav() {
   const mistakes = useProgressStore(s => s.mistakesBank);
   const gems = useProgressStore(s => s.gems);
   const ownedCosmetics = useProgressStore(s => s.ownedCosmetics);
+  const claimableQuestCount = useProgressStore(s => s.claimableQuestCount);
+  // claimableQuestCount 是派生函数（引用恒定），订阅其依赖字段驱动徽章实时刷新
+  useProgressStore(
+    s =>
+      `${s.dailyQuestDate}|${s.lastXpDate}|${s.todayXp}|${s.dailyLessons}|${s.dailyReviews}|${s.dailyReadings}|${Object.keys(s.claimedQuests).length}`,
+  );
 
   // 错题本徽章：今日可复习的数量
   const today = todayStr();
@@ -105,20 +123,32 @@ export function BottomNav() {
     ? ALL_COSMETICS.some(c => !ownedCosmetics[c.id] && c.cost > 0 && gems >= c.cost)
     : false;
 
-  // 个人中心徽章：未读成就
+  // 个人中心徽章：可领取的每日任务（计数优先），其次未读成就红点
+  const claimableQuests = hydrated ? claimableQuestCount() : 0;
   const profileHasUnseen = hydrated && hasUnseenAchievements();
 
-  // 内嵌路径检查：sub-route 上的 lesson runner / reading 隐藏
-  if (HIDDEN_PREFIXES.some(p => pathname.startsWith(p))) return null;
+  // 沉浸式路径（答题 / 阅读器）隐藏底部导航
+  if (HIDDEN_PATTERNS.some(re => re.test(pathname))) return null;
 
   function getBadge(item: NavItem): { count?: number; dot?: boolean } | null {
     if (item.matchPrefix === "/review" && reviewBadge > 0) return { count: reviewBadge };
     if (item.matchPrefix === "/shop" && shopHasAffordable) return { dot: true };
-    if (item.matchPrefix === "/profile" && profileHasUnseen) return { dot: true };
+    if (item.matchPrefix === "/profile") {
+      if (claimableQuests > 0) return { count: claimableQuests };
+      if (profileHasUnseen) return { dot: true };
+    }
     return null;
   }
 
   return (
+    <>
+    {/* 占位条：把页面内容顶出固定导航的高度（含安全区），
+        代替旧版全局 body pb-16 —— 导航隐藏时占位也随之消失 */}
+    <div
+      aria-hidden="true"
+      className="lg:hidden"
+      style={{ height: "calc(3.5rem + max(env(safe-area-inset-bottom), 0px))" }}
+    />
     <nav
       className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t-2 border-bg-softer"
       style={{
@@ -186,5 +216,6 @@ export function BottomNav() {
         })}
       </div>
     </nav>
+    </>
   );
 }

@@ -28,6 +28,22 @@ export interface SrsMistakeEntry {
   lastReviewedAt?: string;
   /** 下次应当复习的日期（YYYY-MM-DD）。空 = 立即可复习 */
   nextReviewDate?: string;
+  /**
+   * 已毕业：box 3 且累计答对 ≥ SRS_GRADUATE_MIN_CORRECT。
+   * 毕业条目保留在错题本里展示「已掌握」，但不再进入 due 队列。
+   */
+  graduated?: boolean;
+}
+
+/** 毕业线：box 3 且累计答对次数达到该值（与 iOS reviewMistake 移除条件一致）。 */
+export const SRS_GRADUATE_MIN_CORRECT = 2;
+
+/**
+ * 条目是否达到毕业语义：显式 graduated 标记，或 box ≥ 3 且答对次数达标。
+ */
+export function isSrsGraduated(entry: SrsMistakeEntry): boolean {
+  if (entry.graduated) return true;
+  return (entry.box ?? 1) >= 3 && (entry.correctCount ?? 0) >= SRS_GRADUATE_MIN_CORRECT;
 }
 
 function todayStr(): string {
@@ -91,6 +107,7 @@ export function getDueSrsEntries(
 ): SrsMistakeEntry[] {
   const today = todayStr();
   const due = entries.filter(e => {
+    if (isSrsGraduated(e)) return false; // 毕业条目不再进入复习队列
     if (!e.nextReviewDate) return true;
     return e.nextReviewDate <= today;
   });

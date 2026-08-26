@@ -134,10 +134,10 @@ export default function ShopPage() {
   }
 
   return (
-    <AppShell right={null} centerMaxWidth={920}>
+    <AppShell centerMaxWidth={920}>
     <main className="min-h-screen bg-bg-soft lg:bg-transparent">
-      {/* Header —— 移动端白底 sticky；桌面端简化为 标题 + GemBadge */}
-      <div className="bg-white border-b border-bg-softer sticky top-0 z-10 lg:bg-transparent lg:border-0 lg:static lg:mb-2">
+      {/* Header —— 仅移动端：白底 sticky（lg+ 宝石数由右栏 RightRail HUD 常驻展示） */}
+      <div className="bg-white border-b border-bg-softer sticky top-0 z-10 lg:hidden">
         <div className="max-w-3xl mx-auto px-4 py-2.5 lg:px-0 flex items-center gap-3">
           <Link
             href="/"

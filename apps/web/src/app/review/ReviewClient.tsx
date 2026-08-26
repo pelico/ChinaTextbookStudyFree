@@ -4,10 +4,11 @@ import { useEffect, useState } from "react";
 import { SoundLink } from "@/components/SoundLink";
 import { motion, AnimatePresence } from "framer-motion";
 import { useProgressStore } from "@/store/progress";
+import { isSrsGraduated } from "@/lib/srs";
 import { MathText } from "@/components/MathText";
 import { StatsBar } from "@/components/StatsBar";
 import { EmptyState } from "@/components/StateMessages";
-import { ArrowLeft, Bookmark, Check, XCircle, CheckCircle } from "@/components/icons";
+import { ArrowLeft, CheckCircle, Rocket } from "@/components/icons";
 import { AppShell } from "@/components/layout/AppShell";
 import { playSfx } from "@/lib/sfx";
 import { haptic } from "@/lib/haptic";
@@ -34,27 +35,29 @@ function isTomorrow(dateStr?: string): boolean {
   return dateStr === tomorrowKey();
 }
 
-function isLater(dateStr?: string): boolean {
-  if (!dateStr) return false;
-  return dateStr > tomorrowKey();
-}
-
 const BOX_LABELS: Record<number, { label: string; color: string }> = {
   1: { label: "新错题", color: "text-danger bg-danger/10 border-danger/30" },
   2: { label: "再练练", color: "text-warning bg-warning/10 border-warning/40" },
   3: { label: "快掌握了", color: "text-primary-dark bg-primary/10 border-primary/30" },
 };
 
+const GRADUATED_LABEL = {
+  label: "已掌握 🎓",
+  color: "text-secondary-dark bg-secondary/10 border-secondary/30",
+};
+
 export function ReviewClient() {
   const mistakes = useProgressStore(s => s.mistakesBank);
-  const reviewMistake = useProgressStore(s => s.reviewMistake);
 
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => setHydrated(true), []);
 
-  // SRS 排序：先 box 1 → 2 → 3，同 box 内按 lastReviewedAt 旧的优先
+  // SRS 排序：先 box 1 → 2 → 3，同 box 内按 lastReviewedAt 旧的优先；毕业条目沉底
   const sortedMistakes = hydrated
     ? [...mistakes].sort((a, b) => {
+        const ga = isSrsGraduated(a) ? 1 : 0;
+        const gb = isSrsGraduated(b) ? 1 : 0;
+        if (ga !== gb) return ga - gb;
         const ba = a.box ?? 1;
         const bb = b.box ?? 1;
         if (ba !== bb) return ba - bb;
@@ -73,15 +76,16 @@ export function ReviewClient() {
   }, {});
   const groupEntries = Object.entries(grouped);
   const totalMistakes = hydrated ? mistakes.length : 0;
+  // 到期可复习 = nextReviewDate 到期 且 未毕业（与 core getDueSrsEntries 同口径）
   const dueCount = hydrated
-    ? mistakes.filter(m => isDueToday(m.nextReviewDate)).length
+    ? mistakes.filter(m => !isSrsGraduated(m) && isDueToday(m.nextReviewDate)).length
     : 0;
 
   return (
-    <AppShell right={null} centerMaxWidth={840}>
+    <AppShell centerMaxWidth={840}>
     <main className="min-h-screen bg-bg-soft lg:bg-transparent relative">
-      {/* Header —— 移动端白底 sticky；桌面端简化为 标题 + compact HUD */}
-      <div className="bg-white border-b border-bg-softer sticky top-0 z-10 lg:bg-transparent lg:border-0 lg:static lg:mb-2">
+      {/* Header —— 仅移动端：白底 sticky（lg+ HUD 由右栏 RightRail 常驻，不再重复） */}
+      <div className="bg-white border-b border-bg-softer sticky top-0 z-10 lg:hidden">
         <div className="max-w-2xl lg:max-w-4xl mx-auto flex items-center justify-between gap-3 px-4 py-3 lg:px-0 lg:py-2">
           <SoundLink
             href="/"
@@ -104,9 +108,9 @@ export function ReviewClient() {
         {hydrated && totalMistakes > 0 && (
           <SrsSummary
             todayCount={dueCount}
-            tomorrowCount={mistakes.filter(m => isTomorrow(m.nextReviewDate)).length}
-            laterCount={mistakes.filter(m => isLater(m.nextReviewDate)).length}
-            graduatedCount={mistakes.filter(m => (m.box ?? 1) >= 3).length}
+            tomorrowCount={mistakes.filter(m => !isSrsGraduated(m) && isTomorrow(m.nextReviewDate)).length}
+            laterCount={mistakes.filter(m => !isSrsGraduated(m) && !isDueToday(m.nextReviewDate) && !isTomorrow(m.nextReviewDate)).length}
+            graduatedCount={mistakes.filter(m => isSrsGraduated(m)).length}
           />
         )}
         {hydrated && totalMistakes === 0 ? (
@@ -139,23 +143,12 @@ export function ReviewClient() {
                   {group.items.map(m => (
                     <MistakeItem
                       key={m.question.id}
-                      lessonId={lessonId}
-                      questionId={m.question.id}
                       questionText={m.question.question}
                       correctAnswer={m.question.answer}
                       explanation={m.question.explanation}
                       box={m.box ?? 1}
-                      due={isDueToday(m.nextReviewDate)}
-                      onMarkCorrect={() => {
-                        playSfx("correct");
-                        haptic("success");
-                        reviewMistake(lessonId, m.question.id, true);
-                      }}
-                      onMarkWrong={() => {
-                        playSfx("wrong");
-                        haptic("medium");
-                        reviewMistake(lessonId, m.question.id, false);
-                      }}
+                      graduated={isSrsGraduated(m)}
+                      due={!isSrsGraduated(m) && isDueToday(m.nextReviewDate)}
                     />
                   ))}
                 </AnimatePresence>
@@ -164,6 +157,27 @@ export function ReviewClient() {
           </div>
         )}
       </div>
+
+      {/* 📚 底部悬浮：开始复习（有到期错题时才出现，直达 runner） */}
+      {hydrated && dueCount > 0 && (
+        <motion.div
+          initial={{ y: 80, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ type: "spring", damping: 20, stiffness: 240, delay: 0.2 }}
+          className="fixed bottom-20 lg:bottom-6 left-0 right-0 z-20 px-5 pointer-events-none"
+        >
+          <div className="max-w-2xl lg:max-w-4xl mx-auto flex justify-center">
+            <SoundLink
+              href="/review/runner/"
+              hapticIntensity="medium"
+              className="btn-chunky-danger px-10 pointer-events-auto inline-flex items-center gap-2"
+            >
+              <Rocket className="w-5 h-5" />
+              开始复习（{dueCount} 题）
+            </SoundLink>
+          </div>
+        </motion.div>
+      )}
     </main>
     </AppShell>
   );
@@ -208,7 +222,7 @@ function SrsSummary({
         <SrsBucket label="今天" count={todayCount} color="text-danger" bg="bg-danger/10" />
         <SrsBucket label="明天" count={tomorrowCount} color="text-warning" bg="bg-warning/15" />
         <SrsBucket label="之后" count={laterCount} color="text-secondary" bg="bg-secondary/10" />
-        <SrsBucket label="已掌握" count={graduatedCount} color="text-primary" bg="bg-primary/10" />
+        <SrsBucket label="已掌握 🎓" count={graduatedCount} color="text-primary" bg="bg-primary/10" />
       </div>
     </motion.section>
   );
@@ -236,35 +250,36 @@ function SrsBucket({
 }
 
 interface MistakeItemProps {
-  lessonId: string;
-  questionId: number;
   questionText: string;
   correctAnswer: string;
   explanation: string;
   box: 1 | 2 | 3;
+  graduated: boolean;
   due: boolean;
-  onMarkCorrect: () => void;
-  onMarkWrong: () => void;
 }
 
+/**
+ * 错题条目 —— 只读展示。
+ * 正确答案默认折叠（先自己想一想，点「查看答案」才展开答案 + 解析）；
+ * 真实作答请走「开始复习」runner，自评按钮已移除。
+ */
 function MistakeItem({
   questionText,
   correctAnswer,
   explanation,
   box,
+  graduated,
   due,
-  onMarkCorrect,
-  onMarkWrong,
 }: MistakeItemProps) {
   const [expanded, setExpanded] = useState(false);
-  const boxStyle = BOX_LABELS[box] ?? BOX_LABELS[1];
+  const boxStyle = graduated ? GRADUATED_LABEL : (BOX_LABELS[box] ?? BOX_LABELS[1]);
   return (
     <motion.div
       layout
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0, x: -20 }}
-      className={`px-5 py-4 border-b border-bg-softer last:border-b-0 ${due ? "" : "opacity-60"}`}
+      className={`px-5 py-4 border-b border-bg-softer last:border-b-0 ${due || graduated ? "" : "opacity-60"}`}
     >
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
@@ -274,20 +289,15 @@ function MistakeItem({
             >
               {boxStyle.label}
             </span>
-            {!due && (
+            {!graduated && !due && (
               <span className="text-[10px] text-ink-softer">今天不用复习</span>
             )}
           </div>
           <div className="text-base font-semibold text-ink leading-relaxed">
             <MathText text={questionText} />
           </div>
-          <div className="mt-2 flex items-center gap-2 text-sm">
-            <CheckCircle className="w-4 h-4 text-primary shrink-0" />
-            <span className="text-ink-light">正确答案：</span>
-            <span className="font-extrabold text-primary-dark">
-              <MathText text={correctAnswer} />
-            </span>
-          </div>
+
+          {/* 正确答案默认折叠：先想一想，再看答案 */}
           <button
             type="button"
             onClick={() => {
@@ -297,7 +307,7 @@ function MistakeItem({
             }}
             className="mt-2 text-xs font-semibold text-secondary hover:text-secondary-dark"
           >
-            {expanded ? "收起解析" : "查看解析"}
+            {expanded ? "收起答案" : "查看答案"}
           </button>
           <AnimatePresence>
             {expanded && (
@@ -308,34 +318,19 @@ function MistakeItem({
                 transition={{ duration: 0.2 }}
                 className="overflow-hidden"
               >
+                <div className="mt-2 flex items-center gap-2 text-sm">
+                  <CheckCircle className="w-4 h-4 text-primary shrink-0" />
+                  <span className="text-ink-light">正确答案：</span>
+                  <span className="font-extrabold text-primary-dark">
+                    <MathText text={correctAnswer} />
+                  </span>
+                </div>
                 <div className="mt-2 rounded-xl bg-bg-soft px-3 py-2 text-sm text-ink leading-relaxed">
                   <MathText text={explanation} />
                 </div>
               </motion.div>
             )}
           </AnimatePresence>
-
-          {/* SRS 复习按钮：我会了 / 还要练 */}
-          {due && (
-            <div className="mt-3 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={onMarkCorrect}
-                className="btn-chunky-sm flex-1 bg-primary"
-                style={{ boxShadow: "0 3px 0 0 #58A700" }}
-              >
-                <Check className="w-3.5 h-3.5" /> 我会了
-              </button>
-              <button
-                type="button"
-                onClick={onMarkWrong}
-                className="btn-chunky-sm flex-1 bg-danger"
-                style={{ boxShadow: "0 3px 0 0 #EA2B2B" }}
-              >
-                <XCircle className="w-3.5 h-3.5" /> 还要练
-              </button>
-            </div>
-          )}
         </div>
       </div>
     </motion.div>
