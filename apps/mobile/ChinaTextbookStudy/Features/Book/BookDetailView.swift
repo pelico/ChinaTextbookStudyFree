@@ -12,6 +12,9 @@ struct BookDetailView: View {
     @State private var outline: Outline?
     @State private var loadError: String?
     @State private var lessons: [PathLessonMeta] = []
+    /// 课文听读 / 课外故事入口按数据实际存在与否条件渲染（content-8）。
+    @State private var hasPassages = false
+    @State private var hasStories = false
     /// A path chest the learner tapped and is currently opening.
     @State private var activeChest: ActiveChest?
 
@@ -46,18 +49,26 @@ struct BookDetailView: View {
             DuoColors.darkBg.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Side entries (stories/reading) at top — dark themed
-                HStack(spacing: 12) {
-                    sideEntry(label: "课文听读", icon: "text.book.closed.fill", tint: DuoColors.secondary) {
-                        path.append(.reading(bookId: bookId))
+                // Side entries (stories/reading) at top — dark themed.
+                // Only shown for books that actually ship the content, so a
+                // math book no longer advertises empty 课文/故事 lists.
+                if hasPassages || hasStories {
+                    HStack(spacing: 12) {
+                        if hasPassages {
+                            sideEntry(label: "课文听读", icon: "text.book.closed.fill", tint: DuoColors.secondary) {
+                                path.append(.reading(bookId: bookId))
+                            }
+                        }
+                        if hasStories {
+                            sideEntry(label: "课外故事", icon: "book.closed.fill", tint: DuoColors.beetle) {
+                                path.append(.stories(bookId: bookId))
+                            }
+                        }
                     }
-                    sideEntry(label: "课外故事", icon: "book.closed.fill", tint: DuoColors.beetle) {
-                        path.append(.stories(bookId: bookId))
-                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
 
                 // Snake-shaped PathMap
                 PathMapView(lessons: buildPathNodes()) { node in
@@ -118,6 +129,10 @@ struct BookDetailView: View {
             self.lessons = outline.pathLessonMetas(bookId: bookId) { lessonId in
                 (try? DataLoader.shared.loadLesson(bookId: bookId, lessonId: lessonId).questions.count) ?? 0
             }
+            // Ground truth after download is the file itself (hasPassages /
+            // hasStories flags in the site index can lag behind the data zip).
+            self.hasPassages = (((try? DataLoader.shared.loadPassages(bookId: bookId)) ?? nil)?.passages.isEmpty == false)
+            self.hasStories = (((try? DataLoader.shared.loadStories(bookId: bookId)) ?? nil)?.stories.isEmpty == false)
             self.loadError = nil
         } catch {
             self.loadError = (error as? LocalizedError)?.errorDescription ?? String(describing: error)

@@ -178,8 +178,10 @@ final class ProgressStoreEconomyTests: XCTestCase {
         let outcome = store.completeLesson(lessonId: "t-l1", correctCount: 5, questionCount: 5, now: day("2026-03-02"))
         XCTAssertEqual(outcome.gemsGained, 48)
         XCTAssertFalse(outcome.newAchievements.isEmpty)
-        // Balance = drip + achievement rewards (first-lesson 20 + perfect-1 20).
-        XCTAssertEqual(store.gems, 48 + 40)
+        // Wave D: unlock rewards (first-lesson 20 + perfect-1 20) are NOT
+        // auto-paid anymore — the balance is the drip alone until claimed.
+        XCTAssertEqual(store.gems, 48)
+        XCTAssertEqual(store.claimableAchievementCount, 2)
 
         // Same-day replay: still 3 stars but no first-perfect / goal bonus
         // (the +20 must not repeat) → 3 + 10. Total XP crosses 100 here
@@ -187,6 +189,13 @@ final class ProgressStoreEconomyTests: XCTestCase {
         let again = store.completeLesson(lessonId: "t-l1", correctCount: 5, questionCount: 5, now: day("2026-03-02"))
         XCTAssertEqual(again.gemsGained, 13)
         XCTAssertEqual(again.newAchievements.map(\.id), ["xp-100"])
-        XCTAssertEqual(store.gems, 48 + 40 + 13 + 20)
+        XCTAssertEqual(store.gems, 48 + 13)
+
+        // Claiming pays each pending reward exactly once (20 + 20 + 20).
+        XCTAssertEqual(store.claimAchievement("first-lesson"), 20)
+        XCTAssertEqual(store.claimAchievement("perfect-1"), 20)
+        XCTAssertEqual(store.claimAchievement("xp-100"), 20)
+        XCTAssertEqual(store.gems, 48 + 13 + 60)
+        XCTAssertEqual(store.claimableAchievementCount, 0)
     }
 }

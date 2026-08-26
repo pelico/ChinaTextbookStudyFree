@@ -62,6 +62,31 @@ struct SettingsView: View {
 
     // MARK: - Streak reminder
 
+    /// The learner's chosen fire time as a Date (today's calendar day — only
+    /// the hour/minute components matter to the DatePicker).
+    private var reminderTimeBinding: Binding<Date> {
+        Binding(
+            get: {
+                Calendar.current.date(
+                    bySettingHour: settings.reminderHour,
+                    minute: settings.reminderMinute,
+                    second: 0,
+                    of: Date()
+                ) ?? Date()
+            },
+            set: { picked in
+                let parts = Calendar.current.dateComponents([.hour, .minute], from: picked)
+                settings.reminderHour = parts.hour ?? SettingsStore.defaultReminderHour
+                settings.reminderMinute = parts.minute ?? SettingsStore.defaultReminderMinute
+                // Re-schedule the pending window onto the new time right away.
+                NotificationService.shared.rescheduleStreakReminder(
+                    streak: progressStore.reminderStreak,
+                    studiedToday: progressStore.studiedToday
+                )
+            }
+        )
+    }
+
     private var reminderSection: some View {
         section("提醒") {
             VStack(alignment: .leading, spacing: 8) {
@@ -88,9 +113,25 @@ struct SettingsView: View {
                         }
                     }
                 ))
+                if settings.streakReminderEnabled {
+                    divider
+                    HStack(spacing: 12) {
+                        Image(systemName: "clock.fill")
+                            .font(.system(size: 18, weight: .heavy))
+                            .foregroundStyle(DuoColors.secondary)
+                            .frame(width: 26)
+                        Text("提醒时间").duoFont(.body).foregroundStyle(DuoColors.ink)
+                        Spacer()
+                        DatePicker("提醒时间", selection: reminderTimeBinding, displayedComponents: .hourAndMinute)
+                            .labelsHidden()
+                            .tint(DuoColors.primary)
+                            .accessibilityIdentifier("reminder-time-picker")
+                    }
+                    .padding(.vertical, 8)
+                }
                 Text(deniedHint
                      ? "系统未授权通知，请到「设置 › 通知 › 课本学习」中开启。"
-                     : "每晚 20:00 提醒你保住连胜；当天已学习则自动跳过。")
+                     : "每天 \(settings.reminderTimeLabel) 提醒你保住连胜；当天已学习则自动跳过。")
                     .duoFont(.micro)
                     .foregroundStyle(deniedHint ? DuoColors.danger : DuoColors.inkSofter)
                     .padding(.horizontal, 2)

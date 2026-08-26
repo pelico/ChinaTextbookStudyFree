@@ -280,6 +280,29 @@ struct MistakeEntry: Codable, Hashable {
     var correctCount: Int?
     var lastReviewedAt: String?         // ISO8601
     var nextReviewDate: String?         // YYYY-MM-DD
+    /// Wave D (parity-7): 毕业条目不再物理删除 —— box ≥ 3 且答对 ≥ 2 次后置
+    /// 此标记。毕业条目不进 due 队列，但保留在错题本里（「已掌握」桶 +
+    /// 成就快照 reviewedMistakeCount 不再回退）。答错会防御性回炉（清标记），
+    /// 与 web store 一致。
+    var graduated: Bool?
+}
+
+/// 未完成的课程会话（parity-13）—— 与 web `ActiveLessonSession` 心智对齐。
+/// 用户中途退出课程时持久化，下次进入同一课可无缝恢复到上次的题目队列。
+struct ActiveLessonSession: Codable, Hashable {
+    var bookId: String
+    var lessonId: String
+    /// 还未答对、等待作答的题目 id 队列（队首 = 当前题）。
+    var queueIds: [Int]
+    /// 已（首答）答对的题目 id。
+    var solvedIds: [Int]
+    /// 首答答错过的题目 id（用于结算正确率 = solved - missed）。
+    var missedIds: [Int]
+    var combo: Int
+    var maxCombo: Int
+    /// 本会话内已累计展示的 XP（结算时以 store 计算为准）。
+    var sessionXp: Int
+    var startedAt: String               // ISO8601
 }
 
 struct UserProgress: Codable, Hashable {
@@ -319,6 +342,15 @@ struct UserProgress: Codable, Hashable {
     var lastDailyRewardDate: String?    // YYYY-MM-DD the login reward was last claimed
     var unlockedAchievements: [String]? // permanent achievement ledger (never re-locks)
     var freezesMigrated: Bool?          // one-time max(current, 2) shield migration done
+
+    // Wave D (all optional for backward compat)
+    /// 未完成课程会话（parity-13）；nil = 没有挂起的课。
+    var activeLesson: ActiveLessonSession?
+    /// 已手动领取奖励的成就 id（ios-retention-10）：解锁进 unlockedAchievements
+    /// 账本，领取才发宝石。迁移：老档已解锁未领取视为已领取（不补发）。
+    var claimedAchievements: [String]?
+    /// 首次使用日期 YYYY-MM-DD（ios-retention-12）；老档回填最早 completedAt。
+    var joinedDate: String?
 }
 
 // ============================================================

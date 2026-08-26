@@ -70,7 +70,8 @@ final class LessonFlowUITests: XCTestCase {
                       "feedback panel did not appear after checking a correct answer")
     }
 
-    /// Quitting mid-lesson must ask for confirmation before discarding progress.
+    /// Quitting mid-lesson must show the custom hold-on overlay (mascot +
+    /// 「继续学习」 on top, ghost 「退出」) before discarding progress.
     @MainActor
     func testQuittingMidLessonAsksForConfirmation() throws {
         try skipIfIPad()
@@ -88,12 +89,35 @@ final class LessonFlowUITests: XCTestCase {
         XCTAssertTrue(app.buttons["继续"].firstMatch.waitForExistence(timeout: 5))
 
         app.buttons["关闭"].firstMatch.tap()
-        XCTAssertTrue(app.buttons["退出练习"].firstMatch.waitForExistence(timeout: 3),
-                      "quit confirmation dialog did not appear")
-        app.buttons["退出练习"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["lesson-quit"].firstMatch.waitForExistence(timeout: 3),
+                      "quit hold-on overlay did not appear")
+        // The keep-learning CTA sits on top of the overlay.
+        XCTAssertTrue(app.buttons["继续学习"].firstMatch.exists,
+                      "keep-learning CTA missing from the quit overlay")
+        app.buttons["lesson-quit"].firstMatch.tap()
 
         // Back on the path.
         XCTAssertTrue(firstNode(app).waitForExistence(timeout: 8),
                       "did not return to the path home after quitting")
+    }
+
+    /// With zero progress (no question answered) closing must exit directly —
+    /// no hold-on overlay.
+    @MainActor
+    func testQuittingWithZeroProgressExitsDirectly() throws {
+        try skipIfIPad()
+        let app = launchApp()
+
+        XCTAssertTrue(firstNode(app).waitForExistence(timeout: 15))
+        firstNode(app).tap()
+        XCTAssertTrue(app.buttons["lesson-start"].waitForExistence(timeout: 5))
+        app.buttons["lesson-start"].tap()
+        XCTAssertTrue(app.buttons["检查答案"].waitForExistence(timeout: 8))
+
+        app.buttons["关闭"].firstMatch.tap()
+        XCTAssertTrue(firstNode(app).waitForExistence(timeout: 8),
+                      "zero-progress close should return straight to the path")
+        XCTAssertFalse(app.buttons["lesson-quit"].exists,
+                       "quit overlay must not appear when nothing was answered")
     }
 }

@@ -80,6 +80,11 @@ struct BottomTabBar: View {
         case .review:
             let due = progressStore.dueMistakes.count
             return due > 0 ? BadgeInfo(count: due) : nil
+        case .profile:
+            // Claimable rewards waiting on the profile surfaces: finished
+            // daily quests + unlocked-but-unclaimed achievements.
+            let claimable = progressStore.claimableQuestCount + progressStore.claimableAchievementCount
+            return claimable > 0 ? BadgeInfo(count: claimable) : nil
         default: return nil
         }
     }

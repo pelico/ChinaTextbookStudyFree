@@ -13,6 +13,10 @@ struct MistakeReviewRunnerView: View {
     @State private var isCorrect: Bool? = nil
     @State private var correctCount: Int = 0
     @State private var awarded = false
+    /// 本轮里新毕业（🎓 已掌握）的题数 — reviewMistake 返回值累加。
+    @State private var graduatedCount: Int = 0
+    /// 完成一轮补 1 颗心（content-7 断心联动）；结算页展示用。
+    @State private var heartRewarded = false
 
     private let xpPerCorrect = 5
 
@@ -47,13 +51,38 @@ struct MistakeReviewRunnerView: View {
             MascotView(mood: .proud, size: 110, reactTo: .levelup)
             Text("复习完成！").duoFont(.title).foregroundStyle(DuoColors.ink)
             Text("答对 \(correctCount) / \(queue.count)").duoFont(.subhead).foregroundStyle(DuoColors.inkMuted)
-            HStack(spacing: 6) {
-                Image(systemName: "bolt.fill").font(.system(size: 15, weight: .heavy))
-                Text("+\(correctCount * xpPerCorrect) XP").duoNumeral(.subhead)
+
+            HStack(spacing: 10) {
+                HStack(spacing: 6) {
+                    Image(systemName: "bolt.fill").font(.system(size: 15, weight: .heavy))
+                    Text("+\(correctCount * xpPerCorrect) XP").duoNumeral(.subhead)
+                }
+                .foregroundStyle(DuoColors.secondary)
+                .padding(.horizontal, 16).padding(.vertical, 9)
+                .background(DuoColors.secondary.opacity(0.14), in: .capsule)
+
+                if heartRewarded {
+                    HStack(spacing: 6) {
+                        Image(systemName: "heart.fill").font(.system(size: 15, weight: .heavy))
+                        Text("+1").duoNumeral(.subhead)
+                    }
+                    .foregroundStyle(DuoColors.danger)
+                    .padding(.horizontal, 16).padding(.vertical, 9)
+                    .background(DuoColors.danger.opacity(0.12), in: .capsule)
+                    .accessibilityLabel("恢复一颗红心")
+                }
             }
-            .foregroundStyle(DuoColors.secondary)
-            .padding(.horizontal, 16).padding(.vertical, 9)
-            .background(DuoColors.secondary.opacity(0.14), in: .capsule)
+
+            if heartRewarded {
+                Text("坚持复习，补回一颗红心！").duoFont(.caption).foregroundStyle(DuoColors.inkMuted)
+            }
+
+            if graduatedCount > 0 {
+                Text("🎓 \(graduatedCount) 道题毕业了！")
+                    .duoFont(.subhead).foregroundStyle(DuoColors.primary)
+                    .padding(.horizontal, 16).padding(.vertical, 9)
+                    .background(DuoColors.primary.opacity(0.12), in: .capsule)
+            }
 
             Button("返回错题本") { path.removeLast() }
                 .buttonStyle(ChunkyButtonStyle(.primary))
@@ -65,6 +94,11 @@ struct MistakeReviewRunnerView: View {
             guard !awarded else { return }
             awarded = true
             progressStore.awardReviewXP(correctCount * xpPerCorrect, reviewedCount: queue.count)
+            // content-7 断心联动：走完一整轮到期错题，缺心时补 1 颗。
+            if progressStore.hearts < ProgressStore.maxHearts {
+                progressStore.addHeart(1)
+                heartRewarded = true
+            }
             SFXEngine.shared.play(.complete); HapticEngine.shared.success()
         }
     }
@@ -88,7 +122,7 @@ struct MistakeReviewRunnerView: View {
                     HStack(alignment: .top, spacing: 8) {
                         Text(MathText.render(q.question)).duoFont(.subhead, weight: .medium).foregroundStyle(DuoColors.ink)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                        TTSButton(path: q.audio?.question)
+                        SlowTTSButton(path: q.audio?.question)
                     }
                     QuestionRendererView(question: q, answer: currentAnswer, phase: phase, isCorrect: isCorrect, onChange: { currentAnswer = $0 })
                         .id(q.id)
@@ -105,13 +139,23 @@ struct MistakeReviewRunnerView: View {
     private func footer(entry: MistakeEntry, q: Question) -> some View {
         VStack(spacing: 0) {
             if phase == .checked, let ok = isCorrect {
-                HStack(spacing: 10) {
-                    Image(systemName: ok ? "checkmark.circle.fill" : "xmark.circle.fill")
-                        .font(.system(size: 22, weight: .bold))
-                        .foregroundStyle(ok ? DuoColors.primary : DuoColors.danger)
-                    Text(ok ? "答对了！" : "正确答案：\(MathText.render(q.answer))")
-                        .duoFont(.caption).foregroundStyle(ok ? DuoColors.primary : DuoColors.danger)
-                    Spacer()
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 10) {
+                        Image(systemName: ok ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .font(.system(size: 22, weight: .bold))
+                            .foregroundStyle(ok ? DuoColors.primary : DuoColors.danger)
+                        Text(ok ? "答对了！" : "正确答案：\(MathText.render(q.answer))")
+                            .duoFont(.caption).foregroundStyle(ok ? DuoColors.primary : DuoColors.danger)
+                        Spacer()
+                    }
+                    // content-7：判题后展示解析 + 解析朗读按钮
+                    if !q.explanation.isEmpty {
+                        HStack(alignment: .top, spacing: 8) {
+                            Text(MathText.render(q.explanation)).duoFont(.caption).foregroundStyle(DuoColors.inkMuted)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            SlowTTSButton(path: q.audio?.explanation, size: 14)
+                        }
+                    }
                 }
                 .padding(.horizontal, 20).padding(.top, 12)
             }
@@ -132,7 +176,12 @@ struct MistakeReviewRunnerView: View {
         withAnimation(Motion.reveal) { phase = .checked; isCorrect = ok }
         if ok { correctCount += 1; SFXEngine.shared.play(.correct); HapticEngine.shared.correct() }
         else { SFXEngine.shared.play(.wrong); HapticEngine.shared.wrong() }
-        progressStore.reviewMistake(lessonId: entry.lessonId, questionId: entry.question.id, isCorrect: ok)
+        let newlyGraduated = progressStore.reviewMistake(lessonId: entry.lessonId, questionId: entry.question.id, isCorrect: ok)
+        if newlyGraduated { graduatedCount += 1 }
+        // 答错时自动朗读解析，帮孩子当场弄懂（content-7）。
+        if !ok, let explanationAudio = entry.question.audio?.explanation {
+            AudioPlayer.shared.play(path: explanationAudio)
+        }
     }
 
     private func advance() {

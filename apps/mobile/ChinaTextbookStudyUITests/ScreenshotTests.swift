@@ -30,9 +30,10 @@ final class ScreenshotTests: XCTestCase {
         XCTAssertTrue(app.buttons["继续"].firstMatch.waitForExistence(timeout: 5))
         attach(name: "04-lesson-feedback")
 
-        // Leave the lesson.
+        // Leave the lesson via the custom quit overlay (ghost 「退出」).
         app.buttons["关闭"].firstMatch.tap()
-        app.buttons["退出练习"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["lesson-quit"].firstMatch.waitForExistence(timeout: 3))
+        app.buttons["lesson-quit"].firstMatch.tap()
         XCTAssertTrue(app.buttons["tab-review"].waitForExistence(timeout: 8))
 
         // Secondary tabs.

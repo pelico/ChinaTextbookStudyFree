@@ -232,6 +232,12 @@ struct PathMapView: View {
         return index % 4 == 2 ? .video : .star
     }
 
+    /// Whether the learner has zero progress in this book — the current (first)
+    /// node then wears a pulsing halo as an onboarding "start here" guide.
+    private var isFreshBook: Bool {
+        !lessons.contains { $0.status == .completed }
+    }
+
     /// Fraction of the node's unit already completed (drives the current ring).
     private func unitProgress(for node: PathMapNode) -> Double {
         let unitNodes = lessons.filter { $0.kind == .lesson && $0.unitNumber == node.unitNumber }
@@ -268,6 +274,9 @@ struct PathMapView: View {
         } label: {
             VStack(spacing: 6) {
                 ZStack {
+                    // 新手引导（onboarding 收尾）：全书零进度时给第一个节点一圈
+                    // 脉冲光环，指着「从这里开始」。
+                    if isCurrent && isFreshBook { PulseHalo(size: nodeSize) }
                     if isCurrent { progressRing(progress: unitProgress(for: node)) }
 
                     Circle()
@@ -420,6 +429,28 @@ struct PathMapView: View {
             .foregroundStyle(DuoColors.surfaceAlt)
             .position(x: stageWidth - 40, y: starPos.y + 4)
         }
+    }
+}
+
+// MARK: - Pulse halo (onboarding "start here" guide)
+
+/// A soft ring that repeatedly swells out of the node — draws a brand-new
+/// learner's eye to the very first lesson.
+private struct PulseHalo: View {
+    let size: CGFloat
+    @State private var pulsing = false
+
+    var body: some View {
+        Circle()
+            .stroke(DuoColors.primary.opacity(pulsing ? 0 : 0.55), lineWidth: 4)
+            .frame(width: size + 8, height: size + 8)
+            .scaleEffect(pulsing ? 1.55 : 1.0)
+            .onAppear {
+                withAnimation(.easeOut(duration: 1.4).repeatForever(autoreverses: false)) {
+                    pulsing = true
+                }
+            }
+            .allowsHitTesting(false)
     }
 }
 

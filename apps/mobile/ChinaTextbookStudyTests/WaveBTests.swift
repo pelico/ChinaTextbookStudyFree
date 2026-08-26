@@ -172,9 +172,11 @@ final class WaveBTests: XCTestCase {
     // MARK: - Streak make-up (50 gems, broken chain only)
 
     func testMakeUpRevivesABrokenStreak() {
-        let outcome = store.completeLesson(lessonId: "l1", correctCount: 5, questionCount: 5, now: day("2026-03-02"))
+        // 48 drip + 20 claimed first-lesson = 68 ≥ 50 (Wave D: achievement
+        // rewards are claimed, not auto-paid at unlock).
+        store.completeLesson(lessonId: "l1", correctCount: 5, questionCount: 5, now: day("2026-03-02"))
+        XCTAssertEqual(store.claimAchievement("first-lesson"), 20)
         XCTAssertGreaterThanOrEqual(store.gems, Economy.streakMakeupCost)
-        _ = outcome
         // Missed 03-03/03-04/03-05: 3 days > 2 shields → chain is dead.
         XCTAssertEqual(store.salvageableStreak(now: day("2026-03-06")), 0)
 
@@ -200,7 +202,8 @@ final class WaveBTests: XCTestCase {
     }
 
     func testMakeUpRefusedWithoutEnoughGems() {
-        // A 1-star lesson banks 3 drip + 20 first-lesson reward = 23 < 50.
+        // A 1-star lesson banks only the 3-gem drip now (Wave D: the
+        // first-lesson reward sits unclaimed) — well below the 50-gem cost.
         store.completeLesson(lessonId: "l1", correctCount: 0, questionCount: 5, now: day("2026-03-02"))
         XCTAssertLessThan(store.gems, Economy.streakMakeupCost)
         XCTAssertEqual(store.salvageableStreak(now: day("2026-03-06")), 0)
@@ -227,21 +230,53 @@ final class WaveBTests: XCTestCase {
         XCTAssertTrue((store.progress.unlockedAchievements ?? []).contains("streak-3"))
     }
 
-    func testAchievementRewardPaidExactlyOnce() {
-        // first-lesson (20💎) pays on the unlocking lesson…
+    func testAchievementRewardPaidOnClaimExactlyOnce() {
+        // Wave D: unlocking enters the ledger but pays nothing — the balance
+        // after the unlocking lesson is the lesson drip alone.
         let first = store.completeLesson(lessonId: "l1", correctCount: 0, questionCount: 5, now: day("2026-03-02"))
         XCTAssertTrue(first.newAchievements.contains { $0.id == "first-lesson" })
-        let gemsAfterFirst = store.gems
-        // …and never again on later lessons.
+        XCTAssertEqual(store.gems, first.gemsGained)
+        XCTAssertTrue(store.claimableAchievementIds.contains("first-lesson"))
+
+        // Claiming pays the 20-gem reward exactly once…
+        let gemsBeforeClaim = store.gems
+        XCTAssertEqual(store.claimAchievement("first-lesson"), 20)
+        XCTAssertEqual(store.gems, gemsBeforeClaim + 20)
+        XCTAssertFalse(store.claimableAchievementIds.contains("first-lesson"))
+        // …a second claim is a 0-gem no-op…
+        XCTAssertEqual(store.claimAchievement("first-lesson"), 0)
+        XCTAssertEqual(store.gems, gemsBeforeClaim + 20)
+        // …and later lessons never re-unlock (or re-pay) it.
         let second = store.completeLesson(lessonId: "l2", correctCount: 0, questionCount: 5, now: day("2026-03-02"))
         XCTAssertFalse(second.newAchievements.contains { $0.id == "first-lesson" })
-        XCTAssertEqual(store.gems, gemsAfterFirst + second.gemsGained)
+        XCTAssertEqual(store.gems, gemsBeforeClaim + 20 + second.gemsGained)
+    }
+
+    func testClaimRefusedWhileStillLocked() {
+        XCTAssertEqual(store.claimAchievement("streak-100"), 0, "locked achievements cannot be claimed")
+        XCTAssertEqual(store.claimAchievement("no-such-id"), 0, "unknown ids pay nothing")
+    }
+
+    func testLegacySaveTreatsUnlockedAsClaimed() throws {
+        // A Wave B save (no claim ledger) already got its gems at unlock time —
+        // migration marks unlocked badges claimed so nothing is paid twice.
+        var p = UserProgress(xp: 500, streak: 0, lastActiveDate: "2026-03-01", completedLessons: [:], mistakesBank: [])
+        p.freezesMigrated = true
+        p.unlockedAchievements = ["xp-100"]
+        let s = try bootStore(with: p)
+        XCTAssertTrue(s.claimedAchievementIds.contains("xp-100"))
+        XCTAssertEqual(s.claimAchievement("xp-100"), 0, "no retroactive payout for legacy unlocks")
+        // Live-snapshot unlocks that were never latched (xp-100 was, but the
+        // ledger drives claims) still work going forward: reach a new tier
+        // and it is claimable.
+        XCTAssertEqual(s.claimableAchievementCount, 0)
     }
 
     func testFirstReviewSurvivesGraduation() {
-        // Reviewing a mistake unlocks first-review; when the entry graduates
-        // out of the bank the snapshot count falls back to 0 — the ledger
-        // keeps the badge.
+        // Reviewing a mistake unlocks first-review. Wave D (parity-7):
+        // graduation no longer deletes the entry — it stays in the bank with
+        // the `graduated` flag, so the snapshot count never regresses and the
+        // badge stays unlocked without needing the ledger to rescue it.
         let q = Question(
             id: 7, type: .choice, score: 1, difficulty: 1, knowledgePoint: "kp",
             question: "q", options: ["A", "B"], answer: "A", explanation: "", audio: nil
@@ -251,7 +286,9 @@ final class WaveBTests: XCTestCase {
         store.reviewMistake(lessonId: "l1", questionId: 7, isCorrect: true, now: day("2026-03-02"))
         store.reviewMistake(lessonId: "l1", questionId: 7, isCorrect: true, now: day("2026-03-03"))
         store.reviewMistake(lessonId: "l1", questionId: 7, isCorrect: true, now: day("2026-03-06"))
-        XCTAssertTrue(store.progress.mistakesBank.isEmpty, "entry should have graduated")
+        XCTAssertEqual(store.progress.mistakesBank.count, 1, "graduated entry is kept, not deleted")
+        XCTAssertEqual(store.progress.mistakesBank[0].graduated, true)
+        XCTAssertTrue(store.dueMistakes.isEmpty, "graduated entries never come due")
         XCTAssertTrue(store.unlockedAchievementIds.contains("first-review"))
     }
 

@@ -78,19 +78,40 @@ final class ProgressStore: ObservableObject {
         // One-time achievement-ledger migration, aligned with web's persist
         // migrate: historical unlocks enter the permanent ledger silently —
         // no retroactive gem payout. Only unlocks from here on pay rewards.
-        if progress.unlockedAchievements == nil {
-            var p = progress
-            p.unlockedAchievements = Achievements.latchUnlocked(
+        var migrated = progress
+        var didMigrate = false
+        if migrated.unlockedAchievements == nil {
+            migrated.unlockedAchievements = Achievements.latchUnlocked(
                 prevLedger: [],
-                currentUnlockedIds: Achievements.unlockedIds(for: snapshot(of: p))
+                currentUnlockedIds: Achievements.unlockedIds(for: snapshot(of: migrated))
             )
-            progress = p
+            didMigrate = true
+        }
+        // Wave D claim-ledger migration: Wave B paid gems at unlock time, so
+        // every already-unlocked badge counts as already claimed — claiming it
+        // again would double-pay. Only unlocks from here on use the claim flow.
+        if migrated.claimedAchievements == nil {
+            migrated.claimedAchievements = migrated.unlockedAchievements ?? []
+            didMigrate = true
+        }
+        // Wave D joinedDate backfill: earliest lesson completion, else today.
+        if migrated.joinedDate == nil {
+            let earliest = migrated.completedLessons.values.map(\.completedAt).min()
+            migrated.joinedDate = earliest.map { String($0.prefix(10)) } ?? SRS.todayString()
+            didMigrate = true
+        }
+        if didMigrate {
+            progress = migrated
+            save()
         }
     }
 
     // MARK: - Mutations
 
-    /// A brand-new save file: Wave B economy baseline (2 streak shields).
+    /// A brand-new save file: Wave B economy baseline (2 streak shields) +
+    /// Wave D ledgers (empty claim ledger, joinedDate = today). The empty
+    /// claim ledger matters: it marks the save as post-Wave-D so the launch
+    /// migration never mistakes fresh unlocks for legacy auto-paid ones.
     private static func freshProgress() -> UserProgress {
         var p = UserProgress(
             xp: 0,
@@ -101,6 +122,9 @@ final class ProgressStore: ObservableObject {
         )
         p.streakFreezes = Economy.initialFreezes
         p.freezesMigrated = true
+        p.unlockedAchievements = []
+        p.claimedAchievements = []
+        p.joinedDate = SRS.todayString()
         return p
     }
 
@@ -147,6 +171,9 @@ final class ProgressStore: ObservableObject {
         var p = progress
         rollDailyIfNeeded(&p, now: now)
 
+        // A finished lesson has no session to resume (parity-13 invariant).
+        if p.activeLesson?.lessonId == lessonId { p.activeLesson = nil }
+
         let priorStars = p.completedLessons[lessonId]?.stars ?? 0
         let firstPerfect = stars == 3 && priorStars < 3
 
@@ -165,7 +192,7 @@ final class ProgressStore: ObservableObject {
         } else {
             p.completedLessons[lessonId] = result
         }
-        let milestoneGems = bumpStreak(&p, now: now)
+        let streakAdvance = bumpStreak(&p, now: now)
 
         let dailyGoalReachedNow = todayXpBefore < goal && (p.todayXp ?? 0) >= goal
         let gemsGained = Economy.lessonGemDrip(
@@ -190,9 +217,39 @@ final class ProgressStore: ObservableObject {
             dailyGoalReachedNow: dailyGoalReachedNow,
             gemsGained: gemsGained,
             newAchievements: newAchievements,
-            milestoneGems: milestoneGems,
-            weekendDoubled: isWeekend && xpGain > 0
+            milestoneGems: streakAdvance.milestoneGems,
+            weekendDoubled: isWeekend && xpGain > 0,
+            freezesConsumed: streakAdvance.freezesConsumed
         )
+    }
+
+    // MARK: - Lesson session persistence (parity-13)
+
+    /// The suspended session for `lessonId`, if one was saved. A session
+    /// belonging to a different lesson is ignored (a new run of another
+    /// lesson simply overwrites it via `upsertLessonSession`).
+    func activeSession(for lessonId: String) -> ActiveLessonSession? {
+        guard let session = progress.activeLesson, session.lessonId == lessonId else { return nil }
+        return session
+    }
+
+    /// Persist the in-flight lesson session so quitting mid-lesson (or the
+    /// app being killed) resumes at the same question next time. Only one
+    /// session is kept — starting another lesson replaces it.
+    func upsertLessonSession(_ session: ActiveLessonSession) {
+        var p = progress
+        p.activeLesson = session
+        progress = p
+        save()
+    }
+
+    /// Drop the suspended session (lesson finished or explicitly abandoned).
+    func clearLessonSession() {
+        guard progress.activeLesson != nil else { return }
+        var p = progress
+        p.activeLesson = nil
+        progress = p
+        save()
     }
 
     /// Add a mistaken question to the SRS bank if it isn't already there.
@@ -211,25 +268,37 @@ final class ProgressStore: ObservableObject {
         save()
     }
 
-    /// Apply a review result against the SRS bank. Removes the entry once it
-    /// reaches box 3 with at least 2 correct reviews (graduated).
-    func reviewMistake(lessonId: String, questionId: Int, isCorrect: Bool, now: Date = Date()) {
+    /// Apply a review result against the SRS bank (parity-7, aligned with
+    /// web's Wave C semantics). Graduation — box ≥ 3 with at least 2 correct
+    /// reviews — no longer deletes the entry: it sets the `graduated` flag
+    /// instead, keeping the record in the「已掌握」bucket and keeping the
+    /// achievement snapshot's `reviewedMistakeCount` from regressing.
+    /// Graduated entries never enter the due queue; a wrong answer
+    /// defensively sends the entry back to the oven (graduated cleared),
+    /// mirroring the web store.
+    ///
+    /// - Returns: `true` when this review newly graduated the entry.
+    @discardableResult
+    func reviewMistake(lessonId: String, questionId: Int, isCorrect: Bool, now: Date = Date()) -> Bool {
         var p = progress
         guard let idx = p.mistakesBank.firstIndex(where: {
             $0.lessonId == lessonId && $0.question.id == questionId
-        }) else { return }
-        let updated = SRS.review(entry: p.mistakesBank[idx], isCorrect: isCorrect, now: now)
-        if (updated.box ?? 1) >= 3 && (updated.correctCount ?? 0) >= 2 {
-            p.mistakesBank.remove(at: idx)
-        } else {
-            p.mistakesBank[idx] = updated
+        }) else { return false }
+        let wasGraduated = p.mistakesBank[idx].graduated == true
+        var updated = SRS.review(entry: p.mistakesBank[idx], isCorrect: isCorrect, now: now)
+        var newlyGraduated = false
+        if !isCorrect {
+            // 防御性：答错回炉（毕业条目理论上不会再进队列）。
+            updated.graduated = false
+        } else if (updated.box ?? 1) >= 3 && (updated.correctCount ?? 0) >= 2 {
+            updated.graduated = true
+            newlyGraduated = !wasGraduated
         }
-        // Latch before the graduated entry disappears from the bank — the
-        // permanent ledger is what keeps "first-review" from re-locking when
-        // reviewed mistakes graduate out.
+        p.mistakesBank[idx] = updated
         _ = latchAchievements(&p)
         progress = p
         save()
+        return newlyGraduated
     }
 
     /// Persist the user's selected grade preference.
@@ -412,6 +481,22 @@ final class ProgressStore: ObservableObject {
         if p.nextHeartAt == nil {
             p.nextHeartAt = (now.timeIntervalSince1970 + Self.heartRechargeSeconds) * 1000
         }
+        progress = p
+        save()
+    }
+
+    /// Win back heart(s) mid-lesson (ios-economy-4: practice earn-back).
+    /// Capped at `maxHearts`; reaching the cap stops the recharge timer.
+    func addHeart(_ n: Int = 1, now: Date = Date()) {
+        guard n > 0 else { return }
+        // Settle the timer first so the cap is applied to the true count.
+        tickHeartRecharge(now: now)
+        var p = progress
+        let current = p.hearts ?? Self.maxHearts
+        guard current < Self.maxHearts else { return }
+        let next = min(Self.maxHearts, current + n)
+        p.hearts = next
+        if next >= Self.maxHearts { p.nextHeartAt = nil }
         progress = p
         save()
     }
@@ -599,6 +684,23 @@ final class ProgressStore: ObservableObject {
     var completedReadings: Set<String> { Set(progress.completedReadings ?? []) }
     func isReadingCompleted(_ id: String) -> Bool { completedReadings.contains(id) }
 
+    /// A reading activity whose XP the store can quote (content-5): the
+    /// completion gate UI shows「读完了 +N XP」before committing.
+    enum ReadingActivity: Hashable {
+        case listen                     // 课文听读
+        case followup                   // 跟读
+        case storyQuiz(accuracy: Double) // 故事测验（按正确率取档）
+    }
+
+    /// Convenience read of `Economy.ReadingXP` for a given activity.
+    func readingRewardXP(for kind: ReadingActivity) -> Int {
+        switch kind {
+        case .listen:                   return Economy.ReadingXP.listen
+        case .followup:                 return Economy.ReadingXP.followup
+        case .storyQuiz(let accuracy):  return Economy.storyQuizXp(accuracy: accuracy)
+        }
+    }
+
     /// Mark a passage/story as read. Awards XP + advances the daily goal & streak
     /// the first time only, so reading feeds the same loop as lessons.
     func completeReading(id: String, xp: Int, now: Date = Date()) {
@@ -617,6 +719,10 @@ final class ProgressStore: ObservableObject {
     }
 
     // MARK: - Profile
+
+    /// First-use date, YYYY-MM-DD (ios-retention-12). Backfilled at load from
+    /// the earliest lesson completion; a brand-new save gets today.
+    var joinedDate: String { progress.joinedDate ?? SRS.todayString() }
 
     var displayName: String {
         get { progress.displayName ?? "小学员" }
@@ -658,8 +764,14 @@ final class ProgressStore: ObservableObject {
     }
 
     /// Mistakes the SRS scheduler thinks are due for review today.
+    /// Graduated (已掌握) entries stay in the bank but never come due.
     var dueMistakes: [MistakeEntry] {
-        SRS.dueEntries(progress.mistakesBank)
+        SRS.dueEntries(progress.mistakesBank.filter { $0.graduated != true })
+    }
+
+    /// Entries mastered through the SRS loop (the「已掌握」bucket).
+    var graduatedMistakes: [MistakeEntry] {
+        progress.mistakesBank.filter { $0.graduated == true }
     }
 
     // MARK: - Internal
@@ -717,6 +829,34 @@ final class ProgressStore: ObservableObject {
 
     func isQuestComplete(_ quest: Quest) -> Bool { questProgress(quest) >= quest.target }
 
+    /// One quest's frozen state (ios-retention-4) — the result screen captures
+    /// a snapshot before and after committing a lesson to animate the deltas.
+    struct QuestSnapshot: Identifiable, Hashable {
+        let quest: Quest
+        /// Raw progress (not clamped to the target).
+        let progress: Int
+        let claimed: Bool
+        var id: String { quest.id }
+        var isComplete: Bool { progress >= quest.target }
+    }
+
+    /// Pure read of today's three quests with their current progress + claim
+    /// state. Never mutates — safe to call before/after a mutation to diff.
+    func questsSnapshot(now: Date = Date()) -> [QuestSnapshot] {
+        todayQuests.map { quest in
+            QuestSnapshot(
+                quest: quest,
+                progress: questProgress(quest, now: now),
+                claimed: isQuestClaimed(quest)
+            )
+        }
+    }
+
+    /// Finished-but-unclaimed quests (tab red dot; header pill on the card).
+    var claimableQuestCount: Int {
+        todayQuests.filter { isQuestComplete($0) && !isQuestClaimed($0) }.count
+    }
+
     private func questKey(_ quest: Quest, now: Date = Date()) -> String {
         "\(SRS.todayString(now: now)):\(quest.id)"
     }
@@ -759,9 +899,11 @@ final class ProgressStore: ObservableObject {
 
     /// Advance the streak for study activity on `now`, then pay out any
     /// newly-reached streak milestone (once per tier, `claimedStreakRewards`
-    /// ledger). Returns the milestone gems banked (0 = none).
+    /// ledger). Returns the milestone gems banked (0 = none) plus how many
+    /// shields the advance consumed covering missed days (ios-economy-6, the
+    /// result screen surfaces the「护盾保住了连胜」moment).
     @discardableResult
-    private func bumpStreak(_ p: inout UserProgress, now: Date) -> Int {
+    private func bumpStreak(_ p: inout UserProgress, now: Date) -> (milestoneGems: Int, freezesConsumed: Int) {
         let adv = Streak.advance(
             streak: p.streak,
             streakFreezes: p.streakFreezes ?? 0,
@@ -774,12 +916,14 @@ final class ProgressStore: ObservableObject {
 
         let reward = Economy.streakMilestoneReward(p.streak)
         var claimed = p.claimedStreakRewards ?? []
-        guard reward > 0, !claimed.contains(p.streak) else { return 0 }
+        guard reward > 0, !claimed.contains(p.streak) else {
+            return (0, adv.freezesConsumed)
+        }
         claimed.append(p.streak)
         p.claimedStreakRewards = claimed
         p.gems = (p.gems ?? 0) + reward
         p.lifetimeGems = (p.lifetimeGems ?? 0) + reward
-        return reward
+        return (reward, adv.freezesConsumed)
     }
 
     // MARK: - Achievement ledger (permanent, never re-locks)
@@ -800,8 +944,11 @@ final class ProgressStore: ObservableObject {
 
     /// Merge currently-unlocked achievements into the permanent
     /// `unlockedAchievements` ledger (only ever grows — a streak falling back
-    /// can never re-lock an earned badge) and pay each newly-latched
-    /// achievement's gem reward exactly once. Returns the newly unlocked ones.
+    /// can never re-lock an earned badge). Returns the newly unlocked ones.
+    ///
+    /// Wave D (ios-retention-10): unlocking no longer pays gems. The badge
+    /// enters the ledger here; the learner taps「领取」and `claimAchievement`
+    /// pays the reward exactly once (claim ledger `claimedAchievements`).
     private func latchAchievements(_ p: inout UserProgress) -> [Achievement] {
         let current = Achievements.unlockedIds(for: snapshot(of: p))
         let ledger = p.unlockedAchievements ?? []
@@ -811,10 +958,48 @@ final class ProgressStore: ObservableObject {
         }
         guard !newlyUnlocked.isEmpty else { return [] }
         p.unlockedAchievements = Achievements.latchUnlocked(prevLedger: ledger, currentUnlockedIds: current)
-        let reward = newlyUnlocked.reduce(0) { $0 + $1.reward }
-        p.gems = (p.gems ?? 0) + reward
-        p.lifetimeGems = (p.lifetimeGems ?? 0) + reward
         return newlyUnlocked
+    }
+
+    // MARK: - Achievement claiming (Wave D: unlock ≠ payout)
+
+    /// Achievement ids whose reward has been collected.
+    var claimedAchievementIds: Set<String> {
+        Set(progress.claimedAchievements ?? [])
+    }
+
+    /// Unlocked-but-unclaimed achievement ids (claim buttons + tab badge).
+    var claimableAchievementIds: Set<String> {
+        unlockedAchievementIds.subtracting(claimedAchievementIds)
+    }
+
+    /// How many achievements can be claimed right now (profile tab red dot).
+    var claimableAchievementCount: Int { claimableAchievementIds.count }
+
+    /// Collect an unlocked achievement's gem reward. Idempotent: pays exactly
+    /// once per achievement; returns the gems banked (0 = not unlocked yet,
+    /// unknown id, or already claimed).
+    @discardableResult
+    func claimAchievement(_ id: String) -> Int {
+        guard let achievement = Achievements.byId(id),
+              unlockedAchievementIds.contains(id),
+              !claimedAchievementIds.contains(id)
+        else { return 0 }
+        var p = progress
+        // The live snapshot may satisfy an id the ledger hasn't latched yet
+        // (claim from a view between mutations) — latch first so the claim
+        // ledger never references an id missing from the unlock ledger.
+        _ = latchAchievements(&p)
+        var claimed = p.claimedAchievements ?? []
+        claimed.append(id)
+        p.claimedAchievements = claimed
+        p.gems = (p.gems ?? 0) + achievement.reward
+        p.lifetimeGems = (p.lifetimeGems ?? 0) + achievement.reward
+        // The payout itself can unlock gem-collector — latch that too.
+        _ = latchAchievements(&p)
+        progress = p
+        save()
+        return achievement.reward
     }
 
     private func save() {

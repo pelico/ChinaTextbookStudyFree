@@ -186,6 +186,33 @@ final class AssetDownloader: ObservableObject {
         try? FileManager.default.removeItem(at: tempURL)
     }
 
+    // MARK: - Story illustrations (content-8)
+
+    /// Resolve a story illustration to the locally extracted file, or nil
+    /// when the file is missing (callers degrade to a placeholder block).
+    ///
+    /// The data zip built by `scripts/package-release-ios.sh` carries the
+    /// book's illustrations at `story-images/<bookId>/<storyId>.jpg`, which
+    /// unzips next to `books/` under `Application Support/cstf/data/`.
+    /// `imagePath` is the web-style path from `Story.image`
+    /// (e.g. "/story-images/<bookId>/<storyId>.jpg"); when absent we fall
+    /// back to the conventional location.
+    nonisolated static func storyImageURL(bookId: String, storyId: String, imagePath: String? = nil) -> URL? {
+        let root = DataLoader.shared.sandboxDataRoot
+        var candidates: [URL] = []
+        if let imagePath, !imagePath.isEmpty {
+            var rel = imagePath
+            if rel.hasPrefix("/") { rel.removeFirst() }
+            candidates.append(root.appendingPathComponent(rel))
+        }
+        candidates.append(
+            root.appendingPathComponent("story-images", isDirectory: true)
+                .appendingPathComponent(bookId, isDirectory: true)
+                .appendingPathComponent("\(storyId).jpg")
+        )
+        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
     // MARK: - Helpers
 
     private var cacheRoot: URL {

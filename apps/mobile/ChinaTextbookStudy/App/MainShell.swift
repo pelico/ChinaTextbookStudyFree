@@ -17,6 +17,8 @@ struct MainShell: View {
     @State private var path: [AppRoute] = []
     @State private var selectedSidebar: SidebarItem? = .home
     @State private var activeTab: AppTab = .learn
+    /// 聪聪's "我们马上开始第一课！" toast shown right after onboarding.
+    @State private var showFirstLessonToast = false
 
     enum SidebarItem: Hashable, Identifiable {
         case home
@@ -38,11 +40,67 @@ struct MainShell: View {
     }
 
     var body: some View {
-        if hSize == .regular {
-            regularLayout
-        } else {
-            compactLayout
+        Group {
+            if hSize == .regular {
+                regularLayout
+            } else {
+                compactLayout
+            }
         }
+        // 立刻进第一课 (ios-retention-11): the moment onboarding completes,
+        // push the learner straight into lesson one — no empty home screen
+        // between "I committed to a goal" and "I'm learning".
+        .onChange(of: progressStore.hasCompletedOnboarding) { _, done in
+            if done { startFirstLessonAfterOnboarding() }
+        }
+        .overlay(alignment: .top) {
+            if showFirstLessonToast {
+                firstLessonToast
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(10)
+            }
+        }
+    }
+
+    // MARK: - Post-onboarding first lesson (ios-retention-11)
+
+    /// Resolve the active book's very first path lesson and push it. If the
+    /// book isn't downloaded yet (outline load throws) we simply stay on the
+    /// home screen, where the download card takes over.
+    private func startFirstLessonAfterOnboarding() {
+        guard
+            let bookId = progressStore.activeBookId,
+            let outline = try? DataLoader.shared.loadOutline(bookId: bookId),
+            let first = outline.pathLessonMetas(bookId: bookId).first
+        else { return }
+
+        activeTab = .learn
+        selectedSidebar = .home
+        withAnimation(Motion.bounce) { showFirstLessonToast = true }
+        // Let the onboarding fade + toast land, then push the lesson.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            path.append(.lesson(bookId: bookId, lessonId: first.id))
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            withAnimation(.easeOut(duration: 0.3)) { showFirstLessonToast = false }
+        }
+    }
+
+    private var firstLessonToast: some View {
+        HStack(spacing: 10) {
+            MascotView(mood: .cheer, size: 52, reactTo: .correct)
+            Text("我们马上开始第一课！")
+                .duoFont(.subhead)
+                .foregroundStyle(DuoColors.ink)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+        .background(DuoColors.surface, in: .capsule)
+        .overlay { Capsule().strokeBorder(DuoColors.border, lineWidth: 2) }
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 4)
+        .padding(.top, 8)
+        .allowsHitTesting(false)
+        .accessibilityIdentifier("first-lesson-toast")
     }
 
     /// Whether the tab bar should be hidden (immersive screens).

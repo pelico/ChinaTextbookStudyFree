@@ -18,6 +18,7 @@ settings:
     INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.education"
     INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
     INFOPLIST_KEY_NSHumanReadableCopyright: "本应用内所含教材内容版权归人民教育出版社等原出版方所有。客户端代码采用 MIT 许可开源。"
+    INFOPLIST_KEY_NSMicrophoneUsageDescription: "跟读课文需要使用麦克风，录下你的朗读。录音只保存在这台设备上，退出跟读后会自动删除，不会上传。"
     TARGETED_DEVICE_FAMILY: "1,2"
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Automatic
@@ -36,12 +37,42 @@ targets:
       - path: ChinaTextbookStudy/Resources/seed-data.zip
       - path: ChinaTextbookStudy/Resources/PrivacyInfo.xcprivacy
       - path: ChinaTextbookStudy/Resources/Assets.xcassets
+    entitlements:
+      path: ChinaTextbookStudy/ChinaTextbookStudy.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.example.ChinaTextbookStudy
     dependencies:
       - package: ZIPFoundation
+      - target: ChinaTextbookStudyWidget
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.ChinaTextbookStudy
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+  ChinaTextbookStudyWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ChinaTextbookStudyWidget
+        excludes:
+          - "Info.plist"
+          - "*.entitlements"
+    entitlements:
+      path: ChinaTextbookStudyWidget/ChinaTextbookStudyWidget.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.example.ChinaTextbookStudy
+    info:
+      path: ChinaTextbookStudyWidget/Info.plist
+      properties:
+        CFBundleDisplayName: 课本学习
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.ChinaTextbookStudy.widget
+        SKIP_INSTALL: YES
   ChinaTextbookStudyTests:
     type: bundle.unit-test
     platform: iOS

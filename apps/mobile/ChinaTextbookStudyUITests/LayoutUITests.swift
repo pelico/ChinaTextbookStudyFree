@@ -106,6 +106,10 @@ final class LayoutUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["本周报告"].waitForExistence(timeout: 4),
                       "weekly report card missing from profile")
 
+        // Wave D header: the join date ("加入于 yyyy年M月") must render.
+        XCTAssertTrue(app.staticTexts["profile-joined-date"].waitForExistence(timeout: 4),
+                      "joined-date line missing from profile header")
+
         // Fresh state has no progress, so nothing is claimable yet.
         XCTAssertEqual(app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "quest-claim-")

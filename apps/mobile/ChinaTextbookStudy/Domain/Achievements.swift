@@ -117,6 +117,11 @@ enum Achievements {
         all.filter { $0.progress(snapshot) >= $0.goal }.map(\.id)
     }
 
+    /// Look up an achievement (= a tier) by its legacy id.
+    static func byId(_ id: String) -> Achievement? {
+        all.first { $0.id == id }
+    }
+
     /// Achievements that became unlocked between two snapshots.
     static func newlyUnlocked(
         before: AchievementProgressSnapshot,
@@ -124,6 +129,69 @@ enum Achievements {
     ) -> [Achievement] {
         let beforeSet = Set(unlockedIds(for: before))
         return all.filter { $0.progress(after) >= $0.goal && !beforeSet.contains($0.id) }
+    }
+
+    // MARK: - Tiered families (Wave D, ios-retention-10)
+
+    /// 同族成就折叠成的「家族」：同一个计数指标下的递进档位（tiers 按 goal
+    /// 升序）。tiers 里的每个 `Achievement` 保留 Wave B 的旧 id / 奖励，
+    /// 因此已解锁账本 `unlockedAchievements` 与领取账本 `claimedAchievements`
+    /// 无需任何迁移。单档成就（如 first-review）就是只有一档的家族。
+    struct Family: Identifiable, Hashable {
+        let id: String
+        /// 家族名（UI 分组标题用；档位各自保留自己的 name/description）。
+        let name: String
+        let category: AchievementCategory
+        let iconKey: AchievementIconKey
+        /// goal 升序的档位列表。
+        let tiers: [Achievement]
+
+        static func == (lhs: Family, rhs: Family) -> Bool { lhs.id == rhs.id }
+        func hash(into hasher: inout Hasher) { hasher.combine(id) }
+
+        /// 已解锁的最高档（nil = 一档都没解锁）。
+        func highestUnlocked(unlockedIds: Set<String>) -> Achievement? {
+            tiers.last { unlockedIds.contains($0.id) }
+        }
+
+        /// 下一个待解锁档（nil = 全部解锁）。
+        func nextTier(unlockedIds: Set<String>) -> Achievement? {
+            tiers.first { !unlockedIds.contains($0.id) }
+        }
+
+        /// 已解锁档数。
+        func unlockedTierCount(unlockedIds: Set<String>) -> Int {
+            tiers.filter { unlockedIds.contains($0.id) }.count
+        }
+    }
+
+    /// 家族分组定义。成员 id 必须存在于 `all` 且按 goal 升序排列。
+    private static let familySpec: [(id: String, name: String, memberIds: [String])] = [
+        ("lessons", "学习里程", ["first-lesson", "ten-lessons", "fifty-lessons"]),
+        ("xp",      "经验积累", ["xp-100", "xp-1000", "xp-5000"]),
+        ("streak",  "连胜火焰", ["streak-3", "streak-7", "streak-30", "streak-100"]),
+        ("perfect", "完美通关", ["perfect-1", "perfect-10", "perfect-50"]),
+        ("cosmetic", "时尚启航", ["first-cosmetic"]),
+        ("gems",    "宝石收藏", ["gem-collector"]),
+        ("review",  "知错就改", ["first-review"]),
+    ]
+
+    /// 全部家族（覆盖 `all` 的每一枚成就，各恰好一次）。
+    static let families: [Family] = familySpec.map { spec in
+        let tiers = spec.memberIds.compactMap { id in all.first { $0.id == id } }
+        precondition(tiers.count == spec.memberIds.count, "family \(spec.id) references unknown achievement id")
+        return Family(
+            id: spec.id,
+            name: spec.name,
+            category: tiers[0].category,
+            iconKey: tiers[0].iconKey,
+            tiers: tiers
+        )
+    }
+
+    /// 某枚成就（旧 id）所属的家族。
+    static func family(containing achievementId: String) -> Family? {
+        families.first { family in family.tiers.contains { $0.id == achievementId } }
     }
 
     /// 永久解锁账本合并（只进不出）—— core `latchUnlocked` 的镜像：把「当前按

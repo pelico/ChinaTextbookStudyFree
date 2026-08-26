@@ -22,6 +22,8 @@ struct HomeView: View {
     @State private var metasBookId: String?
     /// A path chest the learner tapped and is currently opening.
     @State private var activeChest: ActiveChest?
+    /// 0 心预拦截（ios-lesson-8）：没有心时点课程节点弹心数详情而不是进课。
+    @State private var showZeroHeartsSheet = false
 
     private struct ActiveChest: Identifiable { let id: String }
 
@@ -76,6 +78,12 @@ struct HomeView: View {
                 .zIndex(2)
             }
         }
+        // 0 心预拦截：先看倒计时/补心，别把孩子放进一节答不了错的课。
+        .sheet(isPresented: $showZeroHeartsSheet) {
+            HeartDetailSheet(progressStore: progressStore)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
         .sheet(isPresented: $showBookPicker) {
             BookPickerSheet(
                 siteIndex: siteIndex,
@@ -111,25 +119,42 @@ struct HomeView: View {
             // Hairline separating the fixed HUD from the scrolling path.
             Rectangle().fill(DuoColors.border).frame(height: 1)
 
-            // Reading & stories entry (per active book).
-            HStack(spacing: 10) {
-                sideEntry("课文听读", icon: "text.book.closed.fill", tint: DuoColors.secondary) {
-                    path.append(.reading(bookId: book.id))
+            // Reading & stories entry — only for books that actually ship the
+            // content (content-13); math books render neither.
+            let showReading = book.hasPassages == true
+            let showStories = book.hasStories == true
+            if showReading || showStories {
+                HStack(spacing: 10) {
+                    if showReading {
+                        sideEntry("课文听读", icon: "text.book.closed.fill", tint: DuoColors.secondary) {
+                            path.append(.reading(bookId: book.id))
+                        }
+                    }
+                    if showStories {
+                        sideEntry("课外故事", icon: "book.closed.fill", tint: DuoColors.beetle) {
+                            path.append(.stories(bookId: book.id))
+                        }
+                    }
                 }
-                sideEntry("课外故事", icon: "book.closed.fill", tint: DuoColors.beetle) {
-                    path.append(.stories(bookId: book.id))
-                }
+                .padding(.horizontal, 14)
+                .padding(.top, 10)
+                .padding(.bottom, 2)
             }
-            .padding(.horizontal, 14)
-            .padding(.top, 10)
-            .padding(.bottom, 2)
 
             if outline != nil {
                 PathMapView(lessons: pathNodes) { node in
                     if node.kind == .chest {
                         activeChest = ActiveChest(id: node.id)
                     } else {
-                        path.append(.lesson(bookId: book.id, lessonId: node.id))
+                        // 0 心预拦截（ios-lesson-8）：先结算回复计时器再看余量，
+                        // 没心就弹心数详情（倒计时 + 宝石补满），不进课。
+                        progressStore.tickHeartRecharge()
+                        if progressStore.hearts == 0 {
+                            HapticEngine.shared.wrong()
+                            showZeroHeartsSheet = true
+                        } else {
+                            path.append(.lesson(bookId: book.id, lessonId: node.id))
+                        }
                     }
                 }
                 .id(book.id)   // re-instantiate on book switch so scroll resets
@@ -451,6 +476,25 @@ private struct StreakDetailSheet: View {
                         .foregroundStyle(DuoColors.darkInkMuted)
                 }
                 .padding(.top, 8)
+
+                // 本周 7 格日历（ios-path-8）：哪天学了一眼看清。
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("本周")
+                        .font(.system(size: 13, weight: .heavy))
+                        .tracking(1.2)
+                        .foregroundStyle(DuoColors.darkInkMuted)
+                    StreakCalendarView(
+                        entries: progressStore.recentXP(days: 7).map { (dateKey: $0.date, studied: $0.xp > 0) },
+                        todayStudied: progressStore.studiedToday
+                    )
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(DuoColors.darkSurface, in: .rect(cornerRadius: 16))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16)
+                        .strokeBorder(DuoColors.darkSurfaceAlt, lineWidth: 2)
+                }
 
                 VStack(alignment: .leading, spacing: 14) {
                     // Broken chain + makeup still possible → the 50-gem revive.

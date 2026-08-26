@@ -13,37 +13,77 @@ final class AudioPlayer: NSObject, ObservableObject {
     static let shared = AudioPlayer()
 
     @Published private(set) var isPlaying: Bool = false
-    /// The audio file currently being played (relative path from `Question.audio`).
+    /// The audio file currently being played (local file name).
     @Published private(set) var nowPlayingPath: String?
+    /// Index into the `paths` array handed to `play(paths:)` for the item
+    /// currently playing (content-12). Entries that were nil / unresolved keep
+    /// their slot, so a reader passing `sentences.map(\.audio)` can highlight
+    /// sentence N directly — duplicate sentences no longer mis-highlight the
+    /// way the old `lastPathComponent` reverse lookup did.
+    @Published private(set) var nowPlayingIndex: Int?
+    /// Incremented every time a queued run plays through to its natural end
+    /// (`stop()` / interruptions do NOT count). Readers use this to detect
+    /// "the whole passage finished" for the completion gate (content-5).
+    @Published private(set) var queueCompletionCount: Int = 0
+    /// 乌龟慢速开关（content-11）。开启后所有后续播放降到 `slowRate`。
+    @Published var isSlowMode: Bool = false
+    /// Monotonic id of the most recent `play(paths:)` run. Callers that need
+    /// to attribute a completion to *their* run (e.g. the read-all gate)
+    /// compare this against the value captured when they started playback.
+    @Published private(set) var currentRunId: Int = 0
+
+    /// 慢速倍率 —— 儿童跟读友好的 0.65×。
+    static let slowRate: Float = 0.65
+
+    private struct QueueItem {
+        let url: URL
+        let index: Int
+    }
 
     private var player: AVAudioPlayer?
-    private var queue: [URL] = []
+    private var queue: [QueueItem] = []
+    /// How many files of the current run actually started playing.
+    private var currentRunPlayedCount = 0
+    /// The rate captured when the current run started.
+    private var currentRunRate: Float = 1.0
     private var sessionConfigured = false
 
-    /// Play one or more files in order. Empty / nil entries are skipped.
+    /// Play one or more files in order. Empty / nil entries are skipped but
+    /// keep their index slot (see `nowPlayingIndex`).
     /// Calling this interrupts any in-flight playback.
+    /// `rate` overrides the global slow-mode toggle for this run only.
     /// (`settings` defaults to nil → SettingsStore.shared; a main-actor default
     /// value expression would trip Swift 6 isolation checking.)
-    func play(paths: [String?], settings: SettingsStore? = nil) {
+    func play(paths: [String?], settings: SettingsStore? = nil, rate: Float? = nil) {
         if (settings ?? SettingsStore.shared).isMuted {
             stop(); return
         }
-        let urls = paths.compactMap { $0 }.compactMap(resolve(_:))
-        play(urls: urls, originalPaths: paths.compactMap { $0 })
+        let items: [QueueItem] = paths.enumerated().compactMap { idx, path in
+            guard let path, let url = resolve(path) else { return nil }
+            return QueueItem(url: url, index: idx)
+        }
+        configureSessionIfNeeded()
+        stop()
+        currentRunId += 1
+        queue = items
+        currentRunRate = rate ?? (isSlowMode ? Self.slowRate : 1.0)
+        playNext()
     }
 
     /// Convenience for a single file.
-    func play(path: String?, settings: SettingsStore? = nil) {
+    func play(path: String?, settings: SettingsStore? = nil, rate: Float? = nil) {
         guard let path else { return }
-        play(paths: [path], settings: settings)
+        play(paths: [path], settings: settings, rate: rate)
     }
 
     func stop() {
         player?.stop()
         player = nil
         queue.removeAll()
+        currentRunPlayedCount = 0
         isPlaying = false
         nowPlayingPath = nil
+        nowPlayingIndex = nil
     }
 
     // MARK: - Path resolution
@@ -97,31 +137,32 @@ final class AudioPlayer: NSObject, ObservableObject {
         }
     }
 
-    private func play(urls: [URL], originalPaths: [String]) {
-        configureSessionIfNeeded()
-        stop()
-        queue = urls
-        playNext(allOriginals: originalPaths)
-    }
-
-    private func playNext(allOriginals: [String]) {
+    private func playNext() {
         guard !queue.isEmpty else {
+            let finishedNaturally = currentRunPlayedCount > 0
+            currentRunPlayedCount = 0
             isPlaying = false
             nowPlayingPath = nil
+            nowPlayingIndex = nil
+            if finishedNaturally { queueCompletionCount += 1 }
             return
         }
         let next = queue.removeFirst()
         do {
-            let p = try AVAudioPlayer(contentsOf: next)
+            let p = try AVAudioPlayer(contentsOf: next.url)
             p.delegate = self
+            p.enableRate = true
+            p.rate = currentRunRate
             p.prepareToPlay()
             p.play()
             self.player = p
             self.isPlaying = true
-            self.nowPlayingPath = next.lastPathComponent
+            self.nowPlayingPath = next.url.lastPathComponent
+            self.nowPlayingIndex = next.index
+            self.currentRunPlayedCount += 1
         } catch {
-            print("[AudioPlayer] play failed for \(next.lastPathComponent): \(error)")
-            playNext(allOriginals: allOriginals)
+            print("[AudioPlayer] play failed for \(next.url.lastPathComponent): \(error)")
+            playNext()
         }
     }
 }
@@ -129,7 +170,7 @@ final class AudioPlayer: NSObject, ObservableObject {
 extension AudioPlayer: AVAudioPlayerDelegate {
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         Task { @MainActor in
-            self.playNext(allOriginals: [])
+            self.playNext()
         }
     }
 }

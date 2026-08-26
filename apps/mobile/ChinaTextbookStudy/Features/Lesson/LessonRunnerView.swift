@@ -31,6 +31,14 @@ struct LessonRunnerView: View {
     @State private var maxCombo: Int = 0
     @State private var attemptedThisQuestion = false
 
+    // Session persistence (ios-lesson-3 / parity-13)
+    /// 本会话内累计展示过的 XP（恢复时接着累计；结算以 store 计算为准）。
+    @State private var sessionXp = 0
+    /// ISO8601 开始时间 —— 恢复会话时沿用原会话的时间。
+    @State private var sessionStartedAt = ISO8601DateFormatter().string(from: Date())
+    /// 检测到可恢复的挂起会话时弹「继续上次 / 重新开始」。
+    @State private var pendingResume: ActiveLessonSession?
+
     // Feedback presentation
     @State private var mascotMood: MascotMood = .happy
     @State private var feedbackReaction: MascotReaction? = nil
@@ -44,6 +52,7 @@ struct LessonRunnerView: View {
     @State private var showQuitConfirm = false
     @State private var showOutOfHearts = false
     @State private var wrongFlash = 0
+    @State private var showLessonSettings = false
 
     @ObservedObject private var settings = SettingsStore.shared
     @ObservedObject private var audioPlayer = AudioPlayer.shared
@@ -105,10 +114,9 @@ struct LessonRunnerView: View {
         .overlay { comboOverlay }
         .overlay { FullScreenFlash(color: DuoColors.danger, trigger: wrongFlash) }
         .overlay { if showOutOfHearts { outOfHeartsGate } }
-        .confirmationDialog("退出后本节进度将丢失", isPresented: $showQuitConfirm, titleVisibility: .visible) {
-            Button("退出练习", role: .destructive) { path.removeLast() }
-            Button("继续学习", role: .cancel) {}
-        }
+        .overlay { if showQuitConfirm { quitConfirmOverlay } }
+        .overlay { if pendingResume != nil { resumePromptOverlay } }
+        .sheet(isPresented: $showLessonSettings) { lessonSettingsSheet }
     }
 
     // MARK: - Header: [X] [progress] [❤️]
@@ -116,9 +124,10 @@ struct LessonRunnerView: View {
     private var header: some View {
         HStack(spacing: 14) {
             Button {
-                if index > 0 || phase == .checked || !solvedIDs.isEmpty {
+                // 零进度（一道题都没答过）直接退出不弹挽留 —— 对齐 web。
+                if phase == .checked || !solvedIDs.isEmpty || !missedIDs.isEmpty {
                     HapticEngine.shared.tap()
-                    showQuitConfirm = true
+                    withAnimation(.easeOut(duration: 0.2)) { showQuitConfirm = true }
                 } else {
                     path.removeLast()
                 }
@@ -158,10 +167,86 @@ struct LessonRunnerView: View {
                     .foregroundStyle(progressStore.hearts > 0 ? DuoColors.danger : DuoColors.inkSofter)
             }
             .accessibilityIdentifier("lesson-hearts")
+
+            // 课内快捷设置：音效 / 触感 / 自动朗读（ios-lesson-14）。
+            Button {
+                HapticEngine.shared.tap()
+                showLessonSettings = true
+            } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 17, weight: .heavy))
+                    .foregroundStyle(DuoColors.inkSofter)
+                    .frame(width: 32, height: 36)
+            }
+            .accessibilityLabel("课堂设置")
+            .accessibilityIdentifier("lesson-settings")
         }
         .padding(.horizontal, 18)
         .padding(.top, 6)
         .padding(.bottom, 10)
+    }
+
+    // MARK: - In-lesson settings sheet (ios-lesson-14)
+
+    private var lessonSettingsSheet: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("课堂设置")
+                .duoFont(.heading)
+                .foregroundStyle(DuoColors.ink)
+                .padding(.top, 18)
+
+            settingToggle(
+                icon: "speaker.wave.2.fill",
+                title: "音效",
+                subtitle: "答题反馈与庆祝的声音",
+                isOn: Binding(get: { !settings.isMuted }, set: { settings.isMuted = !$0 })
+            )
+            settingToggle(
+                icon: "iphone.radiowaves.left.and.right",
+                title: "触感振动",
+                subtitle: "答对答错时的轻微振动",
+                isOn: $settings.hapticEnabled
+            )
+            settingToggle(
+                icon: "text.bubble.fill",
+                title: "自动朗读",
+                subtitle: "进入新题目时自动朗读题干",
+                isOn: $settings.autoNarrate
+            )
+
+            Button("好了") { showLessonSettings = false }
+                .buttonStyle(ChunkyButtonStyle(.primary))
+                .padding(.top, 4)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(DuoColors.bg)
+        .presentationDetents([.height(360)])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func settingToggle(icon: String, title: String, subtitle: String, isOn: Binding<Bool>) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 20, weight: .heavy))
+                .foregroundStyle(DuoColors.secondary)
+                .frame(width: 30)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).duoFont(.subhead).foregroundStyle(DuoColors.ink)
+                Text(subtitle).duoFont(.micro).foregroundStyle(DuoColors.inkMuted)
+            }
+            Spacer()
+            Toggle("", isOn: isOn)
+                .labelsHidden()
+                .tint(DuoColors.primary)
+        }
+        .padding(12)
+        .background(DuoColors.surface, in: .rect(cornerRadius: Radius.card))
+        .overlay {
+            RoundedRectangle(cornerRadius: Radius.card)
+                .strokeBorder(DuoColors.border, lineWidth: 2)
+        }
     }
 
     // MARK: - Question content
@@ -316,8 +401,117 @@ struct LessonRunnerView: View {
                     HapticEngine.shared.wrong()
                 }
             },
-            onQuit: { path.removeLast() }
+            // 断心闭环（ios-lesson-7）：去错题本做一组复习赚回 1 颗心。
+            // 会话已持久化 —— 复习完回到这节课会从当前题目继续。
+            onReview: {
+                HapticEngine.shared.tap()
+                path.removeLast()
+                path.append(.reviewRunner)
+            },
+            onQuit: { path.removeLast() }   // 被迫退出：保留会话，回来可续
         )
+        .transition(.opacity)
+    }
+
+    // MARK: - Quit confirm overlay (ios-lesson-13 / ios-feel-7)
+
+    /// 自绘退出挽留：难过的聪聪 + 主按钮「继续学习」置顶。零进度时根本
+    /// 不会走到这里（header 直接退出）。
+    private var quitConfirmOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.55).ignoresSafeArea()
+                .onTapGesture {
+                    withAnimation(.easeOut(duration: 0.2)) { showQuitConfirm = false }
+                }
+
+            VStack(spacing: Space.l) {
+                MascotView(mood: .sad, size: 92)
+
+                Text("再坚持一下，快完成了！")
+                    .duoFont(.heading)
+                    .foregroundStyle(DuoColors.ink)
+                    .multilineTextAlignment(.center)
+
+                Text("已答对 \(solvedIDs.count) / \(originalTotal) 题，现在放弃太可惜啦")
+                    .duoFont(.caption)
+                    .foregroundStyle(DuoColors.inkMuted)
+                    .multilineTextAlignment(.center)
+
+                VStack(spacing: 10) {
+                    Button("继续学习") {
+                        HapticEngine.shared.tap()
+                        withAnimation(.easeOut(duration: 0.2)) { showQuitConfirm = false }
+                    }
+                    .buttonStyle(ChunkyButtonStyle(.primary))
+
+                    Button("退出") {
+                        progressStore.clearLessonSession()   // 主动退出：不保留会话
+                        path.removeLast()
+                    }
+                    .buttonStyle(ChunkyButtonStyle(.ghost))
+                    .accessibilityIdentifier("lesson-quit")
+                }
+            }
+            .padding(Space.xl)
+            .frame(maxWidth: 340)
+            .background(DuoColors.surface, in: .rect(cornerRadius: Radius.large))
+            .overlay {
+                RoundedRectangle(cornerRadius: Radius.large)
+                    .strokeBorder(DuoColors.border, lineWidth: 2)
+            }
+            .padding(24)
+        }
+        .transition(.opacity)
+    }
+
+    // MARK: - Resume prompt overlay (ios-lesson-3)
+
+    /// 进入同一课检测到挂起会话时的选择层：继续上次 or 重新开始。
+    private var resumePromptOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.55).ignoresSafeArea()
+
+            VStack(spacing: Space.l) {
+                MascotView(mood: .wave, size: 92)
+
+                Text("上次学到一半哦")
+                    .duoFont(.heading)
+                    .foregroundStyle(DuoColors.ink)
+
+                if let session = pendingResume {
+                    Text("已答对 \(session.solvedIds.count) / \(originalTotal) 题，接着做还是重新来？")
+                        .duoFont(.caption)
+                        .foregroundStyle(DuoColors.inkMuted)
+                        .multilineTextAlignment(.center)
+                }
+
+                VStack(spacing: 10) {
+                    Button("继续上次（第 \((pendingResume?.solvedIds.count ?? 0) + 1) 题）") {
+                        HapticEngine.shared.tap()
+                        if let session = pendingResume { applyResume(session) }
+                        withAnimation(.easeOut(duration: 0.2)) { pendingResume = nil }
+                    }
+                    .buttonStyle(ChunkyButtonStyle(.primary))
+                    .accessibilityIdentifier("lesson-resume")
+
+                    Button("重新开始") {
+                        HapticEngine.shared.tap()
+                        progressStore.clearLessonSession()
+                        withAnimation(.easeOut(duration: 0.2)) { pendingResume = nil }
+                    }
+                    .buttonStyle(ChunkyButtonStyle(.ghost))
+                    .accessibilityIdentifier("lesson-restart")
+                }
+            }
+            .padding(Space.xl)
+            .frame(maxWidth: 340)
+            .background(DuoColors.surface, in: .rect(cornerRadius: Radius.large))
+            .overlay {
+                RoundedRectangle(cornerRadius: Radius.large)
+                    .strokeBorder(DuoColors.border, lineWidth: 2)
+            }
+            .padding(24)
+        }
         .transition(.opacity)
     }
 
@@ -344,9 +538,9 @@ struct LessonRunnerView: View {
             SFXEngine.shared.play(.correct); HapticEngine.shared.correct()
             // Per-correct XP floater — mirrors the real per-question rate,
             // doubled on weekends so the promise matches the payout.
-            xpFloaters.append(XPFloatItem(
-                amount: Economy.xpPerCorrect * (Economy.isWeekend() ? Economy.weekendXpMultiplier : 1)
-            ))
+            let floatXp = Economy.xpPerCorrect * (Economy.isWeekend() ? Economy.weekendXpMultiplier : 1)
+            sessionXp += floatXp
+            xpFloaters.append(XPFloatItem(amount: floatXp))
             if [3, 5, 10].contains(combo) { comboDisplayValue = combo; showCombo = true }
         } else {
             attemptedThisQuestion = true
@@ -370,6 +564,55 @@ struct LessonRunnerView: View {
         mascotMood = MascotTriggers.decideMood(ctx)
         feedbackReaction = MascotTriggers.decideReaction(ctx)
         feedbackBubble = ok ? MascotTriggers.pickBubble(mood: mascotMood) : ""
+
+        // 每次判定后立即落盘会话（ios-lesson-3）：App 被杀 / 断心退出后，
+        // 下次进入同一课可从下一题无缝恢复。
+        persistSession()
+    }
+
+    /// Persist the in-flight session. `queue[(index+1)...]` is the remaining
+    /// queue as of "after this question" — a wrong answer already re-appended
+    /// the question to the tail, so resuming never re-asks the front card.
+    private func persistSession() {
+        guard index + 1 <= queue.count else { return }
+        let remaining = queue[(index + 1)...].map(\.id)
+        // 全部答完（结算在即）就没有可恢复的会话了。
+        guard solvedIDs.count < originalTotal, !remaining.isEmpty else { return }
+        progressStore.upsertLessonSession(ActiveLessonSession(
+            bookId: bookId,
+            lessonId: lessonId,
+            queueIds: Array(remaining),
+            solvedIds: Array(solvedIDs).sorted(),
+            missedIds: Array(missedIDs).sorted(),
+            combo: combo,
+            maxCombo: maxCombo,
+            sessionXp: sessionXp,
+            startedAt: sessionStartedAt
+        ))
+    }
+
+    /// Restore runner state from a persisted session (resume path).
+    private func applyResume(_ session: ActiveLessonSession) {
+        guard let lesson else { return }
+        let byId = Dictionary(uniqueKeysWithValues: lesson.questions.map { ($0.id, $0) })
+        let restoredQueue = session.queueIds.compactMap { byId[$0] }
+        // 课程内容更新导致队列失效 → 放弃恢复，从头来。
+        guard !restoredQueue.isEmpty else {
+            progressStore.clearLessonSession()
+            return
+        }
+        queue = restoredQueue
+        index = 0
+        solvedIDs = Set(session.solvedIds).intersection(byId.keys)
+        missedIDs = Set(session.missedIds).intersection(byId.keys)
+        combo = session.combo
+        maxCombo = session.maxCombo
+        sessionXp = session.sessionXp
+        sessionStartedAt = session.startedAt
+        currentAnswer = ""
+        isCorrect = nil
+        phase = .answering
+        attemptedThisQuestion = false
     }
 
     /// Called by the feedback panel's continue button. Gates on hearts.
@@ -422,6 +665,11 @@ struct LessonRunnerView: View {
             let l = try DataLoader.shared.loadLesson(bookId: bookId, lessonId: lessonId)
             self.lesson = l
             self.queue = l.questions
+            // 检测挂起会话（ios-lesson-3）：有实际进度才值得弹恢复层。
+            if let session = progressStore.activeSession(for: lessonId),
+               !session.solvedIds.isEmpty || !session.missedIds.isEmpty {
+                self.pendingResume = session
+            }
         } catch {
             self.loadError = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
         }
@@ -431,15 +679,19 @@ struct LessonRunnerView: View {
 // MARK: - Out-of-hearts gate
 
 /// Blocking modal shown when the learner runs out of hearts mid-lesson.
-/// Offers a gem refill or an exit, plus a live recharge countdown.
+/// Offers a gem refill, a review path that earns back one heart
+/// (ios-lesson-7), or an exit, plus a live recharge countdown.
 private struct OutOfHeartsGate: View {
     @ObservedObject var progressStore: ProgressStore
     let onRefill: () -> Void
+    let onReview: () -> Void
     let onQuit: () -> Void
 
     private let refillCost = Economy.heartRefillCost
     @State private var tick = Date()
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    private var hasDueMistakes: Bool { !progressStore.dueMistakes.isEmpty }
 
     var body: some View {
         ZStack {
@@ -474,6 +726,19 @@ private struct OutOfHeartsGate: View {
                     }
                     .buttonStyle(ChunkyButtonStyle(progressStore.gems >= refillCost ? .secondary : .disabled))
                     .disabled(progressStore.gems < refillCost)
+
+                    if hasDueMistakes {
+                        Button(action: onReview) {
+                            Text("做一组复习回 1 颗心 ❤️")
+                        }
+                        .buttonStyle(ChunkyButtonStyle(.primary))
+                        .accessibilityIdentifier("hearts-review-earnback")
+
+                        Text("这节课已帮你记住进度，复习完回来接着学")
+                            .duoFont(.micro)
+                            .foregroundStyle(DuoColors.inkMuted)
+                            .multilineTextAlignment(.center)
+                    }
 
                     Button("退出练习", action: onQuit)
                         .buttonStyle(ChunkyButtonStyle(.ghost))

@@ -11,6 +11,13 @@ struct ProfileView: View {
     private var achievementSnapshot: AchievementProgressSnapshot { progressStore.achievementSnapshot }
     private var unlockedCount: Int { progressStore.unlockedAchievementIds.count }
 
+    /// "加入于 2026年8月" from the D0 joinedDate (YYYY-MM-DD).
+    private var joinedLabel: String? {
+        let parts = progressStore.joinedDate.split(separator: "-")
+        guard parts.count >= 2, let year = Int(parts[0]), let month = Int(parts[1]) else { return nil }
+        return "加入于 \(year)年\(month)月"
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: Space.xl) {
@@ -57,6 +64,12 @@ struct ProfileView: View {
             Text("已完成 \(progressStore.totalCompletedLessons) 节 · \(progressStore.progress.xp) XP")
                 .duoFont(.caption)
                 .foregroundStyle(DuoColors.inkMuted)
+            if let joinedLabel {
+                Text(joinedLabel)
+                    .duoFont(.micro)
+                    .foregroundStyle(DuoColors.inkSofter)
+                    .accessibilityIdentifier("profile-joined-date")
+            }
         }
         .frame(maxWidth: .infinity)
     }
@@ -123,6 +136,15 @@ struct ProfileView: View {
                     Text("已解锁 \(unlockedCount) / \(Achievements.all.count)").duoFont(.caption).foregroundStyle(DuoColors.inkMuted)
                 }
                 Spacer()
+                if progressStore.claimableAchievementCount > 0 {
+                    Text("\(progressStore.claimableAchievementCount) 个可领取")
+                        .duoFont(.micro)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(DuoColors.danger, in: .capsule)
+                        .accessibilityIdentifier("achievements-claimable-pill")
+                }
                 Image(systemName: "chevron.right").font(.system(size: 15, weight: .heavy)).foregroundStyle(DuoColors.inkSofter)
             }
             .padding(16)
