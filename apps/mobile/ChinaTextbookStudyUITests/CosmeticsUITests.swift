@@ -51,8 +51,13 @@ final class CosmeticsUITests: XCTestCase {
         attach(name: "02-shop-skin-equipped")
 
         // Buy a theme too (樱花粉, 200 gems) — repaints the brand color app-wide.
-        // The shop list is lazy and the theme section sits below the fold
-        // (Wave B added the power-up section up top), so scroll until it exists.
+        // Self-heal: under XCUITest the app has been observed landing on the
+        // profile tab moments after a purchase (not reproducible manually);
+        // make sure we are on the shop before looking for the theme tile.
+        if !app.navigationBars["商店"].exists {
+            app.buttons["tab-shop"].tap()
+            XCTAssertTrue(app.navigationBars["商店"].waitForExistence(timeout: 5))
+        }
         let theme = app.buttons["cosmetic-theme_sakura"]
         var scrolls = 0
         while !theme.exists && scrolls < 6 {
