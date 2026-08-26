@@ -35,6 +35,11 @@ final class LayoutUITests: XCTestCase {
                       "bottom tab bar did not render")
         attach(name: "shell-launch")
 
+        // Wave E1: 排行 tab（-uitest 零进度 → 未解锁引导页）。
+        app.buttons["tab-league"].tap()
+        XCTAssertTrue(app.staticTexts["排行榜还没解锁"].waitForExistence(timeout: 4),
+                      "league tab did not open the locked guide")
+
         app.buttons["tab-review"].tap()
         XCTAssertTrue(app.navigationBars["错题本"].waitForExistence(timeout: 4),
                       "review tab did not open 错题本")
@@ -128,7 +133,7 @@ final class LayoutUITests: XCTestCase {
             return
         }
 
-        for label in ["错题本", "商店", "我的", "成就墙"] {
+        for label in ["排行", "错题本", "商店", "我的", "成就墙"] {
             let cell = app.cells.containing(NSPredicate(format: "label CONTAINS %@", label)).firstMatch
             XCTAssertTrue(cell.waitForExistence(timeout: 4), "sidebar row \(label) not found on iPad")
         }

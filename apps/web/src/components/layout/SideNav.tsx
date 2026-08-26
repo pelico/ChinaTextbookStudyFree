@@ -3,7 +3,7 @@
 /**
  * SideNav —— 桌面端左侧导航
  *
- * 4 个真实页面：学习 / 错题本 / 商店 / 我的
+ * 5 个真实页面：学习 / 排行榜 / 错题本 / 商店 / 我的
  */
 
 import Link from "next/link";
@@ -11,6 +11,7 @@ import { usePathname } from "next/navigation";
 import type { ComponentType } from "react";
 import {
   Home as HomeIcon,
+  Trophy,
   Bookmark,
   Gem,
   User,
@@ -29,6 +30,7 @@ interface NavItem {
 
 const ITEMS: NavItem[] = [
   { href: "/", label: "学习", Icon: HomeIcon, matchPrefix: "/learn-root" },
+  { href: "/league/", label: "排行榜", Icon: Trophy, matchPrefix: "/league" },
   { href: "/review/", label: "错题本", Icon: Bookmark, matchPrefix: "/review" },
   { href: "/shop/", label: "商店", Icon: Gem, matchPrefix: "/shop" },
   { href: "/profile/", label: "我的", Icon: User, matchPrefix: "/profile" },

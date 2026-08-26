@@ -18,6 +18,7 @@ import {
   Rocket,
   Heart,
   CheckCircle,
+  Trophy,
 } from "@/components/icons";
 import type { Lesson, KnowledgeSummary } from "@/types";
 import { gradeAnswer } from "@/lib/grade";
@@ -31,11 +32,13 @@ import {
   THREE_STAR_ACCURACY,
   TWO_STAR_ACCURACY,
   WEEKEND_XP_MULTIPLIER,
+  EXAM_XP_MULTIPLIER,
   DAILY_GOAL_BONUS,
   starsFromAccuracy,
   xpForLesson,
   isWeekendXpActive,
 } from "@cstf/core/economy";
+import { isExamLessonId, EXAM_CONQUER_ACCURACY } from "@/lib/exam";
 import type { Quest } from "@cstf/core/quests";
 import { playSfx } from "@/lib/sfx";
 import { haptic } from "@/lib/haptic";
@@ -224,6 +227,10 @@ interface SessionStats {
   perfect: boolean;
   /** 本节是否享受周末双倍 XP */
   weekend: boolean;
+  /** ⚔️ 是否单元挑战课（XP ×2，宝石 drip 不翻倍） */
+  isExam: boolean;
+  /** 单元征服：挑战课 accuracy ≥ 0.8 */
+  conquered: boolean;
   maxCombo: number;
   durationSec: number;
   chestReward: { slot: ChestSlot; gems: number } | null;
@@ -261,7 +268,11 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
 
   // 周末双倍 XP（本地时间周六/周日）—— 所见即所得：预览/飘字/结算全部按 ×2 显示
   const [weekend] = useState(() => isWeekendXpActive());
-  const xpPerCorrectShown = weekend ? XP_PER_CORRECT * WEEKEND_XP_MULTIPLIER : XP_PER_CORRECT;
+  // ⚔️ 单元挑战课：XP 总额 ×2（与周末可叠加 = ×4），宝石 drip 不翻倍
+  const isExam = isExamLessonId(lesson.id);
+  const xpMultiplier =
+    (isExam ? EXAM_XP_MULTIPLIER : 1) * (weekend ? WEEKEND_XP_MULTIPLIER : 1);
+  const xpPerCorrectShown = XP_PER_CORRECT * xpMultiplier;
 
   const questions = useMemo(() => lesson.questions, [lesson]);
   const total = questions.length;
@@ -692,8 +703,14 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
     // 真正的 perfectedLessons 标记由 recordLessonComplete 内部完成
     const alreadyPerfected = !!store.perfectedLessons[lesson.id];
     const firstPerfect = starsFromAccuracy(accuracy) === 3 && !alreadyPerfected;
-    // XP 公式单一事实源：@cstf/core xpForLesson（含周末 ×2）
-    const xp = xpForLesson({ correctCount, perfect, firstPerfect, isWeekend: weekend });
+    // XP 公式单一事实源：@cstf/core xpForLesson（挑战 ×2 → 周末再 ×2，可叠加）
+    const xp = xpForLesson({
+      correctCount,
+      perfect,
+      firstPerfect,
+      isWeekend: weekend,
+      isExam,
+    });
 
     // 通关宝箱命中：有 chestSlot 且尚未领取
     const chestReward =
@@ -724,6 +741,8 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
       accuracy,
       perfect,
       weekend,
+      isExam,
+      conquered: isExam && accuracy >= EXAM_CONQUER_ACCURACY,
       maxCombo,
       durationSec: Math.round((Date.now() - startTimeRef.current) / 1000),
       chestReward,
@@ -959,6 +978,11 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
             >
               <Lightning className="w-4 h-4" />
               +{xpPerCorrectShown}
+              {isExam && (
+                <span className="ml-0.5 text-[10px] font-extrabold bg-white/25 rounded-full px-1.5 py-0.5">
+                  挑战×2
+                </span>
+              )}
               {weekend && (
                 <span className="ml-0.5 text-[10px] font-extrabold bg-white/25 rounded-full px-1.5 py-0.5">
                   周末×2
@@ -1127,19 +1151,25 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
             aria-label="本节已得 XP"
           >
             <Lightning className="w-4 h-4" />
-            <span>
-              {weekend ? sessionXp * WEEKEND_XP_MULTIPLIER : sessionXp}
-            </span>
-            {weekend && (
+            <span>{sessionXp * xpMultiplier}</span>
+            {xpMultiplier > 1 && (
               <span
                 className="absolute -top-2 -right-2 text-[9px] leading-none font-extrabold text-white rounded-full px-1.5 py-0.5"
                 style={{
-                  background: "linear-gradient(135deg, #a855f7, #7c3aed)",
+                  background: isExam
+                    ? "linear-gradient(135deg, #CE82FF, #7c3aed)"
+                    : "linear-gradient(135deg, #a855f7, #7c3aed)",
                   boxShadow: "0 2px 0 0 #6b21a8",
                 }}
-                aria-label="周末双倍 XP"
+                aria-label={
+                  isExam && weekend
+                    ? "挑战 + 周末双倍 XP"
+                    : isExam
+                      ? "单元挑战双倍 XP"
+                      : "周末双倍 XP"
+                }
               >
-                ×2
+                ×{xpMultiplier}
               </span>
             )}
           </motion.div>
@@ -1212,7 +1242,19 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
       <div className="flex-1 flex flex-col items-center justify-start px-5 py-4">
         <div className="w-full max-w-md lg:max-w-2xl">
           {/* "NEW WORD" 紫色胶囊 tag —— 仿 Duolingo 题型标签 */}
-          <div className="mb-3 inline-flex items-center gap-1.5">
+          <div className="mb-3 inline-flex items-center gap-1.5 flex-wrap">
+            {/* ⚔️ 单元挑战徽章（紫金） */}
+            {isExam && (
+              <span
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-white text-[11px] font-extrabold tracking-wider"
+                style={{
+                  background: "linear-gradient(135deg, #CE82FF, #7C3AED)",
+                  border: "1.5px solid #FFC800",
+                }}
+              >
+                ⚔️ 单元挑战
+              </span>
+            )}
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-purple-100 text-purple-600 text-[11px] font-extrabold uppercase tracking-wider">
               <span className="w-1.5 h-1.5 rounded-full bg-purple-500" />
               {questionTagLabel(current.type)}
@@ -1324,15 +1366,16 @@ function todayKey(offsetDays = 0): string {
 }
 
 /**
- * 结算序列（web-lesson-6 / web-economy-7）—— 多幕节拍：
- *   1. stars  星星揭示（+完美/首三星/周末徽章）
- *   2. streak 连胜幕（当日首课推进连胜时；里程碑大庆祝）
- *   3. goal   每日目标达成幕（本次跨过目标时，+20💎）
- *   4. stats  统计卡（XP 实际入账值 / 宝石全额，宝箱另计弹窗）
- *   5. quests 任务进度幕（before → after 推进动画）
+ * 结算序列（web-lesson-6 / web-economy-7 / E1 挑战幕）—— 多幕节拍：
+ *   1. stars   星星揭示（+完美/首三星/挑战双倍/周末徽章）
+ *   2. conquer 单元征服幕（挑战课 accuracy ≥ 0.8 时）
+ *   3. streak  连胜幕（当日首课推进连胜时；里程碑大庆祝）
+ *   4. goal    每日目标达成幕（本次跨过目标时，+20💎）
+ *   5. stats   统计卡（XP 实际入账值 / 宝石全额，宝箱另计弹窗）
+ *   6. quests  任务进度幕（before → after 推进动画）
  * 每幕 Enter / 点击继续，幕间音效错峰。
  */
-type CompletionAct = "stars" | "streak" | "goal" | "stats" | "quests";
+type CompletionAct = "stars" | "conquer" | "streak" | "goal" | "stats" | "quests";
 
 function CompletionScreen({
   lesson,
@@ -1346,11 +1389,12 @@ function CompletionScreen({
   const { outcome } = stats;
   const acts = useMemo<CompletionAct[]>(() => {
     const a: CompletionAct[] = ["stars"];
+    if (stats.conquered) a.push("conquer");
     if (outcome.streakIncreased) a.push("streak");
     if (outcome.dailyGoalReachedNow) a.push("goal");
     a.push("stats", "quests");
     return a;
-  }, [outcome]);
+  }, [outcome, stats.conquered]);
   const [actIdx, setActIdx] = useState(0);
   const act = acts[actIdx];
   const isLast = actIdx >= acts.length - 1;
@@ -1380,7 +1424,9 @@ function CompletionScreen({
 
   return (
     <main className="min-h-screen bg-bg-soft flex flex-col items-center justify-center px-5 relative overflow-hidden">
-      {(act === "stars" || (act === "streak" && outcome.milestoneGems > 0)) && (
+      {(act === "stars" ||
+        act === "conquer" ||
+        (act === "streak" && outcome.milestoneGems > 0)) && (
         <ConfettiCanvas active />
       )}
       <AnimatePresence mode="wait">
@@ -1393,6 +1439,7 @@ function CompletionScreen({
           className="w-full max-w-md relative z-10"
         >
           {act === "stars" && <StarsAct lesson={lesson} stats={stats} onContinue={advance} />}
+          {act === "conquer" && <ConquerAct lesson={lesson} onContinue={advance} />}
           {act === "streak" && <StreakAct outcome={outcome} onContinue={advance} />}
           {act === "goal" && <GoalAct onContinue={advance} />}
           {act === "stats" && <StatsAct stats={stats} onContinue={advance} />}
@@ -1433,7 +1480,7 @@ function StarsAct({
   stats: SessionStats;
   onContinue: () => void;
 }) {
-  const { outcome, perfect, weekend } = stats;
+  const { outcome, perfect, weekend, isExam } = stats;
   const stars = outcome.stars;
   const [revealedStars, setRevealedStars] = useState(0);
   const [mascotReactKey, setMascotReactKey] = useState(0);
@@ -1553,6 +1600,26 @@ function StarsAct({
           )}
         </AnimatePresence>
 
+        {/* ⚔️ 挑战双倍徽章 —— 单元挑战 XP 总额已按 ×2 入账 */}
+        <AnimatePresence>
+          {isExam && (
+            <motion.div
+              initial={{ scale: 0, y: 6, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              transition={{ delay: 0.8, type: "spring", damping: 12 }}
+              className="inline-flex items-center gap-1.5 h-7 px-3 mt-2 ml-2 rounded-full font-extrabold text-sm text-white"
+              style={{
+                background: "linear-gradient(135deg, #CE82FF, #7C3AED)",
+                boxShadow: "0 4px 0 0 #6B21A8",
+                border: "2px solid #FFC800",
+              }}
+            >
+              <Trophy className="w-3.5 h-3.5" />
+              <span>挑战双倍 ×{EXAM_XP_MULTIPLIER}</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* 周末双倍徽章 —— 总额已按 ×2 入账，所见即所得 */}
         <AnimatePresence>
           {weekend && (
@@ -1597,6 +1664,72 @@ function StarsAct({
 
         <ActContinueButton onClick={onContinue} />
       </motion.div>
+    </div>
+  );
+}
+
+/** ⚔️ 单元征服幕：挑战课 accuracy ≥ 0.8 —— 金色奖杯大庆祝 */
+function ConquerAct({
+  lesson,
+  onContinue,
+}: {
+  lesson: Lesson;
+  onContinue: () => void;
+}) {
+  useEffect(() => {
+    playSfx("unlock");
+    haptic("success");
+    const t = setTimeout(() => playSfx("star"), 300);
+    return () => clearTimeout(t);
+  }, []);
+
+  return (
+    <div className="text-center">
+      <motion.div
+        initial={{ scale: 0.3, rotate: -15, opacity: 0 }}
+        animate={{ scale: 1, rotate: 0, opacity: 1 }}
+        transition={{ type: "spring", damping: 9, stiffness: 200 }}
+        className="inline-block text-gold"
+        style={{ filter: "drop-shadow(0 8px 28px rgba(255,200,0,0.6))" }}
+      >
+        <Trophy className="w-28 h-28" />
+      </motion.div>
+      <motion.h2
+        initial={{ y: 12, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay: 0.25 }}
+        className="text-4xl font-extrabold mt-4"
+        style={{
+          background: "linear-gradient(135deg, #FFC800, #FF9600)",
+          WebkitBackgroundClip: "text",
+          backgroundClip: "text",
+          color: "transparent",
+        }}
+      >
+        单元征服！
+      </motion.h2>
+      <motion.p
+        initial={{ y: 8, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay: 0.4 }}
+        className="text-ink-light mt-2"
+      >
+        {lesson.unitTitle}的挑战被你拿下啦，奖杯变成金色了！
+      </motion.p>
+      <motion.div
+        initial={{ scale: 0, y: 10, opacity: 0 }}
+        animate={{ scale: 1, y: 0, opacity: 1 }}
+        transition={{ delay: 0.55, type: "spring", damping: 11 }}
+        className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-white text-sm font-extrabold"
+        style={{
+          background: "linear-gradient(135deg, #CE82FF, #7C3AED)",
+          boxShadow: "0 4px 0 0 #6B21A8",
+          border: "2px solid #FFC800",
+        }}
+      >
+        ⚔️ 第 {lesson.unitNumber} 单元 · 征服达成
+      </motion.div>
+      <ActContinueButton onClick={onContinue} />
     </div>
   );
 }

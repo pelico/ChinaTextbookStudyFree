@@ -77,6 +77,9 @@ struct BottomTabBar: View {
 
     private func badge(for tab: AppTab) -> BadgeInfo? {
         switch tab {
+        case .league:
+            // 上周结算结果还没看 → 红点提醒。
+            return progressStore.pendingLeagueResult != nil ? BadgeInfo(dot: true) : nil
         case .review:
             let due = progressStore.dueMistakes.count
             return due > 0 ? BadgeInfo(count: due) : nil
@@ -93,11 +96,12 @@ struct BottomTabBar: View {
 // MARK: - Tab Definition
 
 enum AppTab: String, CaseIterable {
-    case learn, review, shop, profile
+    case learn, league, review, shop, profile
 
     var label: String {
         switch self {
         case .learn:   return "学习"
+        case .league:  return "排行"
         case .review:  return "错题本"
         case .shop:    return "商店"
         case .profile: return "我的"
@@ -107,6 +111,7 @@ enum AppTab: String, CaseIterable {
     var symbol: String {
         switch self {
         case .learn:   return "house.fill"
+        case .league:  return "trophy.fill"
         case .review:  return "book.fill"
         case .shop:    return "bag.fill"
         case .profile: return "person.crop.circle.fill"
@@ -116,6 +121,7 @@ enum AppTab: String, CaseIterable {
     var activeColor: Color {
         switch self {
         case .learn:   return DuoColors.primary       // green — the flagship tab
+        case .league:  return DuoColors.bee           // gold — the trophy tab
         case .review:  return DuoColors.fox           // orange
         case .shop:    return DuoColors.beetle        // purple
         case .profile: return DuoColors.secondary     // blue

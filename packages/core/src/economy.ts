@@ -45,6 +45,8 @@ export const PERFECT_XP_BONUS = 5;
 export const FIRST_PERFECT_XP_BONUS = 5;
 /** 周末（本地时间周六/周日）XP 总额整体 ×2，且必须在 UI 可见 */
 export const WEEKEND_XP_MULTIPLIER = 2;
+/** 单元挑战（exam 课）XP 总额整体 ×2，与周末双倍可叠加（宝石 drip 不翻倍） */
+export const EXAM_XP_MULTIPLIER = 2;
 
 export interface LessonXpInput {
   /** 首答答对的题数 */
@@ -55,17 +57,20 @@ export interface LessonXpInput {
   firstPerfect: boolean;
   /** 本地时间是否为周六/周日 */
   isWeekend: boolean;
+  /** 是否单元挑战课（"{bookId}-u{n}-exam"）；缺省 false */
+  isExam?: boolean;
 }
 
 /**
  * 一节课的 XP 总额：
  *   base = correctCount × 10；perfect +5；firstPerfect +5；
- *   周末对总额整体 ×2。
+ *   单元挑战对总额 ×2；周末再对总额 ×2（两者可叠加 = ×4）。
  */
 export function xpForLesson(input: LessonXpInput): number {
   let xp = input.correctCount * XP_PER_CORRECT;
   if (input.perfect) xp += PERFECT_XP_BONUS;
   if (input.firstPerfect) xp += FIRST_PERFECT_XP_BONUS;
+  if (input.isExam) xp *= EXAM_XP_MULTIPLIER;
   if (input.isWeekend) xp *= WEEKEND_XP_MULTIPLIER;
   return xp;
 }

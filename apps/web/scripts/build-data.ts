@@ -126,6 +126,31 @@ function normalizeQuestionType(q: Question): Question {
   return q;
 }
 
+// ============================================================
+// 单元挑战（Wave E1）：exam 题库复活
+//   - 每个 exam 题数 ≥4 的单元产出挑战课 "{bookId}-u{n}-exam"
+//   - 题目取 exam 全部，上限 15，超出按均匀抽样
+//   - outline 的 unit 注入 examLessonId / examQuestionCount
+// ============================================================
+
+/** 挑战课成课的最小 exam 题数 */
+const EXAM_MIN_QUESTIONS = 4;
+/** 挑战课题目上限（超出均匀抽样） */
+const EXAM_MAX_QUESTIONS = 15;
+
+let examLessonCount = 0;
+let examQuestionTotal = 0;
+
+/** 均匀抽样：n ≤ cap 全取；否则取下标 floor(i * n / cap)（i = 0..cap-1），保持原序 */
+function sampleUniform<T>(items: T[], cap: number): T[] {
+  if (items.length <= cap) return items;
+  const out: T[] = [];
+  for (let i = 0; i < cap; i++) {
+    out.push(items[Math.floor((i * items.length) / cap)]);
+  }
+  return out;
+}
+
 function decorateQuestion(q: Question): Question {
   const audio: NonNullable<Question["audio"]> = {};
   const qa = audioFor(q.question);
@@ -527,6 +552,8 @@ async function processTextbook(
 
   // 处理每个单元 → 拆成多个 lesson
   const allLessons: Lesson[] = [];
+  // 单元挑战课（不进 outline.lessons / 路径普通节点，单独写文件）
+  const examLessons: Lesson[] = [];
 
   for (const unit of outline.units) {
     const quizPath = path.join(quizDir, `${stem}_unit${unit.unit_number}.json`);
@@ -583,12 +610,35 @@ async function processTextbook(
     });
 
     allLessons.push(...unitLessons);
+
+    // === ⚔️ 单元挑战课（exam 题库复活，Wave E1）===
+    // 该单元有普通课可解锁、且 exam 题数 ≥4 时才产出
+    const examQuestions = quiz.exam?.questions ?? [];
+    if (unitLessons.length > 0 && examQuestions.length >= EXAM_MIN_QUESTIONS) {
+      const picked = sampleUniform(examQuestions, EXAM_MAX_QUESTIONS);
+      const examLessonId = `${bookId}-u${unit.unit_number}-exam`;
+      examLessons.push({
+        id: examLessonId,
+        title: `第 ${unit.unit_number} 单元挑战`,
+        bookId,
+        unitNumber: unit.unit_number,
+        unitTitle: unit.title,
+        kpIndex: realTotal,
+        kpTotal: realTotal,
+        questions: picked,
+        knowledge: null,
+      });
+      unit.examLessonId = examLessonId;
+      unit.examQuestionCount = picked.length;
+      examLessonCount++;
+      examQuestionTotal += picked.length;
+    }
   }
 
-  // 写每个 lesson 一个 JSON 文件
+  // 写每个 lesson 一个 JSON 文件（普通课 + 单元挑战课）
   const lessonDir = path.join(bookDir, "lessons");
   await fs.mkdir(lessonDir, { recursive: true });
-  for (const lesson of allLessons) {
+  for (const lesson of [...allLessons, ...examLessons]) {
     await fs.writeFile(
       path.join(lessonDir, `${lesson.id}.json`),
       JSON.stringify(lesson, null, 2),
@@ -735,6 +785,9 @@ async function main() {
   console.log(`   题目: ${totalQuestions} 道`);
   console.log(
     `   题型改派: ${retypedQuestionCount} 道（fill_blank/calculation 答案含非数字字符 → fill_blank_text）`,
+  );
+  console.log(
+    `   ⚔️ 单元挑战: ${examLessonCount} 节（共 ${examQuestionTotal} 道 exam 题，单元 exam ≥${EXAM_MIN_QUESTIONS} 题成课，上限 ${EXAM_MAX_QUESTIONS} 道均匀抽样）`,
   );
   // 按学科分组打印
   const bySubject = new Map<SubjectId, number>();

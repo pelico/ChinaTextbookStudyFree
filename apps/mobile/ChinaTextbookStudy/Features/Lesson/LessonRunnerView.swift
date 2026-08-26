@@ -63,6 +63,9 @@ struct LessonRunnerView: View {
     private var originalTotal: Int { max(1, lesson?.questions.count ?? 1) }
     private var progress: Double { Double(solvedIDs.count) / Double(originalTotal) }
 
+    /// 单元挑战课（"{bookId}-u{n}-exam"）：XP ×2，头部亮「⚔️ 单元挑战」徽章。
+    private var isExamLesson: Bool { Economy.isExamLessonId(lessonId) }
+
     /// The equipped lesson backdrop, laid over the neutral surface at a reduced
     /// strength so question text keeps its contrast on every backdrop.
     @ViewBuilder
@@ -140,6 +143,23 @@ struct LessonRunnerView: View {
             .accessibilityLabel("关闭")
 
             StyledProgressBar(progress: progress, height: 16, trackColor: DuoColors.surfaceAlt)
+
+            // 单元挑战徽章：双倍 XP 生效中，必须让孩子看见。
+            if isExamLesson {
+                HStack(spacing: 2) {
+                    Text("⚔️")
+                        .font(.system(size: 11))
+                    Text("×2")
+                        .font(.system(size: 13, weight: .black))
+                        .monospacedDigit()
+                }
+                .foregroundStyle(DuoColors.beetle)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 4)
+                .background(DuoColors.beetle.opacity(0.16), in: .capsule)
+                .accessibilityLabel("单元挑战双倍经验")
+                .accessibilityIdentifier("exam-badge")
+            }
 
             // Weekend ×2 XP must be visible while it applies — small honest badge.
             if Economy.isWeekend() {
@@ -537,8 +557,11 @@ struct LessonRunnerView: View {
             combo += 1; maxCombo = max(maxCombo, combo)
             SFXEngine.shared.play(.correct); HapticEngine.shared.correct()
             // Per-correct XP floater — mirrors the real per-question rate,
-            // doubled on weekends so the promise matches the payout.
-            let floatXp = Economy.xpPerCorrect * (Economy.isWeekend() ? Economy.weekendXpMultiplier : 1)
+            // doubled on weekends / in unit challenges so the promise matches
+            // the payout (both stack, same as the settlement formula).
+            let floatXp = Economy.xpPerCorrect
+                * (isExamLesson ? Economy.examXpMultiplier : 1)
+                * (Economy.isWeekend() ? Economy.weekendXpMultiplier : 1)
             sessionXp += floatXp
             xpFloaters.append(XPFloatItem(amount: floatXp))
             if [3, 5, 10].contains(combo) { comboDisplayValue = combo; showCombo = true }

@@ -93,6 +93,15 @@ final class DataLoader {
         return try decode(Lesson.self, from: url)
     }
 
+    /// 某节课的文件是否存在于本地（Wave E1：outline 声明了 examLessonId
+    /// 但旧资产包没有对应文件时，路径上的挑战节点隐藏）。
+    func lessonExists(bookId: String, lessonId: String) -> Bool {
+        let url = bookDir(bookId)
+            .appendingPathComponent("lessons", isDirectory: true)
+            .appendingPathComponent("\(lessonId).json")
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+
     func loadPassages(bookId: String) throws -> BookPassages? {
         let url = bookDir(bookId).appendingPathComponent("passages.json")
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }

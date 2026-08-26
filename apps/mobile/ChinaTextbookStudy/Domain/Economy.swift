@@ -36,19 +36,30 @@ enum Economy {
     static let firstPerfectXpBonus = 5
     /// 周末（本地时间周六/周日）XP 总额整体 ×2，且必须在 UI 可见
     static let weekendXpMultiplier = 2
+    /// 单元挑战（exam 课）XP 总额整体 ×2，与周末双倍可叠加（宝石 drip 不翻倍）
+    static let examXpMultiplier = 2
 
-    /// 一节课的 XP 总额：base = correctCount×10；perfect +5；firstPerfect +5；周末整体 ×2。
+    /// 一节课的 XP 总额：base = correctCount×10；perfect +5；firstPerfect +5；
+    /// 单元挑战对总额 ×2；周末再对总额 ×2（两者可叠加 = ×4）。
+    /// 计算顺序与 core `xpForLesson` 一致：base → isExam ×2 → isWeekend ×2。
     static func xpForLesson(
         correctCount: Int,
         perfect: Bool,
         firstPerfect: Bool,
-        isWeekend: Bool
+        isWeekend: Bool,
+        isExam: Bool = false
     ) -> Int {
         var xp = correctCount * xpPerCorrect
         if perfect { xp += perfectXpBonus }
         if firstPerfect { xp += firstPerfectXpBonus }
+        if isExam { xp *= examXpMultiplier }
         if isWeekend { xp *= weekendXpMultiplier }
         return xp
+    }
+
+    /// 是否单元挑战课（lessonId 形如 "{bookId}-u{n}-exam"）。
+    static func isExamLessonId(_ lessonId: String) -> Bool {
+        lessonId.hasSuffix("-exam")
     }
 
     /// 本地时间是否处于周末双倍 XP（周六/周日）。

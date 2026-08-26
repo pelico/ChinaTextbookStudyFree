@@ -29,6 +29,17 @@ import {
 } from "@cstf/core/achievements";
 import { dailyQuests, type Quest, type QuestKind } from "@cstf/core/quests";
 import { reviewSrsEntry, isSrsGraduated } from "@cstf/core/srs";
+import {
+  LEAGUE_BOT_COUNT,
+  UNLOCK_LESSONS,
+  botWeeklyGoal,
+  nextTierId,
+  prevTierId,
+  settleRank,
+  userRank,
+  weekKeyFor,
+  type LeagueTierId,
+} from "@cstf/core/league";
 
 /**
  * 错题条目，含 SRS（间隔重复）字段。
@@ -95,6 +106,23 @@ export interface LessonOutcome {
   milestoneGems: number;
   /** 是否该课历史首次三星 */
   isFirstPerfect: boolean;
+}
+
+/**
+ * 联赛周一结算单 —— settleLeagueIfNeeded 发现跨周后写入，
+ * LeagueWatcher 消费并弹「上周战报」结算幕（名次 + 段位变化 + 宝石）。
+ */
+export interface PendingLeagueResult {
+  /** 被结算的那一周（周一 YYYY-MM-DD） */
+  weekKey: string;
+  /** 上周末终值名次（1..16） */
+  rank: number;
+  tierBefore: LeagueTierId;
+  tierAfter: LeagueTierId;
+  promoted: boolean;
+  demoted: boolean;
+  /** 名次奖励 +（晋级时）晋级奖励，已入账 */
+  gems: number;
 }
 
 interface ProgressState {
@@ -188,6 +216,16 @@ interface ProgressState {
 
   // 🏠 v9：首页 IA——当前正在学的教材
   activeBookId: string | null;
+
+  // 🏆 v10：本地模拟联赛（确定性影子同学，纯单机）
+  /** 每台设备一次性生成的稳定随机串——联赛 seed 的一部分（"" = 尚未生成） */
+  leagueSalt: string;
+  /** 当前段位 */
+  leagueTier: LeagueTierId;
+  /** 当前参赛周（本周周一 YYYY-MM-DD；"" = 尚未入场） */
+  leagueWeekKey: string;
+  /** 待展示的上周结算幕（LeagueWatcher 消费后清空） */
+  pendingLeagueResult: PendingLeagueResult | null;
 
   // actions
   setSelectedGrade: (grade: number | null) => void;
@@ -288,6 +326,20 @@ interface ProgressState {
   todayLearningTimeMs: () => number;
   /** 是否已达到家长设置的每日时长上限（未设置上限恒为 false） */
   dailyTimeLimitReached: () => boolean;
+
+  // 🏆 联赛
+  /** 联赛是否已解锁（累计完成 ≥ 10 节课） */
+  leagueUnlocked: () => boolean;
+  /**
+   * 打开 app 时的联赛例行检查：
+   *   - 首次调用生成 leagueSalt（一次性，之后稳定不变）；
+   *   - 首次入场把 leagueWeekKey 设为本周（不结算）；
+   *   - 发现跨周 → 按 core settleRank 结算上周终值名次：发宝石、
+   *     晋降段位、写 pendingLeagueResult 供 UI 弹结算幕。
+   */
+  settleLeagueIfNeeded: () => void;
+  /** 结算幕已展示，清除 pending 标记 */
+  clearPendingLeagueResult: () => void;
 }
 
 /** 每多少课出现一个宝箱节点（真值在 @cstf/core/chestLogic 中，这里 re-export 保持向后兼容） */
@@ -415,6 +467,43 @@ function questDayRollover(
 export const REVIEW_XP_PER_CORRECT = 5;
 
 // ============================================================
+// 🏆 联赛工具
+// ============================================================
+
+/** 生成一次性的 leagueSalt（16 字节随机 hex；无 crypto 时退化到 Math.random） */
+function generateLeagueSalt(): string {
+  try {
+    if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+      const bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      return Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
+    }
+  } catch {
+    /* 走兜底 */
+  }
+  return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 10)}-${Math.random().toString(16).slice(2, 10)}`;
+}
+
+/**
+ * 某一周（weekKey = 周一 YYYY-MM-DD）的用户周 XP：
+ * xpHistory 该周 7 天求和。历史保留天数不足一周时按可得数据尽力求和。
+ */
+export function weekXpFromHistory(
+  xpHistory: Record<string, number>,
+  weekKey: string,
+): number {
+  const [y, m, d] = weekKey.split("-").map(Number);
+  if (!y || !m || !d) return 0;
+  let sum = 0;
+  for (let i = 0; i < 7; i++) {
+    const day = new Date(y, m - 1, d + i);
+    const key = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+    sum += xpHistory[key] ?? 0;
+  }
+  return sum;
+}
+
+// ============================================================
 // Store
 // ============================================================
 
@@ -484,6 +573,80 @@ export const useProgressStore = create<ProgressState>()(
       lastTimeDate: "",
       activeBookId: null,
       setActiveBookId: bookId => set({ activeBookId: bookId }),
+
+      // v10：本地模拟联赛
+      leagueSalt: "",
+      leagueTier: "bronze",
+      leagueWeekKey: "",
+      pendingLeagueResult: null,
+
+      leagueUnlocked: () =>
+        Object.keys(get().completedLessons).length >= UNLOCK_LESSONS,
+
+      settleLeagueIfNeeded: () => {
+        // salt 一次性生成（首次调用；此后终生稳定，保证联赛确定性）
+        if (!get().leagueSalt) {
+          set({ leagueSalt: generateLeagueSalt() });
+        }
+        const state = get();
+        const currentWeek = weekKeyFor();
+
+        // 首次入场：记录本周周键，不结算
+        if (state.leagueWeekKey === "") {
+          set({ leagueWeekKey: currentWeek });
+          return;
+        }
+        // 同一周：无事发生
+        if (state.leagueWeekKey === currentWeek) return;
+
+        const prevWeekKey = state.leagueWeekKey;
+
+        // 未解锁（<10 课）期间不真正参赛：静默滚动周键
+        if (!state.leagueUnlocked()) {
+          set({ leagueWeekKey: currentWeek });
+          return;
+        }
+
+        // === 按上周末终值结算 ===
+        // bot 终值 = 周目标全额（过周后 botXpAt 收敛到 botWeeklyGoal）
+        const tier = state.leagueTier;
+        const salt = state.leagueSalt || get().leagueSalt;
+        const botXps: number[] = [];
+        for (let i = 0; i < LEAGUE_BOT_COUNT; i++) {
+          botXps.push(
+            botWeeklyGoal({ weekKey: prevWeekKey, tier, salt, botIndex: i }),
+          );
+        }
+        // 用户终值 = 上周 xpHistory 求和（保留天数不足按可得数据尽力）
+        const userXp = weekXpFromHistory(state.xpHistory, prevWeekKey);
+        const rank = userRank({ userXp, botXps });
+        const result = settleRank(rank, tier);
+        const tierAfter: LeagueTierId = result.promoted
+          ? nextTierId(tier)
+          : result.demoted
+            ? prevTierId(tier)
+            : tier;
+
+        set(s => ({
+          leagueWeekKey: currentWeek,
+          leagueTier: tierAfter,
+          gems: s.gems + result.gems,
+          lifetimeGems: s.lifetimeGems + result.gems,
+          pendingLeagueResult: {
+            weekKey: prevWeekKey,
+            rank,
+            tierBefore: tier,
+            tierAfter,
+            promoted: result.promoted,
+            demoted: result.demoted,
+            gems: result.gems,
+          },
+        }));
+      },
+
+      clearPendingLeagueResult: () => {
+        set({ pendingLeagueResult: null });
+      },
 
       recordLessonComplete: (lessonId, lessonTitle, accuracy, xpGained) => {
         // ⚠️ XP 公式（含周末 ×2）由调用方经 @cstf/core xpForLesson 算好传入，
@@ -1098,7 +1261,9 @@ export const useProgressStore = create<ProgressState>()(
       //   v8 → v9：每日任务计数 dailyQuestDate/dailyLessons/dailyReviews/dailyReadings
       //            + claimedQuests 领取账本 + lastTimeDate（时长独立换日）
       //            + activeBookId（首页当前教材）
-      version: 9,
+      //   v9 → v10：本地模拟联赛 leagueSalt/leagueTier/leagueWeekKey
+      //            + pendingLeagueResult（salt 由首次 settleLeagueIfNeeded 生成）
+      version: 10,
       migrate: (persistedState: unknown) => {
         const state = (persistedState as Partial<ProgressState>) ?? {};
         const starterOwned = Object.fromEntries(
@@ -1200,6 +1365,11 @@ export const useProgressStore = create<ProgressState>()(
           // 时长换日基准：沿用旧档的 lastXpDate 口径起步（老实现用它换日）
           lastTimeDate: state.lastTimeDate ?? state.lastXpDate ?? "",
           activeBookId: state.activeBookId ?? null,
+          // v10：联赛（salt 留空，由首次 settleLeagueIfNeeded 生成）
+          leagueSalt: state.leagueSalt ?? "",
+          leagueTier: state.leagueTier ?? "bronze",
+          leagueWeekKey: state.leagueWeekKey ?? "",
+          pendingLeagueResult: state.pendingLeagueResult ?? null,
         } as ProgressState;
       },
     },

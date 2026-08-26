@@ -90,6 +90,14 @@ export interface Unit {
   unit_number: number;
   title: string;
   knowledge_points: KnowledgePoint[];
+  /**
+   * 单元挑战课 id（"{bookId}-u{n}-exam"），由 build-data 在该单元
+   * exam 题数 ≥4 时注入；缺省表示该单元没有挑战课。
+   * iOS 容错：outline 有此字段但本地课程文件缺失时，节点隐藏。
+   */
+  examLessonId?: string;
+  /** 单元挑战题目数（取 exam 全部，上限 15，超出均匀抽样后的实际数） */
+  examQuestionCount?: number;
 }
 
 export interface Outline {

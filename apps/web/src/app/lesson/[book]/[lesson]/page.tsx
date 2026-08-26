@@ -12,6 +12,8 @@ async function getIndex(): Promise<SiteIndex> {
 
 interface OutlineFile {
   lessons: PathLessonMeta[];
+  /** 单元挑战课经由 units[].examLessonId 暴露（不进 lessons 普通节点） */
+  units?: Array<{ unit_number: number; examLessonId?: string }>;
 }
 
 async function getOutline(bookId: string): Promise<OutlineFile> {
@@ -31,6 +33,12 @@ export async function generateStaticParams() {
     const outline = await getOutline(book.id);
     for (const l of outline.lessons) {
       params.push({ book: book.id, lesson: l.id });
+    }
+    // ⚔️ 单元挑战课（exam）也要预渲染
+    for (const u of outline.units ?? []) {
+      if (u.examLessonId) {
+        params.push({ book: book.id, lesson: u.examLessonId });
+      }
     }
   }
   return params;

@@ -20,6 +20,8 @@ struct HomeView: View {
     /// lesson file is too expensive to repeat on each appearance.
     @State private var pathMetas: [PathLessonMeta] = []
     @State private var metasBookId: String?
+    /// 单元挑战槽位（outline 声明 + 本地 exam 课文件都齐才有），随 metas 缓存。
+    @State private var examSlots: [ExamSlot] = []
     /// A path chest the learner tapped and is currently opening.
     @State private var activeChest: ActiveChest?
     /// 0 心预拦截（ios-lesson-8）：没有心时点课程节点弹心数详情而不是进课。
@@ -65,6 +67,16 @@ struct HomeView: View {
             .presentationBackground(.clear)
         }
         .toolbar(.hidden, for: .navigationBar)
+        // 联赛周一结算幕（Wave E1）：打开 app 落在首页时若上周结果没看，
+        // 全屏弹出（宝石已入账，看完即清）。
+        .fullScreenCover(item: Binding(
+            get: { progressStore.pendingLeagueResult },
+            set: { if $0 == nil { progressStore.clearPendingLeagueResult() } }
+        )) { result in
+            LeagueResultView(result: result) {
+                progressStore.clearPendingLeagueResult()
+            }
+        }
         // Daily login reward — light celebration card the first time the app
         // is opened each day (gems were already banked by the store).
         .overlay {
@@ -234,10 +246,17 @@ struct HomeView: View {
                 pathMetas = o.pathLessonMetas(bookId: book.id) { lessonId in
                     (try? DataLoader.shared.loadLesson(bookId: book.id, lessonId: lessonId).questions.count) ?? 0
                 }
+                // 单元挑战槽位也要读文件确认存在，随 metas 一起缓存。
+                examSlots = o.examSlots(bookId: book.id)
                 metasBookId = book.id
             }
             // Status/stars/chest state refresh is cheap and runs every time.
-            pathNodes = PathNodeBuilder.nodes(bookId: book.id, lessons: pathMetas, progressStore: progressStore)
+            pathNodes = PathNodeBuilder.nodes(
+                bookId: book.id,
+                lessons: pathMetas,
+                progressStore: progressStore,
+                examSlots: examSlots
+            )
             loadError = nil
         } catch {
             outline = nil

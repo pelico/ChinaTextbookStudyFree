@@ -23,6 +23,7 @@ struct MainShell: View {
     enum SidebarItem: Hashable, Identifiable {
         case home
         case grade(Int)
+        case league
         case review
         case shop
         case profile
@@ -31,6 +32,7 @@ struct MainShell: View {
             switch self {
             case .home: return "home"
             case .grade(let g): return "grade-\(g)"
+            case .league: return "league"
             case .review: return "review"
             case .shop: return "shop"
             case .profile: return "profile"
@@ -155,6 +157,8 @@ struct MainShell: View {
                 siteIndex: siteIndex,
                 path: $path
             )
+        case .league:
+            LeagueView(progressStore: progressStore)
         case .review:
             ReviewView(progressStore: progressStore, path: $path)
         case .shop:
@@ -193,6 +197,7 @@ struct MainShell: View {
         List(selection: $selectedSidebar) {
             Section("主菜单") {
                 row(.home, label: "学习", icon: "house.fill", tint: DuoColors.primary)
+                row(.league, label: "排行", icon: "trophy.fill", tint: DuoColors.bee)
                 row(.review, label: "错题本", icon: "book.fill", tint: DuoColors.fox)
                 row(.shop, label: "商店", icon: "bag.fill", tint: DuoColors.beetle)
                 row(.profile, label: "我的", icon: "person.crop.circle.fill", tint: DuoColors.secondary)
@@ -240,6 +245,8 @@ struct MainShell: View {
                 siteIndex: siteIndex,
                 path: $path
             )
+        case .league:
+            LeagueView(progressStore: progressStore)
         case .review:
             ReviewView(progressStore: progressStore, path: $path)
         case .shop:

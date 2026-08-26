@@ -36,6 +36,9 @@ struct LessonOutcome: Hashable {
     /// Streak shields consumed covering missed days (ios-economy-6) — the
     /// result screen shows「❄️ 护盾保住了你的连胜」when > 0.
     var freezesConsumed: Int = 0
+    /// Whether the unit-challenge ×2 multiplier was applied to `xpGained`
+    /// (Wave E1) — the result screen shows the「⚔️ 挑战双倍 ×2」badge.
+    var examDoubled: Bool = false
     var streakIncreased: Bool { streakAfter > streakBefore }
 }
 

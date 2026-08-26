@@ -18,8 +18,13 @@ struct LessonResultView: View {
     @Binding var path: [AppRoute]
 
     private enum Act: Hashable {
-        case stars, shield, streak, milestone, stats, quests
+        case stars, conquest, shield, streak, milestone, stats, quests
     }
+
+    /// 本课是否单元挑战（"{bookId}-u{n}-exam"）。
+    private var isExamLesson: Bool { Economy.isExamLessonId(result.lessonId) }
+    /// 挑战正确率 ≥ 0.8 = 单元征服（金色奖杯幕）。
+    private var conqueredUnit: Bool { isExamLesson && result.accuracy >= 0.8 }
 
     @State private var acts: [Act] = []
     @State private var actIndex = 0
@@ -36,7 +41,9 @@ struct LessonResultView: View {
     @State private var questsAnimated = false
 
     private var currentAct: Act { acts.indices.contains(actIndex) ? acts[actIndex] : .stars }
-    private var isDarkAct: Bool { currentAct == .streak || currentAct == .milestone }
+    private var isDarkAct: Bool {
+        currentAct == .streak || currentAct == .milestone || currentAct == .conquest
+    }
 
     var body: some View {
         ZStack {
@@ -51,6 +58,7 @@ struct LessonResultView: View {
             Group {
                 switch currentAct {
                 case .stars:     starsAct
+                case .conquest:  conquestAct
                 case .shield:    shieldAct
                 case .streak:    streakAct
                 case .milestone: milestoneAct
@@ -88,6 +96,7 @@ struct LessonResultView: View {
 
     private func setUp() {
         var sequence: [Act] = [.stars]
+        if conqueredUnit { sequence.append(.conquest) }
         if result.outcome.freezesConsumed > 0 { sequence.append(.shield) }
         // streakIncreased ⟺ 今天的第一次学习活动推进了连胜（当日首课）。
         if result.outcome.streakIncreased { sequence.append(.streak) }
@@ -117,6 +126,7 @@ struct LessonResultView: View {
         HapticEngine.shared.tap()
         actIndex += 1
         switch acts[actIndex] {
+        case .conquest:  SFXEngine.shared.play(.star); HapticEngine.shared.success()
         case .shield:    SFXEngine.shared.play(.unlock)
         case .streak:    SFXEngine.shared.play(.star); HapticEngine.shared.success()
         case .milestone: SFXEngine.shared.play(.complete); HapticEngine.shared.success()
@@ -194,6 +204,10 @@ struct LessonResultView: View {
                 )
             }
 
+            // 挑战双倍 —— exam ×2 与周末 ×2 各自亮牌，叠加时两张都在。
+            if result.outcome.examDoubled {
+                celebrationBanner(icon: "trophy.fill", tint: DuoColors.beetle, text: "⚔️ 挑战双倍 ×2")
+            }
             // Weekend ×2 — the doubled XP must be visibly labeled.
             if result.outcome.weekendDoubled {
                 celebrationBanner(icon: "bolt.fill", tint: DuoColors.bee, text: "周末双倍 ×2")
@@ -205,6 +219,38 @@ struct LessonResultView: View {
             Spacer()
 
             continueButton { advanceAct() }
+                .padding(.bottom, 28)
+        }
+    }
+
+    // MARK: - Act 1.5: unit conquered (Wave E1, accuracy ≥ 0.8 on the exam)
+
+    private var conquestAct: some View {
+        VStack(spacing: 18) {
+            Spacer()
+
+            Image(systemName: "trophy.fill")
+                .font(.system(size: 104, weight: .heavy))
+                .foregroundStyle(DuoColors.bee)
+                .shadow(color: DuoColors.bee.opacity(0.6), radius: 26)
+
+            Text("单元征服！")
+                .font(.system(size: 30, weight: .black))
+                .foregroundStyle(.white)
+
+            Text("正确率 \(Int(round(result.accuracy * 100)))%，这个单元被你拿下啦")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(.white.opacity(0.85))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+
+            Text("路径上的奖杯换上金色，快去看看吧")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(.white.opacity(0.65))
+
+            Spacer()
+
+            continueButton("太棒了！") { advanceAct() }
                 .padding(.bottom, 28)
         }
     }
@@ -557,7 +603,8 @@ struct LessonResultView: View {
             correctCount: result.correctCount,
             perfect: result.correctCount >= result.questionCount,
             firstPerfect: false,
-            isWeekend: Economy.isWeekend()
+            isWeekend: Economy.isWeekend(),
+            isExam: isExamLesson
         )
     }
 

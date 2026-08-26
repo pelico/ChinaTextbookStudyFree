@@ -152,6 +152,8 @@ final class ProgressStore: ObservableObject {
         let stars = Economy.starsFromAccuracy(accuracy)
         let perfect = correct >= total
         let isWeekend = Economy.isWeekend(now)
+        // 单元挑战（"{bookId}-u{n}-exam"）：XP ×2，宝石 drip 不翻倍。
+        let isExam = Economy.isExamLessonId(lessonId)
 
         let result = LessonResult(
             lessonId: lessonId,
@@ -181,7 +183,8 @@ final class ProgressStore: ObservableObject {
             correctCount: correct,
             perfect: perfect,
             firstPerfect: firstPerfect,
-            isWeekend: isWeekend
+            isWeekend: isWeekend,
+            isExam: isExam
         )
         recordXP(&p, xpGain, now: now)
         p.dailyLessons = (p.dailyLessons ?? 0) + 1
@@ -219,7 +222,8 @@ final class ProgressStore: ObservableObject {
             newAchievements: newAchievements,
             milestoneGems: streakAdvance.milestoneGems,
             weekendDoubled: isWeekend && xpGain > 0,
-            freezesConsumed: streakAdvance.freezesConsumed
+            freezesConsumed: streakAdvance.freezesConsumed,
+            examDoubled: isExam && xpGain > 0
         )
     }
 
@@ -530,6 +534,7 @@ final class ProgressStore: ObservableObject {
     func refreshForNow(now: Date = Date()) {
         tickHeartRecharge(now: now)
         claimDailyRewardIfDue(now: now)
+        refreshLeague(now: now)
         let today = SRS.todayString(now: now)
         if today != lastKnownDay {
             lastKnownDay = today
@@ -924,6 +929,113 @@ final class ProgressStore: ObservableObject {
         p.gems = (p.gems ?? 0) + reward
         p.lifetimeGems = (p.lifetimeGems ?? 0) + reward
         return (reward, adv.freezesConsumed)
+    }
+
+    // MARK: - League (Wave E1: 本地模拟联赛)
+
+    /// 联赛解锁门槛：累计完成 10 节课。
+    var leagueUnlocked: Bool { totalCompletedLessons >= League.unlockLessons }
+
+    /// 当前段位 id（未入组时为青铜；无效老档容错落回青铜）。
+    var leagueTierId: League.TierId {
+        League.tier(progress.leagueTier ?? League.TierId.bronze.rawValue).id
+    }
+
+    /// 本设备的联赛 salt；入组时一次性生成后不再变化。
+    var leagueSalt: String? { progress.leagueSalt }
+
+    /// 已入组的周键；nil = 尚未入组。
+    var leagueWeekKey: String? { progress.leagueWeekKey }
+
+    /// 待展示的上周结算结果（宝石已入账）。
+    var pendingLeagueResult: LeagueWeekResult? { progress.pendingLeagueResult }
+
+    /// 某一周（周一 weekKey 起 7 天）用户实际获得的 XP —— xpHistory 求和。
+    /// 保留天数不足一周时按可得数据尽力求和。
+    func leagueWeeklyXp(weekKey: String) -> Int {
+        guard let monday = SRS.dateFormatter.date(from: weekKey) else { return 0 }
+        let history = progress.xpHistory ?? [:]
+        return (0..<7).reduce(0) { sum, offset in
+            sum + (history[SRS.dateString(daysFromNow: offset, now: monday)] ?? 0)
+        }
+    }
+
+    /// 本周（now 所在周）的用户 XP。
+    func leagueWeeklyXp(now: Date = Date()) -> Int {
+        leagueWeeklyXp(weekKey: League.weekKeyFor(now))
+    }
+
+    /// 入组 + 周一结算（幂等，App 启动 / 回前台 / 打开排行页时调用）：
+    ///   - 未解锁（完成课程 < 10）什么都不做；
+    ///   - 首次解锁：生成一次性 salt、段位从青铜起步、锁定本周周键；
+    ///   - 周键变化：按上周末终值排名结算——前 5 晋级（钻石封顶）、
+    ///     后 5 降级（青铜保底）、其余原地；宝石按名次表 + 晋级奖励入账；
+    ///     结果存 `pendingLeagueResult` 由 UI 弹结算幕。
+    ///   - 每周只结一次：结算后周键即翻到本周，重复调用不再触发。
+    func refreshLeague(now: Date = Date()) {
+        guard leagueUnlocked else { return }
+        let currentWeek = League.weekKeyFor(now)
+        var p = progress
+        var changed = false
+
+        if p.leagueSalt == nil {
+            p.leagueSalt = UUID().uuidString
+            changed = true
+        }
+        if p.leagueTier == nil {
+            p.leagueTier = League.TierId.bronze.rawValue
+            changed = true
+        }
+        if p.leagueWeekKey == nil {
+            p.leagueWeekKey = currentWeek
+            changed = true
+        }
+
+        if let lastWeek = p.leagueWeekKey, lastWeek != currentWeek, let salt = p.leagueSalt {
+            let tierId = League.tier(p.leagueTier ?? "").id
+            // 上周末终值：botXpAt 在周日之后收敛到周目标全额。
+            let botXps = (0..<League.botCount).map {
+                League.botWeeklyGoal(weekKey: lastWeek, tier: tierId, salt: salt, botIndex: $0)
+            }
+            let userXp = leagueWeeklyXp(weekKey: lastWeek)
+            let rank = League.userRank(userXp: userXp, botXps: botXps)
+            let settle = League.settleRank(rank, tierId: tierId)
+            let afterTier: League.TierId = settle.promoted
+                ? League.nextTierId(tierId)
+                : settle.demoted ? League.prevTierId(tierId) : tierId
+
+            p.pendingLeagueResult = LeagueWeekResult(
+                weekKey: lastWeek,
+                rank: rank,
+                tierBefore: tierId.rawValue,
+                tierAfter: afterTier.rawValue,
+                promoted: settle.promoted,
+                demoted: settle.demoted,
+                gems: settle.gems
+            )
+            if settle.gems > 0 {
+                p.gems = (p.gems ?? 0) + settle.gems
+                p.lifetimeGems = (p.lifetimeGems ?? 0) + settle.gems
+            }
+            p.leagueTier = afterTier.rawValue
+            p.leagueWeekKey = currentWeek
+            _ = latchAchievements(&p)   // 宝石入账可能解锁 gem-collector
+            changed = true
+        }
+
+        if changed {
+            progress = p
+            save()
+        }
+    }
+
+    /// UI 弹过结算幕后清除（宝石早已入账，清除不回滚）。
+    func clearPendingLeagueResult() {
+        guard progress.pendingLeagueResult != nil else { return }
+        var p = progress
+        p.pendingLeagueResult = nil
+        progress = p
+        save()
     }
 
     // MARK: - Achievement ledger (permanent, never re-locks)

@@ -141,6 +141,12 @@ struct Unit: Codable, Hashable, Identifiable {
     var unitNumber: Int
     var title: String
     var knowledgePoints: [KnowledgePoint]
+    /// 单元挑战课 id（"{bookId}-u{n}-exam"），build-data 在该单元 exam 题数
+    /// ≥4 时注入；缺省 = 该单元没有挑战课。iOS 容错：outline 有此字段但
+    /// 本地课程文件缺失时，路径上的挑战节点隐藏（旧资产包兼容）。
+    var examLessonId: String?
+    /// 单元挑战题目数（exam 全部，上限 15，超出均匀抽样后的实际数）。
+    var examQuestionCount: Int?
 
     var id: Int { unitNumber }
 
@@ -148,6 +154,8 @@ struct Unit: Codable, Hashable, Identifiable {
         case unitNumber = "unit_number"
         case title
         case knowledgePoints = "knowledge_points"
+        case examLessonId
+        case examQuestionCount
     }
 }
 
@@ -305,6 +313,24 @@ struct ActiveLessonSession: Codable, Hashable {
     var startedAt: String               // ISO8601
 }
 
+/// 上一周联赛的结算结果（Wave E1）—— 存档持久化，直到 UI 弹过结算幕后清除。
+struct LeagueWeekResult: Codable, Hashable, Identifiable {
+    /// 被结算的那一周的周键（周一 YYYY-MM-DD）。
+    var weekKey: String
+    /// 上周末终值名次 1..16。
+    var rank: Int
+    /// 结算前段位 id（bronze/silver/...）。
+    var tierBefore: String
+    /// 结算后段位 id。
+    var tierAfter: String
+    var promoted: Bool
+    var demoted: Bool
+    /// 已入账的宝石奖励（名次奖励 + 晋级奖励）。
+    var gems: Int
+
+    var id: String { weekKey }
+}
+
 struct UserProgress: Codable, Hashable {
     var xp: Int
     var streak: Int
@@ -351,6 +377,16 @@ struct UserProgress: Codable, Hashable {
     var claimedAchievements: [String]?
     /// 首次使用日期 YYYY-MM-DD（ios-retention-12）；老档回填最早 completedAt。
     var joinedDate: String?
+
+    // Wave E1 本地联赛（all optional for backward compat）
+    /// 每台设备一次性生成的稳定随机串——联赛 seed 的一部分。
+    var leagueSalt: String?
+    /// 当前段位 id（bronze/silver/gold/sapphire/ruby/diamond）。
+    var leagueTier: String?
+    /// 已入组的那一周的周键（周一 YYYY-MM-DD）；周键变化即触发结算。
+    var leagueWeekKey: String?
+    /// 待展示的上周结算结果（宝石已入账；UI 弹过结算幕后清除）。
+    var pendingLeagueResult: LeagueWeekResult?
 }
 
 // ============================================================

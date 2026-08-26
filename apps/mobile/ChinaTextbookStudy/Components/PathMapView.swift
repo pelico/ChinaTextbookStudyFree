@@ -23,6 +23,8 @@ struct PathMapView: View {
     @State private var lockedShake = 0
     @State private var lockedIndex: Int?
     @State private var showLockedToast = false
+    /// 锁定提示文案 —— 挑战节点与普通节点的解锁条件不同。
+    @State private var lockedToastText = "先完成前面的课程再解锁哦"
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -67,14 +69,15 @@ struct PathMapView: View {
             // Follow the learner's progress, but only when the current node
             // actually moves — a chest claim also mutates `lessons`, and
             // yanking the viewport away from the chest would be jarring.
-            .onChange(of: lessons.first(where: { $0.status == .current })?.id) { _, _ in
+            // 挑战节点解锁不抢占自动滚动的锚点（下一节普通课才是主线）。
+            .onChange(of: lessons.first(where: { $0.status == .current && $0.kind != .exam })?.id) { _, _ in
                 scrollToCurrent(proxy, animated: true)
             }
         }
     }
 
     private func scrollToCurrent(_ proxy: ScrollViewProxy, animated: Bool) {
-        guard let current = lessons.first(where: { $0.status == .current }),
+        guard let current = lessons.first(where: { $0.status == .current && $0.kind != .exam }),
               let idx = lessons.firstIndex(where: { $0.id == current.id }), idx > 1 else { return }
         let scroll = { proxy.scrollTo(current.id, anchor: .center) }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -87,27 +90,40 @@ struct PathMapView: View {
     @ViewBuilder
     private func startPopup(index: Int) -> some View {
         let node = lessons[index]
+        let isExam = node.kind == .exam
         let unitNodes = lessons.filter { $0.kind == .lesson && $0.unitNumber == node.unitNumber }
         let lessonNo = (unitNodes.firstIndex(where: { $0.id == node.id }) ?? 0) + 1
-        let accent = node.status == .completed ? DuoColors.bee : DuoColors.primary
+        let accent: Color = isExam
+            ? DuoColors.beetle
+            : (node.status == .completed ? DuoColors.bee : DuoColors.primary)
+        let subtitle: String = isExam
+            ? "\(node.questionCount) 道题 · ⚔️ 挑战双倍 XP · 最多 +\(maxXp(for: node)) XP"
+            : "第 \(lessonNo) / \(unitNodes.count) 节" +
+              (node.questionCount > 0 ? " · 最多 +\(maxXp(for: node)) XP" : "")
 
         VStack(spacing: 0) {
             CalloutTriangle().fill(accent).frame(width: 22, height: 11)
             VStack(alignment: .leading, spacing: 12) {
-                Text(node.title)
+                Text(isExam ? "⚔️ \(node.title)" : node.title)
                     .duoFont(.subhead)
                     .foregroundStyle(.white)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
-                Text("第 \(lessonNo) / \(unitNodes.count) 节" +
-                     (node.questionCount > 0 ? " · 最多 +\(maxXp(for: node)) XP" : ""))
+                Text(subtitle)
                     .duoFont(.caption)
                     .foregroundStyle(.white.opacity(0.9))
+                if isExam, node.status != .completed {
+                    Text("答对 80% 以上就能征服这个单元，赢得金色奖杯！")
+                        .duoFont(.micro)
+                        .foregroundStyle(.white.opacity(0.85))
+                }
                 Button {
                     selectedIndex = nil
                     onTap(node)
                 } label: {
-                    Text(node.status == .completed ? "再练一次" : "开始")
+                    Text(isExam
+                         ? (node.status == .completed ? "再战一次" : "开始挑战")
+                         : (node.status == .completed ? "再练一次" : "开始"))
                         .duoFont(.button)
                         .foregroundStyle(accent)
                         .frame(maxWidth: .infinity)
@@ -115,7 +131,7 @@ struct PathMapView: View {
                         .background(.white, in: .capsule)
                 }
                 .buttonStyle(.plain)
-                .accessibilityIdentifier("lesson-start")
+                .accessibilityIdentifier(isExam ? "exam-start" : "lesson-start")
             }
             .padding(16)
             .frame(width: stageWidth - 48)
@@ -125,12 +141,14 @@ struct PathMapView: View {
 
     /// Honest XP ceiling for the start bubble: full marks + perfect bonus,
     /// plus the first-3-star bonus while it's still winnable, weekend-aware.
+    /// 挑战节点按 ×2 口径展示（与结算一致）。
     private func maxXp(for node: PathMapNode) -> Int {
         Economy.xpForLesson(
             correctCount: node.questionCount,
             perfect: true,
             firstPerfect: node.stars < 3,
-            isWeekend: Economy.isWeekend()
+            isWeekend: Economy.isWeekend(),
+            isExam: node.kind == .exam
         )
     }
 
@@ -221,10 +239,11 @@ struct PathMapView: View {
 
     // MARK: - Node rendering
 
-    enum NodeKind { case star, video, chest, trophy }
+    enum NodeKind { case star, video, chest, trophy, exam }
 
     private func nodeKind(at index: Int, node: PathMapNode) -> NodeKind {
         if node.kind == .chest { return .chest }
+        if node.kind == .exam { return .exam }
         let hasLaterLessonInUnit = lessons[(index + 1)...].contains {
             $0.kind == .lesson && $0.unitNumber == node.unitNumber
         }
@@ -256,6 +275,10 @@ struct PathMapView: View {
                 lockedIndex = index
                 HapticEngine.shared.wrong()
                 withAnimation(.linear(duration: 0.4)) { lockedShake += 1 }
+                // 挑战节点的解锁条件是「本单元全通」，提示要说清楚。
+                lockedToastText = node.kind == .exam
+                    ? "完成本单元全部课程，就能开启单元挑战啦"
+                    : "先完成前面的课程再解锁哦"
                 showLockedHint()
             } else if node.kind == .chest {
                 // Unlocked chest: claim directly (no start popup). Already-
@@ -275,33 +298,60 @@ struct PathMapView: View {
             VStack(spacing: 6) {
                 ZStack {
                     // 新手引导（onboarding 收尾）：全书零进度时给第一个节点一圈
-                    // 脉冲光环，指着「从这里开始」。
-                    if isCurrent && isFreshBook { PulseHalo(size: nodeSize) }
-                    if isCurrent { progressRing(progress: unitProgress(for: node)) }
+                    // 脉冲光环，指着「从这里开始」。挑战节点不参与主线引导。
+                    if isCurrent && isFreshBook && node.kind != .exam { PulseHalo(size: nodeSize) }
+                    if isCurrent && node.kind != .exam {
+                        progressRing(progress: unitProgress(for: node))
+                    }
 
                     Circle()
-                        .fill(node.kind == .chest && node.chestClaimed
-                              ? DuoColors.lockedNodeLedge : nodeShadowColor(status: node.status))
+                        .fill(nodeLedgeColor(for: node))
                         .frame(width: nodeSize, height: nodeSize)
                         .offset(y: 5)
 
                     Circle()
-                        .fill(node.kind == .chest && node.chestClaimed
-                              ? DuoColors.lockedNodeTop : nodeBackground(status: node.status))
+                        .fill(nodeTopColor(for: node))
                         .frame(width: nodeSize, height: nodeSize)
 
                     nodeIcon(node: node, kind: kind)
                 }
-                if isCurrent { startPill }
+                if isCurrent {
+                    if node.kind == .exam { examPill } else { startPill }
+                }
             }
             .modifier(ShakeEffect(animatableData: CGFloat(lockedIndex == index ? lockedShake : 0)))
             .modifier(IdleBob(active: isCurrent))
         }
         .buttonStyle(PathNodeButtonStyle())
-        .accessibilityIdentifier(node.kind == .chest ? "chest-node-\(node.id)" : "lesson-row-\(node.id)")
+        .accessibilityIdentifier(
+            node.kind == .chest ? "chest-node-\(node.id)"
+            : node.kind == .exam ? "exam-node-\(node.id)"
+            : "lesson-row-\(node.id)")
         .accessibilityLabel(node.kind == .chest
             ? "宝箱, \(node.status == .locked ? "未解锁" : node.chestClaimed ? "已领取" : "可领取")"
+            : node.kind == .exam
+            ? "\(node.title), \(node.status == .locked ? "未解锁" : node.conquered ? "已征服" : node.status == .completed ? "已完成" : "可挑战")"
             : "\(node.title), \(node.status == .completed ? "已完成" : node.status == .current ? "当前" : "未解锁")")
+    }
+
+    /// 节点顶面颜色（挑战节点走紫金配色，征服后金色态）。
+    private func nodeTopColor(for node: PathMapNode) -> Color {
+        if node.kind == .chest && node.chestClaimed { return DuoColors.lockedNodeTop }
+        if node.kind == .exam {
+            if node.status == .locked { return DuoColors.lockedNodeTop }
+            return node.conquered ? DuoColors.bee : DuoColors.beetle
+        }
+        return nodeBackground(status: node.status)
+    }
+
+    /// 节点 3D 底座颜色。
+    private func nodeLedgeColor(for node: PathMapNode) -> Color {
+        if node.kind == .chest && node.chestClaimed { return DuoColors.lockedNodeLedge }
+        if node.kind == .exam {
+            if node.status == .locked { return DuoColors.lockedNodeLedge }
+            return node.conquered ? Color(hex: 0xCC9E00) : Color(hex: 0xA45FD6)
+        }
+        return nodeShadowColor(status: node.status)
     }
 
     // MARK: - Node visuals
@@ -325,6 +375,19 @@ struct PathMapView: View {
             .duoFont(.caption)
             .tracking(0.6)
             .foregroundStyle(DuoColors.primary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 6)
+            .background(DuoColors.bg, in: .capsule)
+            .overlay { Capsule().strokeBorder(DuoColors.border, lineWidth: 2) }
+            .offset(y: 6)
+    }
+
+    /// 解锁但未通关的挑战节点：紫色「挑战」小药丸。
+    private var examPill: some View {
+        Text("挑战")
+            .duoFont(.caption)
+            .tracking(0.6)
+            .foregroundStyle(DuoColors.beetle)
             .padding(.horizontal, 14)
             .padding(.vertical, 6)
             .background(DuoColors.bg, in: .capsule)
@@ -389,6 +452,37 @@ struct PathMapView: View {
                 Image(systemName: "gearshape.fill").font(.system(size: 44, weight: .bold)).foregroundStyle(color.opacity(0.9))
                 Image(systemName: "flag.fill").font(.system(size: 16, weight: .black)).foregroundStyle(DuoColors.danger)
             }
+        case .exam:
+            // 紫金奖杯挑战节点：未解锁灰奖杯；可挑战紫底金奖杯；
+            // 通关未征服加小对勾；accuracy ≥ 0.8 征服 = 金底白奖杯 + 星星。
+            if node.status == .locked {
+                Image(systemName: "trophy.fill")
+                    .font(.system(size: 26, weight: .bold))
+                    .foregroundStyle(DuoColors.inkSofter)
+            } else if node.conquered {
+                VStack(spacing: 1) {
+                    Image(systemName: "trophy.fill")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(.white)
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 9, weight: .black))
+                        .foregroundStyle(.white)
+                }
+            } else if node.status == .completed {
+                ZStack(alignment: .bottomTrailing) {
+                    Image(systemName: "trophy.fill")
+                        .font(.system(size: 26, weight: .bold))
+                        .foregroundStyle(DuoColors.bee)
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 13, weight: .black))
+                        .foregroundStyle(.white)
+                        .offset(x: 6, y: 5)
+                }
+            } else {
+                Image(systemName: "trophy.fill")
+                    .font(.system(size: 26, weight: .bold))
+                    .foregroundStyle(DuoColors.bee)
+            }
         }
     }
 
@@ -397,7 +491,7 @@ struct PathMapView: View {
     @ViewBuilder
     private var lockedToast: some View {
         if showLockedToast {
-            Text("先完成前面的课程再解锁哦")
+            Text(lockedToastText)
                 .duoFont(.caption)
                 .foregroundStyle(.white)
                 .padding(.horizontal, 16)
@@ -494,23 +588,29 @@ struct CalloutTriangle: Shape {
 
 // MARK: - Node building
 
-/// Shared builder for a book's path nodes: lesson nodes with status/stars plus
-/// a chest node after every 5th lesson of a unit (see `Chest.slots`). Used by
-/// both the Home tab and BookDetailView so the two paths can't drift.
+/// Shared builder for a book's path nodes: lesson nodes with status/stars, a
+/// chest node after every 5th lesson of a unit (see `Chest.slots`), plus a
+/// trophy「单元挑战」node closing each unit that ships an exam lesson
+/// (Wave E1). Used by both the Home tab and BookDetailView so the two paths
+/// can't drift.
 @MainActor
 enum PathNodeBuilder {
     static func nodes(
         bookId: String,
         lessons: [PathLessonMeta],
-        progressStore: ProgressStore
+        progressStore: ProgressStore,
+        examSlots: [ExamSlot] = []
     ) -> [PathMapNode] {
         var foundCurrent = false
         let chestByAfterLesson = Dictionary(
             uniqueKeysWithValues: Chest.slots(bookId: bookId, lessons: lessons)
                 .map { ($0.afterLessonId, $0) }
         )
+        let examByUnit = Dictionary(
+            uniqueKeysWithValues: examSlots.map { ($0.unitNumber, $0) }
+        )
         var nodes: [PathMapNode] = []
-        for row in lessons {
+        for (i, row) in lessons.enumerated() {
             let stars = progressStore.stars(for: row.id) ?? 0
             let isCompleted = stars > 0
             let status: LessonStatus
@@ -543,6 +643,29 @@ enum PathNodeBuilder {
                     chestClaimed: progressStore.isChestClaimed(slot.id)
                 ))
             }
+            // 单元最后一节普通课之后挂「单元挑战」奖杯节点：
+            // 本单元全部普通课完成才解锁；accuracy ≥ 0.8 视为征服（金色态）。
+            let isLastOfUnit = i + 1 >= lessons.count || lessons[i + 1].unitNumber != row.unitNumber
+            if isLastOfUnit, let exam = examByUnit[row.unitNumber] {
+                let unitDone = lessons
+                    .filter { $0.unitNumber == row.unitNumber }
+                    .allSatisfy { progressStore.isLessonCompleted($0.id) }
+                let result = progressStore.progress.completedLessons[exam.lessonId]
+                let examStatus: LessonStatus = result != nil
+                    ? .completed
+                    : unitDone ? .current : .locked
+                nodes.append(PathMapNode(
+                    id: exam.lessonId,
+                    title: exam.title,
+                    unitNumber: exam.unitNumber,
+                    unitTitle: exam.unitTitle,
+                    status: examStatus,
+                    stars: result?.stars ?? 0,
+                    kind: .exam,
+                    conquered: (result?.accuracy ?? 0) >= 0.8,
+                    questionCount: exam.questionCount
+                ))
+            }
         }
         return nodes
     }
@@ -551,7 +674,7 @@ enum PathNodeBuilder {
 // MARK: - Data model
 
 struct PathMapNode: Identifiable, Hashable {
-    enum Kind: Hashable { case lesson, chest }
+    enum Kind: Hashable { case lesson, chest, exam }
 
     let id: String
     let title: String
@@ -562,6 +685,8 @@ struct PathMapNode: Identifiable, Hashable {
     var kind: Kind = .lesson
     /// Chest nodes only: whether the reward was already collected.
     var chestClaimed: Bool = false
+    /// Exam nodes only: accuracy ≥ 0.8 conquered the unit (golden trophy).
+    var conquered: Bool = false
     /// Lesson nodes only: drives the "+N XP" line in the start popup (0 = unknown).
     var questionCount: Int = 0
 }

@@ -12,6 +12,8 @@ struct BookDetailView: View {
     @State private var outline: Outline?
     @State private var loadError: String?
     @State private var lessons: [PathLessonMeta] = []
+    /// 单元挑战槽位（outline 声明 + 本地 exam 课文件都齐才有）。
+    @State private var examSlots: [ExamSlot] = []
     /// 课文听读 / 课外故事入口按数据实际存在与否条件渲染（content-8）。
     @State private var hasPassages = false
     @State private var hasStories = false
@@ -116,7 +118,12 @@ struct BookDetailView: View {
 
     /// Lesson + chest nodes for the path (shared builder with the Home tab).
     private func buildPathNodes() -> [PathMapNode] {
-        PathNodeBuilder.nodes(bookId: bookId, lessons: lessons, progressStore: progressStore)
+        PathNodeBuilder.nodes(
+            bookId: bookId,
+            lessons: lessons,
+            progressStore: progressStore,
+            examSlots: examSlots
+        )
     }
 
     // MARK: - Loading
@@ -129,6 +136,7 @@ struct BookDetailView: View {
             self.lessons = outline.pathLessonMetas(bookId: bookId) { lessonId in
                 (try? DataLoader.shared.loadLesson(bookId: bookId, lessonId: lessonId).questions.count) ?? 0
             }
+            self.examSlots = outline.examSlots(bookId: bookId)
             // Ground truth after download is the file itself (hasPassages /
             // hasStories flags in the site index can lag behind the data zip).
             self.hasPassages = (((try? DataLoader.shared.loadPassages(bookId: bookId)) ?? nil)?.passages.isEmpty == false)

@@ -5,10 +5,12 @@
  * 三条任务（同 kind / 同 target / 同 reward / 同顺序）。
  *
  * 确定性来源：日期字符串（YYYY-MM-DD）→ djb2 滚动哈希 → SplitMix64
- * finalizer 雪崩 → 对候选池取模。TS 端用 BigInt 模拟 Swift 的 UInt64
- * 环绕运算（&+ / &*），位运算逐位一致；spec/golden-vectors.json 的
- * `quests` 组是双端对照的黄金向量。
+ * finalizer 雪崩 → 对候选池取模。哈希原语抽在 rng.ts（quests / league 共用），
+ * TS 端用 BigInt 模拟 Swift 的 UInt64 环绕运算（&+ / &*），位运算逐位一致；
+ * spec/golden-vectors.json 的 `quests` 组是双端对照的黄金向量。
  */
+
+import { U64_MASK, djb2Hash, mix64 as mix } from "./rng";
 
 export type QuestKind = "earnXP" | "finishLessons" | "reviewMistakes" | "readTexts";
 
@@ -55,42 +57,6 @@ export const QUEST_POOL: readonly Quest[] = [
   makeQuest("readTexts", 2, 25),
 ];
 
-const U64_MASK = (1n << 64n) - 1n;
-
-/**
- * SplitMix64 finalizer —— 与 Swift 侧 `Quests.mix` 位运算逐位一致
- * （&+ / &* 用 BigInt + 64 位掩码模拟环绕）。
- */
-function mix(value: bigint): bigint {
-  let x = (value + 0x9e3779b97f4a7c15n) & U64_MASK;
-  x = ((x ^ (x >> 30n)) * 0xbf58476d1ce4e5b9n) & U64_MASK;
-  x = ((x ^ (x >> 27n)) * 0x94d049bb133111ebn) & U64_MASK;
-  return x ^ (x >> 31n);
-}
-
-/** 字符串 → UTF-8 字节序列（日期串实为 ASCII，此处为通用兜底）。 */
-function utf8Bytes(s: string): number[] {
-  const bytes: number[] = [];
-  for (let i = 0; i < s.length; i++) {
-    let code = s.codePointAt(i)!;
-    if (code > 0xffff) i++; // 代理对占两个 code unit
-    if (code < 0x80) bytes.push(code);
-    else if (code < 0x800) {
-      bytes.push(0xc0 | (code >> 6), 0x80 | (code & 0x3f));
-    } else if (code < 0x10000) {
-      bytes.push(0xe0 | (code >> 12), 0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f));
-    } else {
-      bytes.push(
-        0xf0 | (code >> 18),
-        0x80 | ((code >> 12) & 0x3f),
-        0x80 | ((code >> 6) & 0x3f),
-        0x80 | (code & 0x3f),
-      );
-    }
-  }
-  return bytes;
-}
-
 /**
  * 给定日期（YYYY-MM-DD）的三条每日任务，确定性生成：
  *   - 第一条必为 earnXP；
@@ -99,11 +65,7 @@ function utf8Bytes(s: string): number[] {
  *   - 同一天任何时刻、任何端调用结果完全一致。
  */
 export function dailyQuests(dateString: string): Quest[] {
-  let hash = 5381n;
-  for (const byte of utf8Bytes(dateString)) {
-    hash = (hash * 33n + BigInt(byte)) & U64_MASK;
-  }
-  hash = mix(hash);
+  const hash = mix(djb2Hash(dateString));
 
   const index = (count: number, salt: bigint): number => {
     if (count <= 0) return 0;

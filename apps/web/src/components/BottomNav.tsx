@@ -3,7 +3,7 @@
 /**
  * BottomNav —— 移动端底部固定导航栏
  *
- * 4 个真实 tab：学习 / 错题本 / 商店 / 我的
+ * 5 个真实 tab：学习 / 排行榜 / 错题本 / 商店 / 我的
  */
 
 import { useEffect, useState } from "react";
@@ -11,6 +11,7 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import {
   Home as HomeIcon,
+  Trophy,
   Bookmark,
   Gem,
   User,
@@ -43,6 +44,14 @@ const NAV_ITEMS: NavItem[] = [
     matchPrefix: "/",
     activeColor: "text-primary",
     activeBg: "bg-primary/10",
+  },
+  {
+    href: "/league/",
+    label: "排行榜",
+    Icon: Trophy,
+    matchPrefix: "/league",
+    activeColor: "text-gold",
+    activeBg: "bg-gold/15",
   },
   {
     href: "/review/",
@@ -157,7 +166,7 @@ export function BottomNav() {
       }}
       aria-label="主导航"
     >
-      <div className="grid grid-cols-4 max-w-md mx-auto h-14">
+      <div className="grid grid-cols-5 max-w-md mx-auto h-14">
         {NAV_ITEMS.map(item => {
           const active = isActive(pathname, item);
           const Icon = item.Icon;

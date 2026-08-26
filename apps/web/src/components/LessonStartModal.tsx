@@ -19,6 +19,7 @@ import { useProgressTicker, formatMsCountdown } from "@/lib/useProgressTicker";
 import {
   XP_PER_CORRECT,
   WEEKEND_XP_MULTIPLIER,
+  EXAM_XP_MULTIPLIER,
   HEART_REFILL_COST,
   isWeekendXpActive,
 } from "@cstf/core/economy";
@@ -34,6 +35,8 @@ interface LessonStartModalProps {
   unitNumber: number;
   kpIndex: number;
   kpTotal: number;
+  /** ⚔️ 单元挑战课：XP ×2 预估 + 挑战徽章（kpIndex/kpTotal 不展示） */
+  isExam?: boolean;
 }
 
 export function LessonStartModal({
@@ -46,6 +49,7 @@ export function LessonStartModal({
   unitNumber,
   kpIndex,
   kpTotal,
+  isExam = false,
 }: LessonStartModalProps) {
   const router = useRouter();
   const toast = useToast();
@@ -76,7 +80,10 @@ export function LessonStartModal({
   const canStart = hearts > 0 && !timeUp;
   const msToNext = nextHeartAt ? Math.max(0, nextHeartAt - now) : 0;
   const estimatedXp =
-    questionCount * XP_PER_CORRECT * (weekend ? WEEKEND_XP_MULTIPLIER : 1);
+    questionCount *
+    XP_PER_CORRECT *
+    (isExam ? EXAM_XP_MULTIPLIER : 1) *
+    (weekend ? WEEKEND_XP_MULTIPLIER : 1);
 
   function handleRefillHearts() {
     playSfx("tap");
@@ -113,9 +120,22 @@ export function LessonStartModal({
       <div className="flex flex-col items-center text-center">
         <Mascot mood={canStart ? "happy" : "sad"} size={88} />
         <div className="text-[11px] uppercase tracking-wider text-ink-softer mt-4 font-extrabold">
-          第 {unitNumber} 单元 · {kpIndex}/{kpTotal}
+          {isExam ? `第 ${unitNumber} 单元 · 单元挑战` : `第 ${unitNumber} 单元 · ${kpIndex}/${kpTotal}`}
         </div>
         <h2 className="text-2xl font-extrabold text-ink mt-2 leading-tight">{title}</h2>
+
+        {isExam && (
+          <div
+            className="mt-3 inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-white text-xs font-extrabold"
+            style={{
+              background: "linear-gradient(135deg, #CE82FF, #7C3AED)",
+              boxShadow: "0 3px 0 0 #6B21A8",
+              border: "2px solid #FFC800",
+            }}
+          >
+            ⚔️ 单元挑战 · XP 双倍 ×{EXAM_XP_MULTIPLIER}
+          </div>
+        )}
 
         {resume && (
           <div className="mt-4 h-8 inline-flex items-center gap-2 px-3 rounded-full bg-secondary/10 border-2 border-secondary/30 text-secondary-dark text-xs font-extrabold">

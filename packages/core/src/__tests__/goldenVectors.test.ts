@@ -16,6 +16,13 @@ import {
   xpForLesson,
 } from "../economy";
 import { latchUnlocked } from "../achievements";
+import {
+  BOT_NAME_POOL,
+  botWeeklyGoal,
+  botXpAt,
+  botsForWeek,
+  type LeagueTierId,
+} from "../league";
 import { reviewSrsEntry, type SrsBox, type SrsMistakeEntry } from "../srs";
 import { computeChestsForBook } from "../chestLogic";
 import type { PathLessonMeta, Question } from "../types";
@@ -134,6 +141,47 @@ describe("golden vectors: milestone", () => {
   for (const v of vectors.milestone) {
     it(`streakAfter=${v.streakAfter} → ${v.expGems} 宝石`, () => {
       expect(streakMilestoneReward(v.streakAfter)).toBe(v.expGems);
+    });
+  }
+});
+
+describe("golden vectors: examXp", () => {
+  for (const v of vectors.examXp) {
+    it(`${v.$case} → ${v.expXp}`, () => {
+      expect(
+        xpForLesson({
+          correctCount: v.correctCount,
+          perfect: v.perfect,
+          firstPerfect: v.firstPerfect,
+          isWeekend: v.isWeekend,
+          isExam: v.isExam,
+        }),
+      ).toBe(v.expXp);
+    });
+  }
+});
+
+describe("golden vectors: league", () => {
+  const g = vectors.league;
+  const input = { weekKey: g.weekKey, tier: g.tier as LeagueTierId, salt: g.salt };
+  // weekKey=2026-08-24（周一）；周三 12:00 与周日 23:59 均为本地时区
+  const wednesdayNoon = new Date(2026, 7, 26, 12, 0);
+  const sundayNight = new Date(2026, 7, 30, 23, 59);
+
+  it("15 个 bot 名单逐字一致且组内去重", () => {
+    const bots = botsForWeek(input);
+    const names = bots.map(b => b.name);
+    expect(names).toEqual(g.names);
+    expect(new Set(names).size).toBe(names.length);
+    for (const name of names) expect(BOT_NAME_POOL).toContain(name);
+  });
+
+  for (const v of g.bots) {
+    it(`bot${v.botIndex}（${v.expName}）目标 ${v.expGoal}，周三午 ${v.expXpWednesdayNoon}，周日夜 ${v.expXpSundayNight}`, () => {
+      expect(botsForWeek(input)[v.botIndex].name).toBe(v.expName);
+      expect(botWeeklyGoal({ ...input, botIndex: v.botIndex })).toBe(v.expGoal);
+      expect(botXpAt({ ...input, botIndex: v.botIndex, date: wednesdayNoon })).toBe(v.expXpWednesdayNoon);
+      expect(botXpAt({ ...input, botIndex: v.botIndex, date: sundayNight })).toBe(v.expXpSundayNight);
     });
   }
 });

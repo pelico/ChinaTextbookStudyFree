@@ -18,7 +18,9 @@
     "./economy": "./src/economy.ts",
     "./mascotTriggers": "./src/mascotTriggers.ts",
     "./achievements": "./src/achievements.ts",
-    "./quests": "./src/quests.ts"
+    "./quests": "./src/quests.ts",
+    "./rng": "./src/rng.ts",
+    "./league": "./src/league.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

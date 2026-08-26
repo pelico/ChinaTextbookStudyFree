@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { PathMap, type LessonStatus, type PathLessonMeta } from "@/components/PathMap";
+import {
+  PathMap,
+  type ExamNodeMeta,
+  type LessonStatus,
+  type PathLessonMeta,
+} from "@/components/PathMap";
+import { EXAM_CONQUER_ACCURACY } from "@/lib/exam";
 import { SubjectBadge } from "@/components/SubjectBadge";
 import { SoundLink } from "@/components/SoundLink";
 import { BookOpen } from "@/components/icons";
@@ -62,6 +68,28 @@ export function BookPathView({
     }
   }
 
+  // ⚔️ 单元挑战节点：该单元全部普通课完成后解锁；accuracy ≥ 0.8 = 征服（金色）。
+  // 挑战不阻塞普通课程推进（独立于蛇形路径的顺序解锁规则）。
+  const exams: Record<number, ExamNodeMeta> = {};
+  for (const unit of outline.units) {
+    if (!unit.examLessonId || !unit.examQuestionCount) continue;
+    const unitLessonIds = outline.lessons
+      .filter(l => l.unitNumber === unit.unit_number)
+      .map(l => l.id);
+    if (unitLessonIds.length === 0) continue;
+    const allDone =
+      hydrated && unitLessonIds.every(id => !!completedLessons[id]);
+    const examResult = hydrated ? completedLessons[unit.examLessonId] : undefined;
+    exams[unit.unit_number] = {
+      lessonId: unit.examLessonId,
+      questionCount: unit.examQuestionCount,
+      unlocked: allDone,
+      completed: !!examResult,
+      conquered: !!examResult && examResult.accuracy >= EXAM_CONQUER_ACCURACY,
+    };
+    if (examResult) stars[unit.examLessonId] = examResult.stars;
+  }
+
   const headerLabel = (
     <>
       <SubjectBadge book={book} className="!border-white/60 !bg-white/15 !text-white" />
@@ -105,6 +133,7 @@ export function BookPathView({
       hasGuide={outline.units.length > 0}
       backHref={`/grade/${book.grade}/`}
       topSlot={topSlot}
+      exams={exams}
     />
   );
 }
