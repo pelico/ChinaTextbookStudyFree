@@ -154,21 +154,37 @@ struct HomeView: View {
             }
 
             if outline != nil {
-                PathMapView(lessons: pathNodes) { node in
-                    if node.kind == .chest {
-                        activeChest = ActiveChest(id: node.id)
-                    } else {
-                        // 0 心预拦截（ios-lesson-8）：先结算回复计时器再看余量，
-                        // 没心就弹心数详情（倒计时 + 宝石补满），不进课。
+                PathMapView(
+                    lessons: pathNodes,
+                    onTap: { node in
+                        if node.kind == .chest {
+                            activeChest = ActiveChest(id: node.id)
+                        } else {
+                            // 0 心预拦截（ios-lesson-8）：先结算回复计时器再看余量，
+                            // 没心就弹心数详情（倒计时 + 宝石补满），不进课。
+                            progressStore.tickHeartRecharge()
+                            if progressStore.hearts == 0 {
+                                HapticEngine.shared.wrong()
+                                showZeroHeartsSheet = true
+                            } else {
+                                path.append(.lesson(bookId: book.id, lessonId: node.id))
+                            }
+                        }
+                    },
+                    onGuideTap: { unitNumber in
+                        path.append(.guide(bookId: book.id, unitNumber: unitNumber))
+                    },
+                    onJumpTap: { unitNumber in
+                        // 跳级失败要扣 1 心 —— 0 心时先弹补心，别让孩子白考。
                         progressStore.tickHeartRecharge()
                         if progressStore.hearts == 0 {
                             HapticEngine.shared.wrong()
                             showZeroHeartsSheet = true
                         } else {
-                            path.append(.lesson(bookId: book.id, lessonId: node.id))
+                            path.append(.jumpTest(bookId: book.id, unitNumber: unitNumber))
                         }
                     }
-                }
+                )
                 .id(book.id)   // re-instantiate on book switch so scroll resets
             } else if let err = loadError {
                 VStack(spacing: 12) {

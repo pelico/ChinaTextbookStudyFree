@@ -39,6 +39,9 @@ struct LessonResultView: View {
     /// Drives the quest bars: false = show pre-lesson values, true = animate
     /// to the post-lesson values.
     @State private var questsAnimated = false
+    /// 分享卡（Wave E2）：三星幕的成就卡 / 里程碑幕的连胜卡，进幕时渲染。
+    @State private var threeStarShareImage: UIImage?
+    @State private var streakShareImage: UIImage?
 
     private var currentAct: Act { acts.indices.contains(actIndex) ? acts[actIndex] : .stars }
     private var isDarkAct: Bool {
@@ -118,6 +121,26 @@ struct LessonResultView: View {
         if let slot = chestSlotAfterThisLesson(), !progressStore.isChestClaimed(slot.id) {
             chestSlotId = slot.id
         }
+
+        // 分享卡（Wave E2）：三星幕的卡在首幕就要用，先渲染好。
+        if result.stars == 3 {
+            threeStarShareImage = ShareCard.renderBadge(ShareCard.BadgeData(
+                icon: "star.fill",
+                tint: DuoColors.bee,
+                headline: "三星通关！",
+                title: result.lessonTitle,
+                subtitle: "正确率 \(Int(round(result.accuracy * 100)))% · \(result.correctCount)/\(result.questionCount) 题"
+            ))
+        }
+    }
+
+    /// 连胜分享卡：进连胜 / 里程碑幕时才渲染（懒加载，只渲染一次）。
+    private func prepareStreakShareImage() {
+        guard streakShareImage == nil else { return }
+        streakShareImage = ShareCard.renderStreak(ShareCard.StreakData(
+            streak: result.outcome.streakAfter,
+            week: progressStore.recentXP(days: 7).map { (dateKey: $0.date, studied: $0.xp > 0) }
+        ))
     }
 
     /// Advance to the next act, with per-act entry SFX (错峰).
@@ -202,6 +225,16 @@ struct LessonResultView: View {
                     ),
                     in: .capsule
                 )
+
+                // 三星分享卡（Wave E2）：把闪亮时刻晒出去。
+                if let image = threeStarShareImage {
+                    ShareCardLink(
+                        image: image,
+                        filename: "三星通关-\(result.lessonId).png",
+                        previewTitle: "三星通关",
+                        label: "分享这份满分"
+                    )
+                }
             }
 
             // 挑战双倍 —— exam ×2 与周末 ×2 各自亮牌，叠加时两张都在。
@@ -355,11 +388,22 @@ struct LessonResultView: View {
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(.white.opacity(0.75))
 
+            // 连胜分享卡（Wave E2）。
+            if let image = streakShareImage {
+                ShareCardLink(
+                    image: image,
+                    filename: "连胜\(result.outcome.streakAfter)天.png",
+                    previewTitle: "\(result.outcome.streakAfter) 天连胜",
+                    label: "分享连胜卡"
+                )
+            }
+
             Spacer()
 
             continueButton { advanceAct() }
                 .padding(.bottom, 28)
         }
+        .onAppear { prepareStreakShareImage() }
     }
 
     // MARK: - Act 4: streak milestone (B 波的幕并入序列)
@@ -394,6 +438,16 @@ struct LessonResultView: View {
             .padding(.vertical, 10)
             .background(.white, in: .capsule)
 
+            // 里程碑时刻的连胜分享卡（Wave E2）。
+            if let image = streakShareImage {
+                ShareCardLink(
+                    image: image,
+                    filename: "连胜\(result.outcome.streakAfter)天.png",
+                    previewTitle: "\(result.outcome.streakAfter) 天连胜",
+                    label: "分享连胜卡"
+                )
+            }
+
             Spacer()
 
             Button {
@@ -407,6 +461,7 @@ struct LessonResultView: View {
             .padding(.bottom, 28)
             .accessibilityIdentifier("result-continue")
         }
+        .onAppear { prepareStreakShareImage() }
     }
 
     // MARK: - Act 5: stats

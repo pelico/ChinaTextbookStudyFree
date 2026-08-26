@@ -31,6 +31,7 @@ import { dailyQuests, type Quest, type QuestKind } from "@cstf/core/quests";
 import { reviewSrsEntry, isSrsGraduated } from "@cstf/core/srs";
 import {
   LEAGUE_BOT_COUNT,
+  LEAGUE_TIERS,
   UNLOCK_LESSONS,
   botWeeklyGoal,
   nextTierId,
@@ -40,6 +41,12 @@ import {
   weekKeyFor,
   type LeagueTierId,
 } from "@cstf/core/league";
+import {
+  buildBackup,
+  type BackupEnvelope,
+  type BackupLessonResult,
+  type BackupMistake,
+} from "@cstf/core/backup";
 
 /**
  * 错题条目，含 SRS（间隔重复）字段。
@@ -83,6 +90,32 @@ export interface ActiveLessonSession {
   maxCombo?: number;
   /** 本次会话已累计 XP（展示用） */
   sessionXp?: number;
+}
+
+/** 🚩 题目报错类型（E2：小旗子三选） */
+export type ReportKind = "question_wrong" | "answer_should_count" | "audio_issue";
+
+/** 报错类型 → 儿童友好中文标签（UI 单一事实源） */
+export const REPORT_KIND_LABELS: Record<ReportKind, string> = {
+  question_wrong: "题目有误",
+  answer_should_count: "我的答案应该算对",
+  audio_issue: "音频有问题",
+};
+
+/**
+ * 🚩 一条本地报错记录（E2）：只存在本机，不上传任何服务器。
+ * 「我的」页可查看与一键导出 JSON。
+ */
+export interface QuestionReport {
+  id: string;
+  lessonId: string;
+  questionId: number;
+  /** 题干快照（截断），列表展示用 */
+  questionText: string;
+  kind: ReportKind;
+  createdAt: string; // ISO
+  /** 当次作答（可选，「我的答案应该算对」时最有用） */
+  answerGiven?: string;
 }
 
 /**
@@ -227,6 +260,9 @@ interface ProgressState {
   /** 待展示的上周结算幕（LeagueWatcher 消费后清空） */
   pendingLeagueResult: PendingLeagueResult | null;
 
+  // 🚩 v11：题目报错（本地列表，不上传）
+  reports: QuestionReport[];
+
   // actions
   setSelectedGrade: (grade: number | null) => void;
   /** 设置首页当前教材（null = 未选择，回到选书流程） */
@@ -340,6 +376,27 @@ interface ProgressState {
   settleLeagueIfNeeded: () => void;
   /** 结算幕已展示，清除 pending 标记 */
   clearPendingLeagueResult: () => void;
+
+  // ⚡ 跳级（jump ahead）
+  /**
+   * 跳级测试通过后的批量补标：把传入课程里尚未完成的批量标记为
+   * completed{stars:1, accuracy:0.8}（防刷：不发 XP / 宝石 / 连胜 / 任务计数）。
+   * 已完成的课程保持原成绩不动。返回本次新标记的课程数。
+   */
+  jumpAheadComplete: (lessonIds: string[]) => number;
+
+  // 💾 存档备份（BackupEnvelope v1，双端互通）
+  /** 导出当前进度为中立信封（core buildBackup，platform="web"） */
+  exportBackup: () => BackupEnvelope;
+  /**
+   * 导入一个已经过 core validateBackup 规整的信封：覆盖当前进度。
+   * 红心计时 / 进行中课程 / 每日任务计数等瞬态全部复位。
+   */
+  importBackup: (envelope: BackupEnvelope) => void;
+
+  // 🚩 题目报错
+  /** 写入一条本地报错记录（列表封顶 200 条，超出丢最旧） */
+  addReport: (input: Omit<QuestionReport, "id" | "createdAt">) => void;
 }
 
 /** 每多少课出现一个宝箱节点（真值在 @cstf/core/chestLogic 中，这里 re-export 保持向后兼容） */
@@ -580,6 +637,9 @@ export const useProgressStore = create<ProgressState>()(
       leagueWeekKey: "",
       pendingLeagueResult: null,
 
+      // v11：题目报错
+      reports: [],
+
       leagueUnlocked: () =>
         Object.keys(get().completedLessons).length >= UNLOCK_LESSONS,
 
@@ -646,6 +706,207 @@ export const useProgressStore = create<ProgressState>()(
 
       clearPendingLeagueResult: () => {
         set({ pendingLeagueResult: null });
+      },
+
+      // --------------------------------------------------------
+      // ⚡ 跳级（jump ahead）
+      // --------------------------------------------------------
+
+      jumpAheadComplete: lessonIds => {
+        // 跳级口径（E2 拍板）：批量 completed{stars:1, accuracy:0.8}，
+        // 不发 XP / 宝石 / 连胜 / 每日任务计数（防刷）；已完成的不动。
+        const now = new Date().toISOString();
+        let added = 0;
+        set(state => {
+          const completedLessons = { ...state.completedLessons };
+          for (const id of lessonIds) {
+            if (completedLessons[id]) continue;
+            completedLessons[id] = {
+              lessonId: id,
+              stars: 1,
+              accuracy: 0.8,
+              completedAt: now,
+            };
+            added += 1;
+          }
+          return added > 0 ? { completedLessons } : {};
+        });
+        return added;
+      },
+
+      // --------------------------------------------------------
+      // 💾 存档备份（BackupEnvelope v1）
+      // --------------------------------------------------------
+
+      exportBackup: () => {
+        const s = get();
+        // Record<number,true> → JSON 键天然是字符串，这里显式转一遍
+        const claimedStreakRewards: Record<string, true> = {};
+        for (const k of Object.keys(s.claimedStreakRewards)) {
+          claimedStreakRewards[String(k)] = true;
+        }
+        const completedLessons: Record<string, BackupLessonResult> = {};
+        for (const [id, r] of Object.entries(s.completedLessons)) {
+          completedLessons[id] = {
+            stars: r.stars,
+            accuracy: r.accuracy,
+            completedAt: r.completedAt,
+          };
+        }
+        const mistakesBank: BackupMistake[] = s.mistakesBank.map(m => ({
+          lessonId: m.lessonId,
+          questionId: m.question.id,
+          box: m.box,
+          correctCount: m.correctCount,
+          nextReviewDate: m.nextReviewDate,
+          graduated: m.graduated,
+          // 题面快照：跨端导入时可直接展示（iOS 题库齐全时会忽略）
+          question: m.question,
+        }));
+        return buildBackup({
+          platform: "web",
+          data: {
+            xp: s.xp,
+            streak: s.streak,
+            lastActiveDate: s.lastActiveDate,
+            streakFreezes: s.streakFreezes,
+            gems: s.gems,
+            lifetimeGems: s.lifetimeGems,
+            hearts: s.hearts,
+            dailyGoal: s.dailyGoal,
+            completedLessons,
+            completedReadings: s.completedReadings,
+            perfectedLessons: s.perfectedLessons,
+            mistakesBank,
+            claimedChests: s.claimedChests,
+            claimedStreakRewards,
+            lastDailyRewardDate: s.lastDailyRewardDate,
+            // web 的 unlockedAchievements 就是「已领取账本」，两个字段同源导出
+            unlockedAchievements: s.unlockedAchievements,
+            claimedAchievements: s.unlockedAchievements,
+            ownedCosmetics: s.ownedCosmetics,
+            equipped: {
+              mascotSkin: s.equippedMascotSkin,
+              uiTheme: s.equippedTheme,
+              lessonBackdrop: s.equippedBackdrop,
+            },
+            xpHistory: s.xpHistory,
+            leagueTier: s.leagueTier,
+            leagueWeekKey: s.leagueWeekKey || undefined,
+          },
+        });
+      },
+
+      importBackup: envelope => {
+        const d = envelope.data;
+        const today = todayStr();
+
+        const completedLessons: Record<string, LessonResult> = {};
+        for (const [id, r] of Object.entries(d.completedLessons)) {
+          completedLessons[id] = {
+            lessonId: id,
+            stars: r.stars,
+            accuracy: r.accuracy,
+            completedAt: r.completedAt || new Date().toISOString(),
+          };
+        }
+
+        // 错题本：web 复习需要题面快照，无快照的条目只能丢弃（iOS 导出会带）
+        const mistakesBank: MistakeEntry[] = [];
+        for (const m of d.mistakesBank) {
+          if (!m.question) continue;
+          mistakesBank.push({
+            lessonId: m.lessonId,
+            question: m.question,
+            addedAt: new Date().toISOString(),
+            box: m.box ?? 1,
+            correctCount: m.correctCount ?? 0,
+            nextReviewDate: m.nextReviewDate ?? today,
+            graduated: m.graduated ?? false,
+          });
+        }
+
+        const claimedStreakRewards: Record<number, true> = {};
+        for (const k of Object.keys(d.claimedStreakRewards)) {
+          const n = Number(k);
+          if (Number.isFinite(n) && n > 0) claimedStreakRewards[n] = true;
+        }
+
+        // 成就账本 = 解锁 ∪ 已领取（防重复领奖）
+        const unlockedAchievements: Record<string, true> = {
+          ...d.unlockedAchievements,
+          ...(d.claimedAchievements ?? {}),
+        };
+
+        // 装扮：starter 永远保底；未知装扮 id 回退默认（跨版本 / 跨端容错）
+        const ownedCosmetics: Record<string, true> = {
+          ...Object.fromEntries(getStarterCosmetics().map(c => [c.id, true as const])),
+          ...d.ownedCosmetics,
+        };
+        const safeEquip = (id: string, fallback: string) =>
+          getCosmeticById(id) ? id : fallback;
+
+        // 联赛段位：未知段位降级 bronze；leagueSalt 保留本机值（设备指纹）
+        const leagueTier: LeagueTierId = LEAGUE_TIERS.some(t => t.id === d.leagueTier)
+          ? (d.leagueTier as LeagueTierId)
+          : "bronze";
+
+        set({
+          xp: d.xp,
+          streak: d.streak,
+          lastActiveDate: d.lastActiveDate,
+          streakFreezes: Math.min(d.streakFreezes, 99),
+          gems: d.gems,
+          lifetimeGems: d.lifetimeGems,
+          hearts: Math.min(d.hearts, MAX_HEARTS),
+          nextHeartAt: null,
+          dailyGoal: Math.max(10, Math.min(500, d.dailyGoal || DEFAULT_DAILY_GOAL)),
+          completedLessons,
+          completedReadings: d.completedReadings,
+          perfectedLessons: d.perfectedLessons ?? {},
+          mistakesBank,
+          claimedChests: d.claimedChests,
+          claimedStreakRewards,
+          lastDailyRewardDate: d.lastDailyRewardDate,
+          unlockedAchievements,
+          ownedCosmetics,
+          equippedMascotSkin: safeEquip(d.equipped.mascotSkin, DEFAULT_EQUIPPED.mascotSkin),
+          equippedTheme: safeEquip(d.equipped.uiTheme, DEFAULT_EQUIPPED.uiTheme),
+          equippedBackdrop: safeEquip(d.equipped.lessonBackdrop, DEFAULT_EQUIPPED.lessonBackdrop),
+          xpHistory: d.xpHistory,
+          // 今日 XP 从 xpHistory 复原（跨端同日互导也不丢当日目标进度）
+          todayXp: d.xpHistory[today] ?? 0,
+          lastXpDate: d.xpHistory[today] !== undefined ? today : "",
+          leagueTier,
+          leagueWeekKey: d.leagueWeekKey ?? "",
+          // === 瞬态全部复位（不随存档迁移）===
+          activeLesson: null,
+          pendingStreakMilestone: null,
+          pendingLeagueResult: null,
+          lessonHistory: {},
+          dailyQuestDate: "",
+          dailyLessons: 0,
+          dailyReviews: 0,
+          dailyReadings: 0,
+          claimedQuests: {},
+          todayTimeMs: 0,
+          lastTimeDate: "",
+        });
+      },
+
+      // --------------------------------------------------------
+      // 🚩 题目报错（本地列表，不上传）
+      // --------------------------------------------------------
+
+      addReport: input => {
+        const report: QuestionReport = {
+          id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+          createdAt: new Date().toISOString(),
+          ...input,
+        };
+        set(state => ({
+          reports: [...state.reports, report].slice(-200),
+        }));
       },
 
       recordLessonComplete: (lessonId, lessonTitle, accuracy, xpGained) => {
@@ -1263,7 +1524,8 @@ export const useProgressStore = create<ProgressState>()(
       //            + activeBookId（首页当前教材）
       //   v9 → v10：本地模拟联赛 leagueSalt/leagueTier/leagueWeekKey
       //            + pendingLeagueResult（salt 由首次 settleLeagueIfNeeded 生成）
-      version: 10,
+      //   v10 → v11：题目报错本地列表 reports（🚩 小旗子）
+      version: 11,
       migrate: (persistedState: unknown) => {
         const state = (persistedState as Partial<ProgressState>) ?? {};
         const starterOwned = Object.fromEntries(
@@ -1370,6 +1632,8 @@ export const useProgressStore = create<ProgressState>()(
           leagueTier: state.leagueTier ?? "bronze",
           leagueWeekKey: state.leagueWeekKey ?? "",
           pendingLeagueResult: state.pendingLeagueResult ?? null,
+          // v11：题目报错列表
+          reports: state.reports ?? [],
         } as ProgressState;
       },
     },

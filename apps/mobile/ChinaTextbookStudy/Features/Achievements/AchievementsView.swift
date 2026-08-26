@@ -13,6 +13,15 @@ struct AchievementsView: View {
     /// Family id → gems just claimed; drives the transient "+N 💎" flash.
     @State private var recentClaims: [String: Int] = [:]
 
+    /// 成就领取时刻的分享卡（Wave E2）：领取后弹小卡片，可分享可关闭。
+    @State private var shareMoment: ShareMoment?
+
+    private struct ShareMoment: Identifiable {
+        let id: String          // achievement id
+        let name: String
+        let image: UIImage
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Space.l) {
@@ -26,6 +35,45 @@ struct AchievementsView: View {
         .background(DuoColors.bg.ignoresSafeArea())
         .navigationTitle("成就墙")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $shareMoment) { moment in
+            shareMomentSheet(moment)
+        }
+    }
+
+    /// 领取成就后的分享小卡：预览 + ShareLink + 关闭。
+    private func shareMomentSheet(_ moment: ShareMoment) -> some View {
+        VStack(spacing: 16) {
+            Text("成就到手！晒一晒？")
+                .duoFont(.heading)
+                .foregroundStyle(DuoColors.ink)
+                .padding(.top, 20)
+
+            Image(uiImage: moment.image)
+                .resizable()
+                .scaledToFit()
+                .frame(maxHeight: 300)
+                .clipShape(RoundedRectangle(cornerRadius: Radius.card))
+                .overlay {
+                    RoundedRectangle(cornerRadius: Radius.card)
+                        .strokeBorder(DuoColors.border, lineWidth: 2)
+                }
+
+            ShareCardLink(
+                image: moment.image,
+                filename: "成就-\(moment.name).png",
+                previewTitle: "成就「\(moment.name)」",
+                label: "分享成就卡"
+            )
+
+            Button("先不啦") { shareMoment = nil }
+                .buttonStyle(ChunkyButtonStyle(.ghost))
+                .padding(.horizontal, 20)
+                .padding(.bottom, 16)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(DuoColors.bg)
+        .presentationDetents([.height(520)])
+        .presentationDragIndicator(.visible)
     }
 
     // MARK: - Summary
@@ -170,6 +218,16 @@ struct AchievementsView: View {
             withAnimation(.easeOut(duration: 0.25)) {
                 _ = recentClaims.removeValue(forKey: family.id)
             }
+        }
+        // 成就领取时刻的分享卡（Wave E2）。
+        if let image = ShareCard.renderBadge(ShareCard.BadgeData(
+            icon: family.iconKey.symbolName,
+            tint: Color(hex: UInt32(tier.colorHex)),
+            headline: "成就解锁！",
+            title: tier.name,
+            subtitle: tier.description
+        )) {
+            shareMoment = ShareMoment(id: tier.id, name: tier.name, image: image)
         }
     }
 }

@@ -17,6 +17,10 @@ enum AppRoute: Hashable {
     case shop
     case profile
     case settings
+    /// 单元知识手册（Wave E2）：聚合该单元各课 knowledge 的左右滑卡片页。
+    case guide(bookId: String, unitNumber: Int)
+    /// 跳级测试（Wave E2）：锁定单元 banner「⚡ 跳到这里」入口。
+    case jumpTest(bookId: String, unitNumber: Int)
 }
 
 /// Result of committing a finished lesson to the store — single source of

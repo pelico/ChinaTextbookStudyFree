@@ -547,6 +547,8 @@ final class ProgressStore: ObservableObject {
             studiedToday: progress.lastActiveDate == today,
             now: now
         )
+        // 存档尽力镜像进 iCloud（Wave E2）：启动 / 回前台各刷一次，失败静默。
+        mirrorBackupToCloud(now: now)
     }
 
     /// Refill hearts to max (used by streak freeze or debug).
@@ -1036,6 +1038,197 @@ final class ProgressStore: ObservableObject {
         p.pendingLeagueResult = nil
         progress = p
         save()
+    }
+
+    // MARK: - Wave E2: 跳级（jump ahead）
+
+    /// 跳级测试通过后批量补标前置课程。
+    ///
+    /// 防刷口径（双端一致）：只把未完成的课程标记为
+    /// completed{stars: 1, accuracy: 0.8}，**不发 XP、不发宝石、不推进连胜、
+    /// 不计入每日任务**；已完成的课程保持原成绩不动。跳级测试本身是合成
+    /// 会话，不写 completedLessons —— 调用方只在通过时调用这里。
+    ///
+    /// - Returns: 实际新标记的课程数。
+    @discardableResult
+    func applyJumpUnlock(lessonIds: [String], now: Date = Date()) -> Int {
+        var p = progress
+        let stamp = ISO8601DateFormatter().string(from: now)
+        var marked = 0
+        for id in lessonIds where p.completedLessons[id] == nil {
+            p.completedLessons[id] = LessonResult(lessonId: id, stars: 1, accuracy: 0.8, completedAt: stamp)
+            marked += 1
+        }
+        guard marked > 0 else { return 0 }
+        // 完成课程数类成就照常入账（领取才发宝石，不构成刷分通道）。
+        _ = latchAchievements(&p)
+        progress = p
+        save()
+        return marked
+    }
+
+    // MARK: - Wave E2: 课前讲解已读标记（content-2）
+
+    func hasSeenIntro(_ lessonId: String) -> Bool {
+        (progress.seenIntros ?? []).contains(lessonId)
+    }
+
+    /// 记住「这节课的讲解看过了」，下次直接进题目不再打断。
+    func markIntroSeen(_ lessonId: String) {
+        guard !hasSeenIntro(lessonId) else { return }
+        var p = progress
+        var seen = p.seenIntros ?? []
+        seen.append(lessonId)
+        p.seenIntros = seen
+        progress = p
+        save()
+    }
+
+    // MARK: - Wave E2: 题目报错（纯本地）
+
+    var reports: [QuestionReport] { progress.reports ?? [] }
+
+    /// 记录一条题目报错。同一题同一类型只记一次（重复点按静默去重）。
+    /// - Returns: 是否新记录了一条。
+    @discardableResult
+    func addReport(
+        lessonId: String,
+        questionId: Int,
+        kind: QuestionReport.Kind,
+        userAnswer: String? = nil,
+        questionText: String? = nil,
+        now: Date = Date()
+    ) -> Bool {
+        var p = progress
+        var list = p.reports ?? []
+        guard !list.contains(where: {
+            $0.lessonId == lessonId && $0.questionId == questionId && $0.kind == kind
+        }) else { return false }
+        list.append(QuestionReport(
+            lessonId: lessonId,
+            questionId: questionId,
+            kind: kind,
+            createdAt: ISO8601DateFormatter().string(from: now),
+            userAnswer: userAnswer?.isEmpty == true ? nil : userAnswer,
+            questionText: questionText
+        ))
+        // 报错列表封顶，别让存档无限膨胀。
+        if list.count > 200 { list.removeFirst(list.count - 200) }
+        p.reports = list
+        progress = p
+        save()
+        return true
+    }
+
+    /// 报错列表导出（设置页 ShareLink 用）。
+    func exportReportsData() throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try encoder.encode(reports)
+    }
+
+    // MARK: - Wave E2: 存档备份（BackupEnvelope v1，双端互通）
+
+    /// 导出当前进度为中立信封。
+    func exportBackupEnvelope(now: Date = Date()) -> Backup.Envelope {
+        Backup.makeEnvelope(from: progress, exportedAt: now)
+    }
+
+    /// 导出为 JSON 数据（ShareLink / iCloud 镜像共用）。
+    func exportBackupData(now: Date = Date()) throws -> Data {
+        try Backup.encode(exportBackupEnvelope(now: now))
+    }
+
+    /// 用一份已校验的信封整体覆盖当前进度。
+    ///
+    /// - 错题条目缺题面快照时按 lessonId 从本地题库找回，找不到丢弃；
+    /// - 联赛 salt 是设备指纹，保留本机值；
+    /// - 瞬态（红心计时 / 课程会话 / 今日计数）不导入；
+    /// - 调用方负责导入前的「将覆盖当前进度」确认与导入后的全量刷新。
+    func importBackup(_ envelope: Backup.Envelope) {
+        let restored = Backup.userProgress(
+            from: envelope,
+            questionLookup: { lessonId, questionId in
+                guard let bookId = Backup.bookId(fromLessonId: lessonId),
+                      let lesson = try? DataLoader.shared.loadLesson(bookId: bookId, lessonId: lessonId)
+                else { return nil }
+                return lesson.questions.first { $0.id == questionId }
+            },
+            keepLeagueSalt: progress.leagueSalt
+        )
+        progress = restored
+        pendingDailyReward = nil
+        save()
+        applyEquippedTheme()
+    }
+
+    // MARK: - Wave E2: iCloud 键值备份镜像（尽力而为，失败静默）
+
+    static let cloudBackupKey = "cstf.backup.v1"
+    /// NSUbiquitousKeyValueStore 总额 1MB —— 超过 900KB 就不写。
+    private static let cloudBackupByteLimit = 900_000
+    private static let cloudRestoreHandledKey = "cstf.cloudRestoreHandled"
+
+    /// 发现的 iCloud 备份（新装设备）——RootView 弹「要恢复吗？」。
+    @Published var pendingCloudRestore: Backup.Envelope?
+
+    /// 把当前进度镜像进 iCloud 键值存储。任何失败（超限 / 无 iCloud /
+    /// 无授权）都静默 —— 镜像是加分项，绝不打扰学习。
+    func mirrorBackupToCloud(now: Date = Date()) {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-uitest") { return }
+        #endif
+        guard let data = try? JSONEncoder().encode(exportBackupEnvelope(now: now)),
+              data.count < Self.cloudBackupByteLimit else { return }
+        let store = NSUbiquitousKeyValueStore.default
+        store.set(data, forKey: Self.cloudBackupKey)
+        store.synchronize()
+    }
+
+    /// 启动时探测：本地是新装（没进度、没做过引导），云端有备份 → 弹恢复
+    /// 提示。只问一次，「暂不」后不再打扰。
+    func checkCloudRestoreOffer() {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-uitest") { return }
+        #endif
+        guard !hasCompletedOnboarding,
+              progress.completedLessons.isEmpty,
+              progress.xp == 0,
+              !UserDefaults.standard.bool(forKey: Self.cloudRestoreHandledKey)
+        else { return }
+        let store = NSUbiquitousKeyValueStore.default
+        store.synchronize()
+        guard let data = store.data(forKey: Self.cloudBackupKey),
+              case .success(let envelope) = Backup.validate(data),
+              !envelope.data.completedLessons.isEmpty || envelope.data.xp > 0
+        else { return }
+        pendingCloudRestore = envelope
+    }
+
+    /// 接受云端恢复：导入 + 跳过引导 + 尽力选回原来的课本。
+    func acceptCloudRestore(now: Date = Date()) {
+        guard let envelope = pendingCloudRestore else { return }
+        importBackup(envelope)
+        // 恢复的老学员不需要再走新手引导；课本落到最近学过的一本。
+        if let latest = progress.completedLessons.values.max(by: { $0.completedAt < $1.completedAt }),
+           let bookId = Backup.bookId(fromLessonId: latest.lessonId) {
+            activeBookId = bookId
+            if let gradeChar = bookId.dropFirst().first, let grade = gradeChar.wholeNumberValue,
+               (1...6).contains(grade) {
+                selectedGrade = grade
+            }
+        }
+        hasCompletedOnboarding = true
+        persistPrefs()
+        UserDefaults.standard.set(true, forKey: Self.cloudRestoreHandledKey)
+        pendingCloudRestore = nil
+        refreshForNow(now: now)
+    }
+
+    /// 「暂不恢复」：记住选择，不再打扰。
+    func declineCloudRestore() {
+        UserDefaults.standard.set(true, forKey: Self.cloudRestoreHandledKey)
+        pendingCloudRestore = nil
     }
 
     // MARK: - Achievement ledger (permanent, never re-locks)

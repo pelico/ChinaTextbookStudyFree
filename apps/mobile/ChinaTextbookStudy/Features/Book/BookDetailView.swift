@@ -73,13 +73,27 @@ struct BookDetailView: View {
                 }
 
                 // Snake-shaped PathMap
-                PathMapView(lessons: buildPathNodes()) { node in
-                    if node.kind == .chest {
-                        activeChest = ActiveChest(id: node.id)
-                    } else {
-                        path.append(.lesson(bookId: bookId, lessonId: node.id))
+                PathMapView(
+                    lessons: buildPathNodes(),
+                    onTap: { node in
+                        if node.kind == .chest {
+                            activeChest = ActiveChest(id: node.id)
+                        } else {
+                            path.append(.lesson(bookId: bookId, lessonId: node.id))
+                        }
+                    },
+                    onGuideTap: { unitNumber in
+                        path.append(.guide(bookId: bookId, unitNumber: unitNumber))
+                    },
+                    onJumpTap: { unitNumber in
+                        progressStore.tickHeartRecharge()
+                        guard progressStore.hearts > 0 else {
+                            HapticEngine.shared.wrong()
+                            return
+                        }
+                        path.append(.jumpTest(bookId: bookId, unitNumber: unitNumber))
                     }
-                }
+                )
             }
         }
         // Chest open modal — full-screen cover so the back button / tab bar

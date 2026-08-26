@@ -250,6 +250,20 @@ export function PathMap({
   const color = unitColor(safeIndex);
   const activeUnitTitle = activeUnit?.[1]?.title ?? "";
 
+  // ⚡ 跳级入口（E2）：当前可见单元「整个单元都还锁着」时，banner 上出现
+  // 「跳到这里」——测试通过即可解锁之前全部课程（口径见 /jump/）
+  const activeUnitFullyLocked = useMemo(() => {
+    const group = byUnit.get(activeUnitNum);
+    if (!group) return false;
+    const unitLessons = group.items.filter(
+      (it): it is Extract<UnitItem, { kind: "lesson" }> => it.kind === "lesson",
+    );
+    return (
+      unitLessons.length > 0 &&
+      unitLessons.every(it => (statuses[it.lesson.id] ?? "locked") === "locked")
+    );
+  }, [byUnit, activeUnitNum, statuses]);
+
   return (
     <div className="w-full max-w-md mx-auto lg:max-w-none lg:mx-0 px-4 lg:px-0 pb-6">
       {/* === sticky 单元 banner === */}
@@ -296,6 +310,19 @@ export function PathMap({
               <div className="text-lg font-extrabold leading-tight truncate tracking-tight mt-1.5">
                 {activeUnitTitle}
               </div>
+              {/* ⚡ 跳级入口：整个单元还锁着才出现 */}
+              {activeUnitFullyLocked && (
+                <SoundLink
+                  href={`/jump/?book=${bookId}&unit=${activeUnitNum}`}
+                  hapticIntensity="medium"
+                  className="mt-2 inline-flex items-center gap-1.5 px-3 h-8 rounded-xl bg-white/95 text-xs font-extrabold tracking-tight transition-colors hover:bg-white"
+                  style={{ color: color.bg, boxShadow: `0 2px 0 0 ${color.shadow}` }}
+                  aria-label={`跳级测试：直接跳到第 ${activeUnitNum} 单元`}
+                >
+                  <span aria-hidden>⚡</span>
+                  <span>跳到这里</span>
+                </SoundLink>
+              )}
             </div>
             {hasGuide && (
               <SoundLink

@@ -57,6 +57,18 @@ struct RootView: View {
                     .zIndex(1)
             }
         }
+        // Wave E2: 新装设备发现 iCloud 备份 → 弹「要恢复吗？」（压在引导之上）。
+        .overlay {
+            if let envelope = progressStore.pendingCloudRestore {
+                CloudRestorePrompt(
+                    envelope: envelope,
+                    onRestore: { progressStore.acceptCloudRestore() },
+                    onDecline: { progressStore.declineCloudRestore() }
+                )
+                .transition(.opacity)
+                .zIndex(2)
+            }
+        }
         .animation(.easeInOut(duration: 0.35), value: progressStore.hasCompletedOnboarding)
         .task {
             SeedInstaller.installIfNeeded()
@@ -71,6 +83,8 @@ struct RootView: View {
             // once at launch (the reminder part is a no-op unless the toggle
             // is on).
             progressStore.refreshForNow()
+            // 新装设备探测 iCloud 备份（Wave E2）；老设备 / 已处理过则静默。
+            progressStore.checkCloudRestoreOffer()
         }
         // An app left in the background overnight must not wake up showing
         // yesterday: re-sync clocked state on every return to foreground and
@@ -80,6 +94,65 @@ struct RootView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
             progressStore.refreshForNow()
+        }
+    }
+}
+
+/// Wave E2：发现 iCloud 备份的恢复提示卡（新装设备启动时）。
+private struct CloudRestorePrompt: View {
+    let envelope: Backup.Envelope
+    let onRestore: () -> Void
+    let onDecline: () -> Void
+
+    private var summary: String {
+        let lessons = envelope.data.completedLessons.count
+        let xp = envelope.data.xp
+        return "已完成 \(lessons) 节课 · \(xp) XP"
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.55).ignoresSafeArea()
+
+            VStack(spacing: 14) {
+                Image(systemName: "icloud.fill")
+                    .font(.system(size: 44, weight: .heavy))
+                    .foregroundStyle(DuoColors.secondary)
+
+                Text("发现 iCloud 备份")
+                    .duoFont(.title)
+                    .foregroundStyle(DuoColors.ink)
+
+                Text("这台设备是新的，但云端有你之前的学习进度：")
+                    .duoFont(.caption)
+                    .foregroundStyle(DuoColors.inkMuted)
+                    .multilineTextAlignment(.center)
+
+                Text(summary)
+                    .duoFont(.subhead)
+                    .foregroundStyle(DuoColors.primary)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(DuoColors.primary.opacity(0.12), in: .capsule)
+
+                VStack(spacing: 10) {
+                    Button("恢复进度") { onRestore() }
+                        .buttonStyle(ChunkyButtonStyle(.primary))
+                        .accessibilityIdentifier("cloud-restore-accept")
+                    Button("从头开始") { onDecline() }
+                        .buttonStyle(ChunkyButtonStyle(.ghost))
+                        .accessibilityIdentifier("cloud-restore-decline")
+                }
+                .padding(.top, 4)
+            }
+            .padding(24)
+            .frame(maxWidth: 340)
+            .background(DuoColors.surface, in: .rect(cornerRadius: Radius.large))
+            .overlay {
+                RoundedRectangle(cornerRadius: Radius.large)
+                    .strokeBorder(DuoColors.border, lineWidth: 2)
+            }
+            .padding(28)
         }
     }
 }

@@ -53,6 +53,12 @@ struct LessonRunnerView: View {
     @State private var showOutOfHearts = false
     @State private var wrongFlash = 0
     @State private var showLessonSettings = false
+    /// 课前知识讲解（content-2）：该课未完成且没看过讲解时先进分步讲解。
+    @State private var showIntro = false
+    /// 题目报错小旗子（Wave E2）：反馈面板 → 三选弹层。
+    @State private var showReportSheet = false
+    /// 报错弹层里已提交的类型（打勾反馈）。
+    @State private var reportedKind: QuestionReport.Kind?
 
     @ObservedObject private var settings = SettingsStore.shared
     @ObservedObject private var audioPlayer = AudioPlayer.shared
@@ -81,7 +87,18 @@ struct LessonRunnerView: View {
 
     var body: some View {
         Group {
-            if lesson != nil, index < queue.count {
+            if showIntro, let lesson, let knowledge = lesson.knowledge {
+                // 课前知识讲解（content-2）：先学一步步的小讲解，再进题目。
+                IntroCardView(
+                    lesson: lesson,
+                    knowledge: knowledge,
+                    onStart: {
+                        progressStore.markIntroSeen(lessonId)
+                        withAnimation(.easeOut(duration: 0.25)) { showIntro = false }
+                    },
+                    onExit: { path.removeLast() }
+                )
+            } else if lesson != nil, index < queue.count {
                 runner(question: queue[index])
             } else if let loadError {
                 VStack(spacing: Space.m) {
@@ -120,6 +137,9 @@ struct LessonRunnerView: View {
         .overlay { if showQuitConfirm { quitConfirmOverlay } }
         .overlay { if pendingResume != nil { resumePromptOverlay } }
         .sheet(isPresented: $showLessonSettings) { lessonSettingsSheet }
+        .sheet(isPresented: $showReportSheet, onDismiss: { reportedKind = nil }) {
+            reportSheet(question: q)
+        }
     }
 
     // MARK: - Header: [X] [progress] [❤️]
@@ -367,6 +387,21 @@ struct LessonRunnerView: View {
                     }
                 }
                 Spacer()
+
+                // 报错小旗子（Wave E2）：题目有误 / 答案该算对 / 音频问题。
+                Button {
+                    HapticEngine.shared.tap()
+                    showReportSheet = true
+                } label: {
+                    Image(systemName: "flag")
+                        .font(.system(size: 16, weight: .heavy))
+                        .foregroundStyle(accent.opacity(0.65))
+                        .frame(width: 34, height: 34)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("报告题目问题")
+                .accessibilityIdentifier("question-report-flag")
             }
 
             if !question.explanation.isEmpty {
@@ -390,6 +425,95 @@ struct LessonRunnerView: View {
         .background(surface)
         .background(DuoColors.bg)
         .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    // MARK: - Report sheet (Wave E2 小旗子)
+
+    /// 三选报错弹层。选中即写入本地 reports 列表（不上传），打勾致谢后自动收起。
+    private func reportSheet(question: Question) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image(systemName: "flag.fill")
+                    .font(.system(size: 20, weight: .heavy))
+                    .foregroundStyle(DuoColors.fox)
+                Text("这道题怎么了？")
+                    .duoFont(.heading)
+                    .foregroundStyle(DuoColors.ink)
+            }
+            .padding(.top, 18)
+
+            Text("你的反馈只保存在这台设备上，可在「设置」里查看。")
+                .duoFont(.micro)
+                .foregroundStyle(DuoColors.inkSofter)
+
+            ForEach(QuestionReport.Kind.allCases, id: \.self) { kind in
+                Button {
+                    submitReport(kind: kind, question: question)
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: kind.symbol)
+                            .font(.system(size: 18, weight: .heavy))
+                            .foregroundStyle(reportedKind == kind ? DuoColors.primary : DuoColors.secondary)
+                            .frame(width: 28)
+                        Text(kind.label)
+                            .duoFont(.subhead)
+                            .foregroundStyle(DuoColors.ink)
+                        Spacer()
+                        if reportedKind == kind {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 20, weight: .heavy))
+                                .foregroundStyle(DuoColors.primary)
+                        }
+                    }
+                    .padding(14)
+                    .background(DuoColors.surface, in: .rect(cornerRadius: Radius.card))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: Radius.card)
+                            .strokeBorder(
+                                reportedKind == kind ? DuoColors.primary : DuoColors.border,
+                                lineWidth: 2
+                            )
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(reportedKind != nil)
+                .accessibilityIdentifier("report-\(kind.rawValue)")
+            }
+
+            if reportedKind != nil {
+                Text("已记录，谢谢小侦探！🕵️")
+                    .duoFont(.caption)
+                    .foregroundStyle(DuoColors.primary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .transition(.scale.combined(with: .opacity))
+            }
+
+            Button("取消") { showReportSheet = false }
+                .buttonStyle(ChunkyButtonStyle(.ghost))
+                .padding(.top, 2)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(DuoColors.bg)
+        .presentationDetents([.height(430)])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func submitReport(kind: QuestionReport.Kind, question: Question) {
+        _ = progressStore.addReport(
+            lessonId: lessonId,
+            questionId: question.id,
+            kind: kind,
+            userAnswer: currentAnswer,
+            questionText: question.question
+        )
+        HapticEngine.shared.success()
+        SFXEngine.shared.play(.tap)
+        withAnimation(Motion.bounce) { reportedKind = kind }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+            showReportSheet = false
+        }
     }
 
     // MARK: - Check footer
@@ -692,6 +816,14 @@ struct LessonRunnerView: View {
             if let session = progressStore.activeSession(for: lessonId),
                !session.solvedIds.isEmpty || !session.missedIds.isEmpty {
                 self.pendingResume = session
+            }
+            // 课前知识讲解（content-2）：该课未完成、没看过讲解、也没有挂起
+            // 会话（恢复优先）时，先进分步讲解再做题。
+            if pendingResume == nil,
+               l.knowledge != nil,
+               !progressStore.isLessonCompleted(lessonId),
+               !progressStore.hasSeenIntro(lessonId) {
+                self.showIntro = true
             }
         } catch {
             self.loadError = (error as? LocalizedError)?.errorDescription ?? String(describing: error)

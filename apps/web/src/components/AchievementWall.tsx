@@ -16,6 +16,8 @@ import {
   type Achievement,
 } from "@/lib/achievements";
 import { useProgressStore } from "@/store/progress";
+import { ShareCardButton } from "@/components/ShareCardButton";
+import { renderBadgeCard } from "@/lib/shareCard";
 import {
   Lightning,
   Flame,
@@ -148,9 +150,21 @@ function AchievementBadge({
           />
         </div>
       ) : (
-        <div className="text-[9px] font-extrabold mt-1.5" style={{ color: ach.color }}>
-          已解锁
-        </div>
+        // 📤 成就分享卡（E2）：本地渲染徽章卡 → 系统分享 / 降级下载
+        <ShareCardButton
+          makeBlob={() =>
+            renderBadgeCard({
+              heading: "成就解锁",
+              title: ach.name,
+              subtitle: ach.description,
+            })
+          }
+          filename={`chengjiu-${ach.id}.png`}
+          shareText={`我在小猫头鹰课堂解锁了成就「${ach.name}」！`}
+          className="mt-1.5 inline-flex items-center gap-0.5 text-[9px] font-extrabold rounded-full px-2 py-0.5 border transition-colors hover:bg-bg-soft"
+        >
+          <span style={{ color: ach.color }}>分享 📤</span>
+        </ShareCardButton>
       )}
     </motion.div>
   );

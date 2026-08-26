@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// App settings — appearance, sound & haptics, data, about.
 struct SettingsView: View {
@@ -6,6 +7,14 @@ struct SettingsView: View {
     @ObservedObject private var settings = SettingsStore.shared
     @State private var showResetConfirm = false
     @State private var deniedHint = false
+
+    // Wave E2: 存档备份 & 报错列表
+    @State private var showImportPicker = false
+    /// 已选中并通过校验、等待「覆盖确认」的信封。
+    @State private var pendingImport: Backup.Envelope?
+    @State private var importError: String?
+    @State private var importedFlash = false
+    @State private var showReports = false
 
     private var appVersion: String {
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
@@ -181,20 +190,146 @@ struct SettingsView: View {
 
     // MARK: - Data
 
+    /// 导出文件名：课本学习备份-YYYY-MM-DD.json
+    private var backupFilename: String {
+        "课本学习备份-\(SRS.todayString()).json"
+    }
+
     private var dataSection: some View {
         section("数据") {
-            Button(role: .destructive) { showResetConfirm = true } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "trash.fill").font(.system(size: 17, weight: .heavy)).foregroundStyle(DuoColors.danger).frame(width: 26)
-                    Text("重置学习进度").duoFont(.body).foregroundStyle(DuoColors.danger)
-                    Spacer()
+            VStack(spacing: 0) {
+                // 导出存档：ShareLink 临时 JSON 文件（分享时才落盘）。
+                ShareLink(
+                    item: BackupTransferFile(
+                        json: (try? progressStore.exportBackupData()) ?? Data(),
+                        filename: backupFilename
+                    ),
+                    preview: SharePreview(backupFilename)
+                ) {
+                    dataRow(icon: "square.and.arrow.up.fill", tint: DuoColors.primary, title: "导出存档",
+                            subtitle: "保存一份 JSON 备份，网页版也能导入")
                 }
-                .padding(16)
-                .background(DuoColors.surface, in: .rect(cornerRadius: Radius.card))
-                .overlay { RoundedRectangle(cornerRadius: Radius.card).strokeBorder(DuoColors.border, lineWidth: 2) }
+                .accessibilityIdentifier("backup-export")
+
+                divider
+
+                Button {
+                    importError = nil
+                    showImportPicker = true
+                } label: {
+                    dataRow(icon: "square.and.arrow.down.fill", tint: DuoColors.secondary, title: "导入存档",
+                            subtitle: importedFlash ? "导入成功！进度已更新 🎉" : "从备份文件恢复进度（会覆盖当前进度）")
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("backup-import")
+
+                if let importError {
+                    Text(importError)
+                        .duoFont(.micro)
+                        .foregroundStyle(DuoColors.danger)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.bottom, 10)
+                }
+
+                divider
+
+                // 已报告的问题（Wave E2 小旗子）。
+                Button { showReports = true } label: {
+                    dataRow(icon: "flag.fill", tint: DuoColors.fox, title: "已报告的问题",
+                            subtitle: progressStore.reports.isEmpty
+                                ? "还没有报告过题目问题"
+                                : "共 \(progressStore.reports.count) 条 · 只保存在本机")
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("reports-list")
+
+                divider
+
+                Button(role: .destructive) { showResetConfirm = true } label: {
+                    dataRow(icon: "trash.fill", tint: DuoColors.danger, title: "重置学习进度",
+                            subtitle: "建议先导出备份", titleColor: DuoColors.danger)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 4)
+            .background(DuoColors.surface, in: .rect(cornerRadius: Radius.card))
+            .overlay { RoundedRectangle(cornerRadius: Radius.card).strokeBorder(DuoColors.border, lineWidth: 2) }
         }
+        .fileImporter(
+            isPresented: $showImportPicker,
+            allowedContentTypes: [.json, .plainText],
+            allowsMultipleSelection: false
+        ) { result in
+            handleImportPick(result)
+        }
+        .confirmationDialog(
+            "导入将覆盖当前进度，建议先导出备份。确定要导入吗？",
+            isPresented: Binding(
+                get: { pendingImport != nil },
+                set: { if !$0 { pendingImport = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("覆盖并导入", role: .destructive) { confirmImport() }
+            Button("取消", role: .cancel) { pendingImport = nil }
+        }
+        .sheet(isPresented: $showReports) {
+            ReportsListSheet(progressStore: progressStore)
+        }
+    }
+
+    private func dataRow(
+        icon: String,
+        tint: Color,
+        title: String,
+        subtitle: String,
+        titleColor: Color = DuoColors.ink
+    ) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .heavy))
+                .foregroundStyle(tint)
+                .frame(width: 26)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).duoFont(.body).foregroundStyle(titleColor)
+                Text(subtitle).duoFont(.micro).foregroundStyle(DuoColors.inkSofter)
+            }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.system(size: 13, weight: .heavy))
+                .foregroundStyle(DuoColors.inkSofter)
+        }
+        .padding(.vertical, 12)
+        .contentShape(Rectangle())
+    }
+
+    private func handleImportPick(_ result: Result<[URL], Error>) {
+        guard case .success(let urls) = result, let url = urls.first else { return }
+        let secured = url.startAccessingSecurityScopedResource()
+        defer { if secured { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url) else {
+            importError = "读取文件失败，请重试"
+            return
+        }
+        switch Backup.validate(data) {
+        case .success(let envelope):
+            importError = nil
+            pendingImport = envelope
+        case .failure(let error):
+            importError = error.errorDescription ?? "备份文件无法识别"
+        }
+    }
+
+    private func confirmImport() {
+        guard let envelope = pendingImport else { return }
+        progressStore.importBackup(envelope)
+        progressStore.refreshForNow()   // 全量刷新（红心 / 日界 / 联赛 / 提醒）
+        pendingImport = nil
+        importedFlash = true
+        HapticEngine.shared.success()
+        SFXEngine.shared.play(.unlock)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { importedFlash = false }
     }
 
     // MARK: - About
@@ -224,5 +359,136 @@ struct SettingsView: View {
             Text(title).duoFont(.caption).tracking(1).foregroundStyle(DuoColors.inkMuted)
             content()
         }
+    }
+}
+
+// MARK: - 备份导出载荷（Wave E2）
+
+/// ShareLink 载荷：分享那一刻才把 JSON 落到临时文件（带友好文件名）。
+struct BackupTransferFile: Transferable {
+    let json: Data
+    let filename: String
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(exportedContentType: .json) { file in
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent(file.filename)
+            try file.json.write(to: url, options: .atomic)
+            return SentTransferredFile(url)
+        }
+    }
+}
+
+// MARK: - 已报告的问题（Wave E2 小旗子）
+
+/// 报错列表弹层：查看 + 一键导出 JSON（ShareLink）。纯本地数据。
+struct ReportsListSheet: View {
+    @ObservedObject var progressStore: ProgressStore
+    @Environment(\.dismiss) private var dismiss
+
+    private static let displayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "zh_CN")
+        f.dateFormat = "M月d日 HH:mm"
+        return f
+    }()
+
+    private func dateLabel(_ iso: String) -> String {
+        guard let date = ISO8601DateFormatter().date(from: iso) else { return iso }
+        return Self.displayFormatter.string(from: date)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("已报告的问题")
+                    .duoFont(.heading)
+                    .foregroundStyle(DuoColors.ink)
+                Spacer()
+                if !progressStore.reports.isEmpty,
+                   let data = try? progressStore.exportReportsData() {
+                    ShareLink(
+                        item: BackupTransferFile(
+                            json: data,
+                            filename: "题目报错-\(SRS.todayString()).json"
+                        ),
+                        preview: SharePreview("题目报错列表")
+                    ) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.system(size: 13, weight: .heavy))
+                            Text("导出")
+                                .duoFont(.caption)
+                        }
+                        .foregroundStyle(DuoColors.primary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(DuoColors.primary.opacity(0.12), in: .capsule)
+                    }
+                    .accessibilityIdentifier("reports-export")
+                }
+            }
+            .padding(.top, 18)
+
+            Text("这些反馈只保存在这台设备上，不会上传。")
+                .duoFont(.micro)
+                .foregroundStyle(DuoColors.inkSofter)
+
+            if progressStore.reports.isEmpty {
+                VStack(spacing: 10) {
+                    MascotView(mood: .happy, size: 80)
+                    Text("还没有报告过问题")
+                        .duoFont(.caption)
+                        .foregroundStyle(DuoColors.inkMuted)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 30)
+            } else {
+                ScrollView {
+                    VStack(spacing: 10) {
+                        ForEach(progressStore.reports.reversed()) { report in
+                            HStack(alignment: .top, spacing: 10) {
+                                Image(systemName: report.kind.symbol)
+                                    .font(.system(size: 16, weight: .heavy))
+                                    .foregroundStyle(DuoColors.fox)
+                                    .frame(width: 24)
+                                    .padding(.top, 2)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(report.kind.label)
+                                        .duoFont(.subhead)
+                                        .foregroundStyle(DuoColors.ink)
+                                    if let text = report.questionText, !text.isEmpty {
+                                        Text(MathText.render(text))
+                                            .duoFont(.caption)
+                                            .foregroundStyle(DuoColors.inkMuted)
+                                            .lineLimit(2)
+                                    }
+                                    Text("\(report.lessonId) · 第 \(report.questionId) 题 · \(dateLabel(report.createdAt))")
+                                        .duoFont(.micro)
+                                        .foregroundStyle(DuoColors.inkSofter)
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .padding(12)
+                            .background(DuoColors.surface, in: .rect(cornerRadius: Radius.card))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: Radius.card)
+                                    .strokeBorder(DuoColors.border, lineWidth: 2)
+                            }
+                        }
+                    }
+                    .padding(.bottom, 12)
+                }
+            }
+
+            Button("知道了") { dismiss() }
+                .buttonStyle(ChunkyButtonStyle(.primary))
+                .padding(.bottom, 20)
+        }
+        .padding(.horizontal, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(DuoColors.bg)
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 }

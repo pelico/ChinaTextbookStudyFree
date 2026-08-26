@@ -109,7 +109,8 @@ struct MainShell: View {
     private var hideTabBar: Bool {
         guard let last = path.last else { return false }
         switch last {
-        case .lesson, .lessonResult, .reviewRunner, .storyReader, .passageReader, .reading:
+        case .lesson, .lessonResult, .reviewRunner, .storyReader, .passageReader, .reading,
+             .guide, .jumpTest:
             return true
         default:
             return false
@@ -311,6 +312,15 @@ struct RouteView: View {
             ProfileView(progressStore: progressStore, path: $path)
         case .settings:
             SettingsView(progressStore: progressStore)
+        case .guide(let bookId, let unitNumber):
+            UnitGuideView(bookId: bookId, unitNumber: unitNumber)
+        case .jumpTest(let bookId, let unitNumber):
+            JumpTestView(
+                bookId: bookId,
+                unitNumber: unitNumber,
+                progressStore: progressStore,
+                path: $path
+            )
         }
     }
 }

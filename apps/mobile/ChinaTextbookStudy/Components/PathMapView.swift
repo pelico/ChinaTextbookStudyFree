@@ -12,6 +12,10 @@ import SwiftUI
 struct PathMapView: View {
     let lessons: [PathMapNode]
     let onTap: (PathMapNode) -> Void
+    /// 单元 banner 的指南按钮（Wave E2）：打开该单元的知识手册。
+    var onGuideTap: ((Int) -> Void)? = nil
+    /// 锁定单元 banner 的「⚡ 跳到这里」（Wave E2）：发起跳级测试。
+    var onJumpTap: ((Int) -> Void)? = nil
 
     private static let offsets: [CGFloat] = [0, 35, 45, 35, 0, -35, -45, -35]
     private let nodeSize: CGFloat = 72
@@ -202,8 +206,18 @@ struct PathMapView: View {
         return result
     }
 
+    /// 该单元是否整体锁定（所有普通课都还没解锁）—— 跳级入口只挂在这种
+    /// banner 上；含当前节点的单元不满足。
+    private func isUnitLocked(_ unitNumber: Int) -> Bool {
+        let unitLessons = lessons.filter { $0.kind == .lesson && $0.unitNumber == unitNumber }
+        guard !unitLessons.isEmpty else { return false }
+        return unitLessons.allSatisfy { $0.status == .locked }
+    }
+
     @ViewBuilder
     private func unitBannerView(_ banner: BannerPosition) -> some View {
+        let showJump = onJumpTap != nil && isUnitLocked(banner.unitNumber)
+
         ZStack {
             RoundedRectangle(cornerRadius: Radius.card)
                 .fill(DuoColors.primaryDark)
@@ -211,26 +225,65 @@ struct PathMapView: View {
                 .offset(y: 4)
 
             HStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("第 \(banner.unitNumber) 单元")
-                        .duoFont(.micro)
-                        .tracking(1.2)
-                        .foregroundStyle(.white.opacity(0.85))
-                    Text(banner.unitTitle)
-                        .duoFont(.subhead)
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
+                VStack(alignment: .leading, spacing: showJump ? 6 : 4) {
+                    if showJump {
+                        // 锁定单元：标题压成一行，给「跳到这里」腾出空间。
+                        Text("第 \(banner.unitNumber) 单元 · \(banner.unitTitle)")
+                            .duoFont(.caption)
+                            .foregroundStyle(.white.opacity(0.9))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                        Button {
+                            HapticEngine.shared.tap()
+                            SFXEngine.shared.play(.tap)
+                            onJumpTap?(banner.unitNumber)
+                        } label: {
+                            HStack(spacing: 5) {
+                                Text("⚡").font(.system(size: 12))
+                                Text("跳到这里")
+                                    .duoFont(.caption)
+                            }
+                            .foregroundStyle(DuoColors.primary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 5)
+                            .background(.white, in: .capsule)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("jump-here-u\(banner.unitNumber)")
+                        .accessibilityLabel("跳级测试，跳到第 \(banner.unitNumber) 单元")
+                    } else {
+                        Text("第 \(banner.unitNumber) 单元")
+                            .duoFont(.micro)
+                            .tracking(1.2)
+                            .foregroundStyle(.white.opacity(0.85))
+                        Text(banner.unitTitle)
+                            .duoFont(.subhead)
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 18)
 
                 Rectangle().fill(.white.opacity(0.25)).frame(width: 1).padding(.vertical, 14)
 
-                Image(systemName: "list.bullet.rectangle.portrait.fill")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 64)
+                // 单元知识手册入口（ios-path-5 收尾）：从假图标变成真按钮。
+                Button {
+                    HapticEngine.shared.tap()
+                    SFXEngine.shared.play(.tap)
+                    onGuideTap?(banner.unitNumber)
+                } label: {
+                    Image(systemName: "list.bullet.rectangle.portrait.fill")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 64, height: bannerHeight)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(onGuideTap == nil)
+                .accessibilityIdentifier("unit-guide-u\(banner.unitNumber)")
+                .accessibilityLabel("第 \(banner.unitNumber) 单元知识手册")
             }
             .frame(width: stageWidth - 16, height: bannerHeight)
             .background(DuoColors.primary, in: .rect(cornerRadius: Radius.card))

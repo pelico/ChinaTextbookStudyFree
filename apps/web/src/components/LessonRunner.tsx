@@ -63,6 +63,8 @@ import {
   type MascotTriggerContext,
 } from "@/lib/mascotTriggers";
 import { getCosmeticById, type LessonBackdrop } from "@/lib/cosmetics";
+import { ShareCardButton } from "./ShareCardButton";
+import { renderBadgeCard, renderStreakCard, buildShareWeek } from "@/lib/shareCard";
 import type { QuestionType } from "@cstf/core";
 
 /** 仿 Duolingo 题型胶囊文案（紫色 NEW WORD tag） */
@@ -1323,6 +1325,11 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
           explanation={current.explanation}
           explanationAudio={current.audio?.explanation ?? null}
           onContinue={handleContinue}
+          reportContext={{
+            lessonId: lesson.id,
+            question: current,
+            userAnswer: answer || undefined,
+          }}
         />
       )}
     </motion.main>
@@ -1662,6 +1669,23 @@ function StarsAct({
           })}
         </div>
 
+        {/* 📤 三星分享卡（E2）：本地 canvas 渲染，系统分享/降级下载 */}
+        {stars === 3 && (
+          <ShareCardButton
+            makeBlob={() =>
+              renderBadgeCard({
+                heading: "三星通关",
+                title: lesson.title,
+                subtitle: `第 ${lesson.unitNumber} 单元 · ${lesson.unitTitle}`,
+                stars: 3,
+              })
+            }
+            filename={`sanxing-${lesson.id}.png`}
+            shareText={`我在小猫头鹰课堂三星通关了「${lesson.title}」！`}
+            className="btn-chunky-secondary px-10 mx-auto block mt-6"
+          />
+        )}
+
         <ActContinueButton onClick={onContinue} />
       </motion.div>
     </div>
@@ -1849,6 +1873,19 @@ function StreakAct({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* 📤 连胜分享卡（E2）：品牌绿底 + 聪聪 + 大火焰数字 + 本周日历 */}
+      <ShareCardButton
+        makeBlob={() =>
+          renderStreakCard({
+            streak: outcome.streakAfter,
+            week: buildShareWeek(xpHistory),
+          })
+        }
+        filename={`liansheng-${outcome.streakAfter}tian.png`}
+        shareText={`我已经在小猫头鹰课堂连续学习 ${outcome.streakAfter} 天啦！`}
+        className="btn-chunky-secondary px-10 mx-auto block mt-6"
+      />
 
       <ActContinueButton onClick={onContinue} />
     </div>

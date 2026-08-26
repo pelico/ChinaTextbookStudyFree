@@ -1,10 +1,17 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { SoundLink } from "@/components/SoundLink";
 import { motion } from "framer-motion";
-import { useProgressStore } from "@/store/progress";
+import {
+  useProgressStore,
+  REPORT_KIND_LABELS,
+  type QuestionReport,
+} from "@/store/progress";
+import { validateBackup, type BackupEnvelope } from "@cstf/core/backup";
 import { Mascot } from "@/components/Mascot";
+import { Modal } from "@/components/Modal";
+import { useToast } from "@/components/Toast";
 import { StatsBar } from "@/components/StatsBar";
 import { DailyGoalRing } from "@/components/DailyGoalRing";
 import { DailyQuestsPanel } from "@/components/DailyQuestsPanel";
@@ -239,10 +246,281 @@ export function ProfileClient() {
             })}
           </div>
         </section>
+
+        {/* 💾 数据 · 存档备份（E2）：导出 / 导入，BackupEnvelope v1 双端互通 */}
+        <BackupSection />
+
+        {/* 🚩 已报告的问题（E2）：本地列表 + 一键导出 */}
+        <div className="lg:col-span-2 mt-6 lg:mt-0">
+          {hydrated && <ReportsSection />}
+        </div>
         </div>
       </div>
     </main>
     </AppShell>
+  );
+}
+
+// ============================================================
+// 💾 数据 · 存档备份（E2）
+// ============================================================
+
+function downloadJson(obj: unknown, filename: string) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+function todayFileStamp(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function BackupSection() {
+  const toast = useToast();
+  const exportBackup = useProgressStore(s => s.exportBackup);
+  const importBackup = useProgressStore(s => s.importBackup);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  // 待确认的导入信封（validateBackup 已通过）
+  const [pending, setPending] = useState<{
+    envelope: BackupEnvelope;
+    repairs: string[];
+  } | null>(null);
+  const [importing, setImporting] = useState(false);
+
+  function handleExport() {
+    playSfx("tap");
+    haptic("medium");
+    const envelope = exportBackup();
+    downloadJson(envelope, `cstf-backup-${todayFileStamp()}.json`);
+    toast.success("存档已导出，收好这个文件哦", 3200);
+  }
+
+  async function handleFilePicked(file: File | null) {
+    if (!file) return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch {
+      toast.error("这个文件打不开，不是有效的存档文件");
+      return;
+    }
+    const result = validateBackup(parsed);
+    if (!result.ok || !result.data) {
+      toast.error(`导入失败：${result.errors[0] ?? "存档内容损坏"}`);
+      return;
+    }
+    playSfx("tap");
+    haptic("light");
+    setPending({ envelope: result.data, repairs: result.errors });
+  }
+
+  function handleConfirmImport() {
+    if (!pending || importing) return;
+    setImporting(true);
+    playSfx("unlock");
+    haptic("success");
+    importBackup(pending.envelope);
+    toast.success("存档导入成功，正在刷新…", 2400);
+    // 全量刷新：让所有页面 / watcher 基于新进度重算
+    window.setTimeout(() => window.location.reload(), 800);
+  }
+
+  const d = pending?.envelope.data;
+  const pendingLessons = d ? Object.keys(d.completedLessons).length : 0;
+  const exportedDate = pending?.envelope.exportedAt
+    ? new Date(pending.envelope.exportedAt).toLocaleDateString("zh-CN")
+    : "未知时间";
+
+  return (
+    <section
+      className="bg-white rounded-3xl border-2 border-bg-softer p-5 mt-6 lg:mt-0"
+      style={{ boxShadow: "0 4px 0 0 #e5e5e5" }}
+    >
+      <div className="flex items-center justify-between mb-1">
+        <div className="text-base font-extrabold text-ink">数据 · 存档备份</div>
+        <span className="text-[10px] text-ink-softer uppercase tracking-wider">
+          手机电脑互通
+        </span>
+      </div>
+      <div className="text-xs text-ink-light mb-3">
+        导出一个存档文件保存好；换设备或换到 iPhone 上，导入就能接着学
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={handleExport}
+          className="h-10 px-4 inline-flex items-center gap-1.5 rounded-2xl text-sm font-extrabold border-2 bg-primary text-white border-primary"
+          style={{ boxShadow: "0 3px 0 0 #58A700" }}
+        >
+          📤 导出存档
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            playSfx("tap");
+            haptic("light");
+            fileInputRef.current?.click();
+          }}
+          className="h-10 px-4 inline-flex items-center gap-1.5 rounded-2xl text-sm font-extrabold border-2 bg-white text-ink-light border-bg-softer hover:border-primary/40 transition-colors"
+          style={{ boxShadow: "0 2px 0 0 #e5e5e5" }}
+        >
+          📥 导入存档
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/json,.json"
+          className="hidden"
+          onChange={e => {
+            void handleFilePicked(e.target.files?.[0] ?? null);
+            e.target.value = ""; // 同一文件可重复选择
+          }}
+        />
+      </div>
+
+      {/* 导入确认弹层：覆盖警告 + 存档摘要 */}
+      <Modal
+        open={pending !== null}
+        onClose={() => (importing ? undefined : setPending(null))}
+        ariaLabel="确认导入存档"
+      >
+        <div className="flex flex-col items-center text-center">
+          <Mascot mood="surprise" size={96} />
+          <h2 className="text-2xl font-extrabold text-ink mt-3">确认导入这个存档？</h2>
+          <p className="text-ink-light mt-2 text-sm">
+            导入会<span className="font-extrabold text-danger">覆盖当前全部进度</span>
+            ，建议先点「导出存档」备份一份再导入。
+          </p>
+          {pending && (
+            <div className="mt-4 w-full rounded-2xl bg-bg-soft border-2 border-bg-softer p-3 text-left text-xs text-ink-light space-y-1">
+              <div>
+                来源：{pending.envelope.platform === "ios" ? "iPhone / iPad" : "网页版"} ·
+                导出于 {exportedDate}
+              </div>
+              <div>
+                进度：{pendingLessons} 节完成课程 · {d?.xp ?? 0} XP ·
+                连胜 {d?.streak ?? 0} 天 · {d?.gems ?? 0} 宝石
+              </div>
+              {pending.repairs.length > 0 && (
+                <div className="text-warning">
+                  有 {pending.repairs.length} 个小问题已自动修复，不影响导入
+                </div>
+              )}
+            </div>
+          )}
+          <div className="flex flex-col gap-3 w-full mt-5">
+            <button
+              type="button"
+              onClick={handleConfirmImport}
+              disabled={importing}
+              className={importing ? "btn-chunky-disabled w-full" : "btn-chunky-danger w-full"}
+            >
+              {importing ? "导入中…" : "覆盖并导入"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (importing) return;
+                playSfx("tap");
+                setPending(null);
+              }}
+              className="btn-chunky-ghost w-full"
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      </Modal>
+    </section>
+  );
+}
+
+// ============================================================
+// 🚩 已报告的问题（E2）
+// ============================================================
+
+function ReportsSection() {
+  const toast = useToast();
+  const reports = useProgressStore(s => s.reports);
+  // 最近的排最前
+  const sorted = [...reports].reverse();
+  const shown = sorted.slice(0, 20);
+
+  function handleExport() {
+    playSfx("tap");
+    haptic("medium");
+    downloadJson(reports, `cstf-reports-${todayFileStamp()}.json`);
+    toast.success("反馈记录已导出", 2800);
+  }
+
+  return (
+    <section
+      className="bg-white rounded-3xl border-2 border-bg-softer p-5"
+      style={{ boxShadow: "0 4px 0 0 #e5e5e5" }}
+      aria-label="已报告的问题"
+    >
+      <div className="flex items-center justify-between mb-1">
+        <div className="text-base font-extrabold text-ink">已报告的问题</div>
+        {reports.length > 0 && (
+          <button
+            type="button"
+            onClick={handleExport}
+            className="h-8 px-3 inline-flex items-center gap-1 rounded-xl text-xs font-extrabold border-2 bg-white text-ink-light border-bg-softer hover:border-primary/40 transition-colors"
+            style={{ boxShadow: "0 2px 0 0 #e5e5e5" }}
+          >
+            📤 导出
+          </button>
+        )}
+      </div>
+      <div className="text-xs text-ink-light mb-3">
+        答题时点小旗子 🚩 报告的题目问题都在这里 · 只保存在本机，不会上传
+      </div>
+
+      {reports.length === 0 ? (
+        <div className="text-sm text-ink-softer py-4 text-center">
+          还没有报告过问题，题目都很乖～
+        </div>
+      ) : (
+        <ul className="space-y-2">
+          {shown.map((r: QuestionReport) => (
+            <li
+              key={r.id}
+              className="rounded-2xl border-2 border-bg-softer bg-bg-soft/60 px-3.5 py-2.5"
+            >
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-danger/10 text-danger text-[10px] font-extrabold shrink-0">
+                  {REPORT_KIND_LABELS[r.kind]}
+                </span>
+                <span className="text-[10px] text-ink-softer ml-auto shrink-0 tabular-nums">
+                  {new Date(r.createdAt).toLocaleDateString("zh-CN")}
+                </span>
+              </div>
+              <div className="text-xs text-ink mt-1.5 line-clamp-2 leading-snug">
+                {r.questionText || "（无题干快照）"}
+              </div>
+              <div className="text-[10px] text-ink-softer mt-1">
+                课程 {r.lessonId} · 题目 #{r.questionId}
+                {r.answerGiven ? ` · 当时作答：${r.answerGiven.slice(0, 24)}` : ""}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {sorted.length > shown.length && (
+        <div className="text-[11px] text-ink-softer mt-2 text-center">
+          只显示最近 {shown.length} 条，导出可以看到全部 {reports.length} 条
+        </div>
+      )}
+    </section>
   );
 }
 

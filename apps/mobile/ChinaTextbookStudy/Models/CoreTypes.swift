@@ -331,6 +331,43 @@ struct LeagueWeekResult: Codable, Hashable, Identifiable {
     var id: String { weekKey }
 }
 
+/// 题目报错记录（Wave E2）—— 纯本地，不上传任何服务器。
+/// 设置页「已报告的问题」列表可查看并一键导出 JSON。
+struct QuestionReport: Codable, Hashable, Identifiable {
+    enum Kind: String, Codable, Hashable, CaseIterable {
+        case questionWrong = "question_wrong"
+        case answerShouldCount = "answer_should_count"
+        case audioIssue = "audio_issue"
+
+        var label: String {
+            switch self {
+            case .questionWrong:     return "题目有误"
+            case .answerShouldCount: return "我的答案应该算对"
+            case .audioIssue:        return "音频有问题"
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .questionWrong:     return "exclamationmark.triangle.fill"
+            case .answerShouldCount: return "checkmark.bubble.fill"
+            case .audioIssue:        return "speaker.slash.fill"
+            }
+        }
+    }
+
+    var lessonId: String
+    var questionId: Int
+    var kind: Kind
+    var createdAt: String               // ISO8601
+    /// 当次作答（可选，帮助核对「我的答案应该算对」）。
+    var userAnswer: String?
+    /// 题干快照（可选，脱离题库也能看懂报的是哪道题）。
+    var questionText: String?
+
+    var id: String { "\(lessonId)#\(questionId)#\(kind.rawValue)#\(createdAt)" }
+}
+
 struct UserProgress: Codable, Hashable {
     var xp: Int
     var streak: Int
@@ -387,6 +424,12 @@ struct UserProgress: Codable, Hashable {
     var leagueWeekKey: String?
     /// 待展示的上周结算结果（宝石已入账；UI 弹过结算幕后清除）。
     var pendingLeagueResult: LeagueWeekResult?
+
+    // Wave E2（all optional for backward compat）
+    /// 已看过课前知识讲解的课程 id（content-2）：看过一次不再重复打断。
+    var seenIntros: [String]?
+    /// 题目报错列表（纯本地；设置页可查看 / 导出）。
+    var reports: [QuestionReport]?
 }
 
 // ============================================================

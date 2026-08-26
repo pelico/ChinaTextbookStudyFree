@@ -28,7 +28,7 @@ import { Flame, Gem } from "./icons";
 import { playSfx } from "@/lib/sfx";
 import { haptic } from "@/lib/haptic";
 
-const HIDDEN_PREFIXES = ["/lesson/", "/reading/"];
+const HIDDEN_PREFIXES = ["/lesson/", "/reading/", "/jump/"];
 
 /** 本地时区 YYYY-MM-DD（与 store 同实现） */
 function todayStr(): string {
