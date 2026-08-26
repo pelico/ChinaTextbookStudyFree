@@ -313,6 +313,12 @@ struct UserProgress: Codable, Hashable {
     var dailyLessons: Int?
     var dailyReviews: Int?
     var dailyReadings: Int?
+
+    // Wave B economy ledgers (all optional for backward compat)
+    var claimedStreakRewards: [Int]?    // streak milestones already paid (3/7/14/…)
+    var lastDailyRewardDate: String?    // YYYY-MM-DD the login reward was last claimed
+    var unlockedAchievements: [String]? // permanent achievement ledger (never re-locks)
+    var freezesMigrated: Bool?          // one-time max(current, 2) shield migration done
 }
 
 // ============================================================

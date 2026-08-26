@@ -5,5 +5,6 @@ export * from "./subjects";
 export * from "./cosmetics";
 export * from "./cn";
 export * from "./chestLogic";
+export * from "./economy";
 export * from "./mascotTriggers";
 export * from "./achievements";

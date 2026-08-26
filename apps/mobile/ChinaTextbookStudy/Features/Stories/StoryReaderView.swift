@@ -52,6 +52,8 @@ struct StoryReaderView: View {
     let bookId: String
     let storyId: String
     @State private var story: Story?
+    /// First-try quiz results keyed by question id (unanswered = not correct).
+    @State private var quizResults: [Int: Bool] = [:]
     @ObservedObject private var audioPlayer = AudioPlayer.shared
     @ObservedObject private var progressStore = ProgressStore.shared
 
@@ -88,7 +90,9 @@ struct StoryReaderView: View {
                     if !story.questions.isEmpty {
                         Text("阅读理解").duoFont(.heading).foregroundStyle(DuoColors.ink).padding(.top, 8)
                         ForEach(story.questions) { q in
-                            StoryQuizItem(question: Self.question(from: q))
+                            StoryQuizItem(question: Self.question(from: q)) { ok in
+                                quizResults[q.id] = ok
+                            }
                         }
                     }
 
@@ -118,15 +122,23 @@ struct StoryReaderView: View {
         .background(active ? DuoColors.primary.opacity(0.10) : Color.clear, in: .rect(cornerRadius: Radius.control))
     }
 
+    /// 故事测验 XP —— 统一口径：accuracy ≥ 0.8 → 15，否则 5（无宝石）。
+    /// 没有测验题的故事按满分计；没答的题按答错计。
+    private func storyXp(_ story: Story) -> Int {
+        guard !story.questions.isEmpty else { return Economy.ReadingXP.storyGood }
+        let correct = story.questions.filter { quizResults[$0.id] == true }.count
+        return Economy.storyQuizXp(accuracy: Double(correct) / Double(story.questions.count))
+    }
+
     @ViewBuilder
     private func completionButton(_ story: Story) -> some View {
         let done = progressStore.isReadingCompleted(story.id)
         Button {
             guard !done else { return }
-            progressStore.completeReading(id: story.id, xp: 15)
+            progressStore.completeReading(id: story.id, xp: storyXp(story))
             HapticEngine.shared.success(); SFXEngine.shared.play(.complete)
         } label: {
-            Text(done ? "已读完 ✓" : "读完了  +15 XP")
+            Text(done ? "已读完 ✓" : "读完了  +\(storyXp(story)) XP")
         }
         .buttonStyle(ChunkyButtonStyle(done ? .disabled : .primary))
         .disabled(done)
@@ -161,6 +173,8 @@ struct StoryReaderView: View {
 /// One graded comprehension question — reuses the lesson question renderer.
 private struct StoryQuizItem: View {
     let question: Question
+    /// Reports the graded first-try result up to the reader (drives quiz XP).
+    var onResult: (Bool) -> Void = { _ in }
     @State private var answer = ""
     @State private var phase: LessonRunnerView.QuestionPhase = .answering
     @State private var isCorrect: Bool?
@@ -202,6 +216,7 @@ private struct StoryQuizItem: View {
     private func check() {
         let ok = Grade.gradeAnswer(question: question, userAnswer: answer)
         withAnimation(Motion.reveal) { isCorrect = ok; phase = .checked }
+        onResult(ok)
         if ok { SFXEngine.shared.play(.correct); HapticEngine.shared.correct() }
         else { SFXEngine.shared.play(.wrong); HapticEngine.shared.wrong() }
     }

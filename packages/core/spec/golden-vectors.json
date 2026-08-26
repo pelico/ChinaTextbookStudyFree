@@ -1,0 +1,75 @@
+{
+  "$comment": "跨端经济黄金测试向量（Wave B 单一事实源）。TS 端由 packages/core/src/__tests__/goldenVectors.test.ts 消费；Swift 端需读取同一份文件跑等价断言。任何数值改动必须双端同步。",
+  "version": 1,
+  "stars": [
+    { "accuracy": 0.749, "expStars": 1 },
+    { "accuracy": 0.75, "expStars": 1 },
+    { "accuracy": 0.799, "expStars": 1 },
+    { "accuracy": 0.8, "expStars": 2 },
+    { "accuracy": 0.949, "expStars": 2 },
+    { "accuracy": 0.95, "expStars": 3 },
+    { "accuracy": 1.0, "expStars": 3 }
+  ],
+  "xp": [
+    { "correctCount": 8, "perfect": false, "firstPerfect": false, "isWeekend": false, "expXp": 80 },
+    { "correctCount": 10, "perfect": true, "firstPerfect": false, "isWeekend": false, "expXp": 105 },
+    { "correctCount": 10, "perfect": true, "firstPerfect": true, "isWeekend": false, "expXp": 110 },
+    { "correctCount": 10, "perfect": true, "firstPerfect": true, "isWeekend": true, "expXp": 220 },
+    { "correctCount": 5, "perfect": false, "firstPerfect": false, "isWeekend": true, "expXp": 100 },
+    { "correctCount": 0, "perfect": false, "firstPerfect": false, "isWeekend": true, "expXp": 0 },
+    { "correctCount": 7, "perfect": false, "firstPerfect": true, "isWeekend": false, "expXp": 75 }
+  ],
+  "gemDrip": [
+    { "stars": 1, "isFirstPerfect": false, "crossedDailyGoal": false, "expGems": 3 },
+    { "stars": 2, "isFirstPerfect": false, "crossedDailyGoal": false, "expGems": 8 },
+    { "stars": 3, "isFirstPerfect": false, "crossedDailyGoal": false, "expGems": 13 },
+    { "stars": 3, "isFirstPerfect": true, "crossedDailyGoal": false, "expGems": 28 },
+    { "stars": 3, "isFirstPerfect": true, "crossedDailyGoal": true, "expGems": 48 },
+    { "stars": 1, "isFirstPerfect": false, "crossedDailyGoal": true, "expGems": 23 }
+  ],
+  "streakAdvance": [
+    { "$case": "同日重复学习", "streak": 5, "freezes": 2, "gapDays": 0, "isMonday": false, "expStreak": 5, "expFreezes": 2, "expConsumed": 0 },
+    { "$case": "gap1 正常连续", "streak": 5, "freezes": 1, "gapDays": 1, "isMonday": false, "expStreak": 6, "expFreezes": 1, "expConsumed": 0 },
+    { "$case": "gap1 周一补给 +1", "streak": 5, "freezes": 1, "gapDays": 1, "isMonday": true, "expStreak": 6, "expFreezes": 2, "expConsumed": 0 },
+    { "$case": "gap1 周一但护盾已满，封顶 2", "streak": 5, "freezes": 2, "gapDays": 1, "isMonday": true, "expStreak": 6, "expFreezes": 2, "expConsumed": 0 },
+    { "$case": "gap2 消耗 1 护盾续命", "streak": 10, "freezes": 2, "gapDays": 2, "isMonday": false, "expStreak": 11, "expFreezes": 1, "expConsumed": 1 },
+    { "$case": "gap3 消耗 2 护盾续命", "streak": 10, "freezes": 2, "gapDays": 3, "isMonday": false, "expStreak": 11, "expFreezes": 0, "expConsumed": 2 },
+    { "$case": "gap3 护盾不足，连胜归 1，护盾保留", "streak": 10, "freezes": 1, "gapDays": 3, "isMonday": false, "expStreak": 1, "expFreezes": 1, "expConsumed": 0 },
+    { "$case": "时钟回拨（负 gap），一切不变", "streak": 7, "freezes": 1, "gapDays": -1, "isMonday": false, "expStreak": 7, "expFreezes": 1, "expConsumed": 0 }
+  ],
+  "srsReview": [
+    { "box": 1, "isCorrect": true, "expBox": 2, "expIntervalDays": 1 },
+    { "box": 2, "isCorrect": true, "expBox": 3, "expIntervalDays": 3 },
+    { "box": 3, "isCorrect": true, "expBox": 3, "expIntervalDays": 7 },
+    { "box": 2, "isCorrect": false, "expBox": 1, "expIntervalDays": 0 },
+    { "box": 3, "isCorrect": false, "expBox": 1, "expIntervalDays": 0 }
+  ],
+  "dailyReward": [
+    { "streak": 0, "expGems": 5 },
+    { "streak": 1, "expGems": 5 },
+    { "streak": 3, "expGems": 12 },
+    { "streak": 7, "expGems": 30 },
+    { "streak": 30, "expGems": 30 }
+  ],
+  "milestone": [
+    { "streakAfter": 3, "expGems": 30 },
+    { "streakAfter": 7, "expGems": 80 },
+    { "streakAfter": 14, "expGems": 150 },
+    { "streakAfter": 100, "expGems": 800 },
+    { "streakAfter": 101, "expGems": 0 }
+  ],
+  "chestSlot": [
+    { "lessonsCompletedInUnit": 1, "expChests": 0 },
+    { "lessonsCompletedInUnit": 2, "expChests": 0 },
+    { "lessonsCompletedInUnit": 3, "expChests": 0 },
+    { "lessonsCompletedInUnit": 4, "expChests": 0 },
+    { "lessonsCompletedInUnit": 5, "expChests": 1 },
+    { "lessonsCompletedInUnit": 6, "expChests": 1 },
+    { "lessonsCompletedInUnit": 7, "expChests": 1 },
+    { "lessonsCompletedInUnit": 8, "expChests": 1 },
+    { "lessonsCompletedInUnit": 9, "expChests": 1 },
+    { "lessonsCompletedInUnit": 10, "expChests": 2 },
+    { "lessonsCompletedInUnit": 11, "expChests": 2 },
+    { "lessonsCompletedInUnit": 12, "expChests": 2 }
+  ]
+}

@@ -33,32 +33,32 @@ final class WaveATests: XCTestCase {
     // MARK: displayStreak tri-state
 
     func testDisplayStreakShowsCurrentStreakWhenStudiedToday() {
-        store.completeLesson(lessonId: "t-l1", accuracy: 1.0, questionCount: 5, now: day("2026-03-02"))
+        store.completeLesson(lessonId: "t-l1", correctCount: 5, questionCount: 5, now: day("2026-03-02"))
         XCTAssertEqual(store.salvageableStreak(now: day("2026-03-02")), 1)
     }
 
     func testDisplayStreakHoldsWhileTodayCanStillContinueIt() {
-        store.completeLesson(lessonId: "t-l1", accuracy: 1.0, questionCount: 5, now: day("2026-03-01"))
-        store.completeLesson(lessonId: "t-l2", accuracy: 1.0, questionCount: 5, now: day("2026-03-02"))
+        store.completeLesson(lessonId: "t-l1", correctCount: 5, questionCount: 5, now: day("2026-03-01"))
+        store.completeLesson(lessonId: "t-l2", correctCount: 5, questionCount: 5, now: day("2026-03-02"))
         XCTAssertEqual(store.progress.streak, 2)
         // Next morning, nothing studied yet: the 2-day streak is still savable.
         XCTAssertEqual(store.salvageableStreak(now: day("2026-03-03")), 2)
     }
 
     func testDisplayStreakDropsToZeroWhenShieldsCannotCoverTheGap() {
-        store.completeLesson(lessonId: "t-l1", accuracy: 1.0, questionCount: 5, now: day("2026-03-02"))
-        XCTAssertEqual(store.streakFreezes, 0)
-        // Missed 03-03 and 03-04 with no shields: the chain is gone, show 0 —
-        // even though the stored streak field still says 1 until next study.
-        XCTAssertEqual(store.salvageableStreak(now: day("2026-03-05")), 0)
+        store.completeLesson(lessonId: "t-l1", correctCount: 5, questionCount: 5, now: day("2026-03-02"))
+        // Wave B baseline: fresh saves carry 2 shields.
+        XCTAssertEqual(store.streakFreezes, 2)
+        // Missed 03-03/03-04/03-05 — three days, only 2 shields: the chain is
+        // gone, show 0 — even though the stored streak field still says 1
+        // until the next study writes it.
+        XCTAssertEqual(store.salvageableStreak(now: day("2026-03-06")), 0)
         XCTAssertEqual(store.progress.streak, 1)
     }
 
     func testDisplayStreakSurvivesGapCoveredByShields() {
-        store.addGems(400)
-        XCTAssertTrue(store.buyStreakFreeze())
-        XCTAssertTrue(store.buyStreakFreeze())
-        store.completeLesson(lessonId: "t-l1", accuracy: 1.0, questionCount: 5, now: day("2026-03-02"))
+        // The 2 starter shields cover a 2-day absence.
+        store.completeLesson(lessonId: "t-l1", correctCount: 5, questionCount: 5, now: day("2026-03-02"))
         // Missed 03-03 + 03-04 with 2 shields banked: still savable today.
         XCTAssertEqual(store.salvageableStreak(now: day("2026-03-05")), 1)
     }

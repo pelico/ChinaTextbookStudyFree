@@ -9,9 +9,9 @@ import Combine
 final class ProgressStore: ObservableObject {
     static let shared = ProgressStore()
 
-    static let maxHearts = 5
-    /// 5 minutes per heart, matching web's HEART_RECHARGE_MS.
-    static let heartRechargeSeconds: TimeInterval = 5 * 60
+    static let maxHearts = Economy.maxHearts
+    /// 5 minutes per heart, matching the shared economy spec.
+    static let heartRechargeSeconds: TimeInterval = TimeInterval(Economy.heartRegenSeconds)
 
     @Published private(set) var progress: UserProgress
 
@@ -38,9 +38,12 @@ final class ProgressStore: ObservableObject {
         // UI tests launch with `-uitest` to get a hermetic, deterministic state:
         // no persisted progress, onboarding already done, seed book selected.
         if ProcessInfo.processInfo.arguments.contains("-uitest") {
-            var fresh = UserProgress(xp: 0, streak: 0, lastActiveDate: "", completedLessons: [:], mistakesBank: [])
+            var fresh = Self.freshProgress()
             fresh.gems = 500
             fresh.hearts = Self.maxHearts
+            // Keep UI tests deterministic: no login-reward card popping over
+            // the flows under test.
+            fresh.lastDailyRewardDate = SRS.todayString()
             self.progress = fresh
             self.selectedGrade = 1
             self.activeBookId = "g1up"
@@ -50,15 +53,17 @@ final class ProgressStore: ObservableObject {
         #endif
 
         if let restored = PersistenceService.read(UserProgress.self, from: Self.progressFile) {
-            self.progress = restored
+            var p = restored
+            // One-time shield migration: old saves get topped up to the new
+            // 2-shield baseline; anything above 2 is kept (never confiscated),
+            // only new purchases are capped.
+            if p.freezesMigrated != true {
+                p.streakFreezes = max(p.streakFreezes ?? 0, Economy.initialFreezes)
+                p.freezesMigrated = true
+            }
+            self.progress = p
         } else {
-            self.progress = UserProgress(
-                xp: 0,
-                streak: 0,
-                lastActiveDate: "",
-                completedLessons: [:],
-                mistakesBank: []
-            )
+            self.progress = Self.freshProgress()
         }
         if let prefs = PersistenceService.read(Prefs.self, from: Self.prefsFile) {
             self.selectedGrade = prefs.selectedGrade
@@ -69,16 +74,47 @@ final class ProgressStore: ObservableObject {
             self.activeBookId = nil
             self.hasCompletedOnboarding = false
         }
+
+        // One-time achievement-ledger migration, aligned with web's persist
+        // migrate: historical unlocks enter the permanent ledger silently —
+        // no retroactive gem payout. Only unlocks from here on pay rewards.
+        if progress.unlockedAchievements == nil {
+            var p = progress
+            p.unlockedAchievements = Achievements.latchUnlocked(
+                prevLedger: [],
+                currentUnlockedIds: Achievements.unlockedIds(for: snapshot(of: p))
+            )
+            progress = p
+        }
     }
 
     // MARK: - Mutations
 
+    /// A brand-new save file: Wave B economy baseline (2 streak shields).
+    private static func freshProgress() -> UserProgress {
+        var p = UserProgress(
+            xp: 0,
+            streak: 0,
+            lastActiveDate: "",
+            completedLessons: [:],
+            mistakesBank: []
+        )
+        p.streakFreezes = Economy.initialFreezes
+        p.freezesMigrated = true
+        return p
+    }
+
     /// Award XP + record the result for a finished lesson.
-    /// Stars are derived from accuracy: ≥0.95 → 3, ≥0.80 → 2, else 1.
+    ///
+    /// Wave B economy (single source of truth = packages/core/src/economy.ts):
+    ///   - accuracy = first-try correct / total; stars via `Economy.starsFromAccuracy`
+    ///   - XP = correctCount×10, +5 perfect, +5 first-ever 3 stars, weekend ×2
+    ///   - gems via `Economy.lessonGemDrip`; streak milestones + achievement
+    ///     rewards are banked on top (reported separately in the outcome).
     @discardableResult
     func completeLesson(
         lessonId: String,
-        accuracy: Double,
+        correctCount: Int,
         questionCount: Int,
         now: Date = Date()
     ) -> LessonOutcome {
@@ -86,16 +122,12 @@ final class ProgressStore: ObservableObject {
         // settle the timer before anything below reads a stale count.
         tickHeartRecharge(now: now)
 
-        let stars: Int
-        switch accuracy {
-        case 0.95...:  stars = 3
-        case 0.80...:  stars = 2
-        default:       stars = 1
-        }
-        // 10 XP per question, doubled for a 3-star clear
-        let baseXp = questionCount * 10
-        let bonus = stars == 3 ? baseXp : 0
-        let xpGain = baseXp + bonus
+        let total = max(1, questionCount)
+        let correct = min(max(0, correctCount), total)
+        let accuracy = Double(correct) / Double(total)
+        let stars = Economy.starsFromAccuracy(accuracy)
+        let perfect = correct >= total
+        let isWeekend = Economy.isWeekend(now)
 
         let result = LessonResult(
             lessonId: lessonId,
@@ -111,21 +143,21 @@ final class ProgressStore: ObservableObject {
         let todayKey = SRS.todayString(now: now)
         let todayXpBefore = progress.lastXpDate == todayKey ? (progress.todayXp ?? 0) : 0
         let streakBefore = progress.streak
-        let snapshotBefore = achievementSnapshot
 
         var p = progress
         rollDailyIfNeeded(&p, now: now)
+
+        let priorStars = p.completedLessons[lessonId]?.stars ?? 0
+        let firstPerfect = stars == 3 && priorStars < 3
+
+        let xpGain = Economy.xpForLesson(
+            correctCount: correct,
+            perfect: perfect,
+            firstPerfect: firstPerfect,
+            isWeekend: isWeekend
+        )
         recordXP(&p, xpGain, now: now)
         p.dailyLessons = (p.dailyLessons ?? 0) + 1
-
-        // Per-lesson gem drop — same economy as web's recordLessonComplete:
-        // 3 base, +5 two-star, +10 three-star, +15 first perfect, +20 the
-        // first time today's XP goal is crossed.
-        let priorStars = p.completedLessons[lessonId]?.stars ?? 0
-        var gemsGained = 3
-        if stars == 2 { gemsGained += 5 }
-        if stars == 3 { gemsGained += 10 }
-        if stars == 3 && priorStars < 3 { gemsGained += 15 }
 
         // Take the best result so a re-run can only improve stars.
         if let prior = p.completedLessons[lessonId] {
@@ -133,12 +165,18 @@ final class ProgressStore: ObservableObject {
         } else {
             p.completedLessons[lessonId] = result
         }
-        bumpStreak(&p, now: now)
+        let milestoneGems = bumpStreak(&p, now: now)
 
         let dailyGoalReachedNow = todayXpBefore < goal && (p.todayXp ?? 0) >= goal
-        if dailyGoalReachedNow { gemsGained += 20 }
+        let gemsGained = Economy.lessonGemDrip(
+            stars: stars,
+            isFirstPerfect: firstPerfect,
+            crossedDailyGoal: dailyGoalReachedNow
+        )
         p.gems = (p.gems ?? 0) + gemsGained
         p.lifetimeGems = (p.lifetimeGems ?? 0) + gemsGained
+
+        let newAchievements = latchAchievements(&p)
 
         progress = p
         save()
@@ -151,7 +189,9 @@ final class ProgressStore: ObservableObject {
             streakAfter: p.streak,
             dailyGoalReachedNow: dailyGoalReachedNow,
             gemsGained: gemsGained,
-            newAchievements: Achievements.newlyUnlocked(before: snapshotBefore, after: achievementSnapshot)
+            newAchievements: newAchievements,
+            milestoneGems: milestoneGems,
+            weekendDoubled: isWeekend && xpGain > 0
         )
     }
 
@@ -184,6 +224,10 @@ final class ProgressStore: ObservableObject {
         } else {
             p.mistakesBank[idx] = updated
         }
+        // Latch before the graduated entry disappears from the bank — the
+        // permanent ledger is what keeps "first-review" from re-locking when
+        // reviewed mistakes graduate out.
+        _ = latchAchievements(&p)
         progress = p
         save()
     }
@@ -243,12 +287,71 @@ final class ProgressStore: ObservableObject {
         )
     }
 
+    /// Unlocked achievements = the permanent ledger ∪ whatever the live
+    /// snapshot currently satisfies. The union means a badge shown as earned
+    /// can never flip back to locked when a streak breaks or a reviewed
+    /// mistake graduates out of the bank.
+    var unlockedAchievementIds: Set<String> {
+        Set(progress.unlockedAchievements ?? [])
+            .union(Achievements.unlockedIds(for: achievementSnapshot))
+    }
+
     // MARK: - Gamification Accessors (hearts / gems / daily XP)
 
     var hearts: Int { progress.hearts ?? Self.maxHearts }
     var gems: Int { progress.gems ?? 0 }
-    var dailyGoal: Int { progress.dailyGoal ?? 50 }
+    var dailyGoal: Int { progress.dailyGoal ?? Economy.defaultDailyGoal }
     var streakFreezes: Int { progress.streakFreezes ?? 0 }
+
+    /// A login reward claimed this launch/foreground that the UI hasn't
+    /// presented yet. HomeView shows a light card and clears it.
+    @Published var pendingDailyReward: DailyRewardClaim?
+
+    struct DailyRewardClaim: Equatable {
+        /// Gems banked by this claim.
+        let gems: Int
+        /// The effective (salvageable) streak the tier was read from; 0 when
+        /// the chain is broken — copy must not brag about a dead streak.
+        let effectiveStreak: Int
+    }
+
+    /// Claim today's login reward if it hasn't been claimed yet (once per
+    /// local day, `lastDailyRewardDate` ledger). Tier = min(有效连胜, 7); a
+    /// broken chain honestly drops to tier 0. Publishes `pendingDailyReward`
+    /// for the home screen to celebrate.
+    func claimDailyRewardIfDue(now: Date = Date()) {
+        let today = SRS.todayString(now: now)
+        guard progress.lastDailyRewardDate != today else { return }
+        let effectiveStreak = salvageableStreak(now: now)
+        let gems = Economy.dailyRewardForStreak(effectiveStreak)
+        var p = progress
+        p.lastDailyRewardDate = today
+        p.gems = (p.gems ?? 0) + gems
+        p.lifetimeGems = (p.lifetimeGems ?? 0) + gems
+        progress = p
+        save()
+        pendingDailyReward = DailyRewardClaim(gems: gems, effectiveStreak: effectiveStreak)
+    }
+
+    /// Spend 50 gems to pull `lastActiveDate` back to yesterday, reviving a
+    /// streak the shields could not cover. Only offered when nothing was
+    /// studied today AND the gap is ≥2 days AND the chain is otherwise dead.
+    @discardableResult
+    func makeUpYesterdayStreak(now: Date = Date()) -> Bool {
+        let today = SRS.todayString(now: now)
+        guard progress.streak > 0,
+              !progress.lastActiveDate.isEmpty,
+              progress.lastActiveDate != today,
+              SRS.daysBetween(progress.lastActiveDate, today) >= 2,
+              salvageableStreak(now: now) == 0
+        else { return false }
+        guard spendGems(Economy.streakMakeupCost) else { return false }
+        var p = progress
+        p.lastActiveDate = SRS.dateString(daysFromNow: -1, now: now)
+        progress = p
+        save()
+        return true
+    }
 
     /// XP earned today (resets when date changes).
     var todayXp: Int {
@@ -341,6 +444,7 @@ final class ProgressStore: ObservableObject {
     /// left overnight never shows yesterday's state.
     func refreshForNow(now: Date = Date()) {
         tickHeartRecharge(now: now)
+        claimDailyRewardIfDue(now: now)
         let today = SRS.todayString(now: now)
         if today != lastKnownDay {
             lastKnownDay = today
@@ -364,12 +468,13 @@ final class ProgressStore: ObservableObject {
         save()
     }
 
-    /// Add gems (from chest reward, achievements, etc.). Tracks a lifetime total
+    /// Add gems (from chest reward, quests, etc.). Tracks a lifetime total
     /// so "earn N gems" achievements don't reset when the balance is spent.
     func addGems(_ amount: Int) {
         var p = progress
         p.gems = (p.gems ?? 0) + amount
         if amount > 0 { p.lifetimeGems = (p.lifetimeGems ?? 0) + amount }
+        _ = latchAchievements(&p)   // gem-collector can unlock right here
         progress = p
         save()
     }
@@ -386,9 +491,12 @@ final class ProgressStore: ObservableObject {
         return true
     }
 
-    /// Spend gems to add one streak freeze shield. Returns true on success.
+    /// Spend gems to add one streak freeze shield. Holdings are capped at
+    /// `Economy.maxFreezes` (legacy saves above the cap keep what they have —
+    /// they just can't buy more). Returns true on success.
     @discardableResult
-    func buyStreakFreeze(cost: Int = 200) -> Bool {
+    func buyStreakFreeze(cost: Int = Economy.freezeCost) -> Bool {
+        guard streakFreezes < Economy.maxFreezes else { return false }
         guard spendGems(cost) else { return false }
         var p = progress
         p.streakFreezes = (p.streakFreezes ?? 0) + 1
@@ -401,7 +509,7 @@ final class ProgressStore: ObservableObject {
     /// recharge timer first — hearts that came back on their own while the UI
     /// was stale must never be sold back to the learner for gems.
     @discardableResult
-    func buyHeartRefill(cost: Int = 350, now: Date = Date()) -> Bool {
+    func buyHeartRefill(cost: Int = Economy.heartRefillCost, now: Date = Date()) -> Bool {
         tickHeartRecharge(now: now)
         guard hearts < Self.maxHearts else { return false }
         guard spendGems(cost) else { return false }
@@ -434,6 +542,7 @@ final class ProgressStore: ObservableObject {
         var owned = p.ownedCosmetics ?? []
         owned.append(item.id)
         p.ownedCosmetics = owned
+        _ = latchAchievements(&p)   // first-cosmetic
         progress = p
         save()
         return true
@@ -479,6 +588,7 @@ final class ProgressStore: ObservableObject {
         recordXP(&p, amount, now: now)
         p.dailyReviews = (p.dailyReviews ?? 0) + max(0, reviewedCount)
         bumpStreak(&p, now: now)
+        _ = latchAchievements(&p)
         progress = p
         save()
         NotificationService.shared.rescheduleStreakReminder(streak: p.streak, studiedToday: true)
@@ -500,6 +610,7 @@ final class ProgressStore: ObservableObject {
         recordXP(&p, xp, now: now)
         p.dailyReadings = (p.dailyReadings ?? 0) + 1
         bumpStreak(&p, now: now)
+        _ = latchAchievements(&p)
         progress = p
         save()
         NotificationService.shared.rescheduleStreakReminder(streak: p.streak, studiedToday: true)
@@ -519,7 +630,8 @@ final class ProgressStore: ObservableObject {
 
     /// Reset all learning progress (used by Settings). Keeps nothing.
     func resetProgress() {
-        progress = UserProgress(xp: 0, streak: 0, lastActiveDate: "", completedLessons: [:], mistakesBank: [])
+        progress = Self.freshProgress()
+        pendingDailyReward = nil
         save()
     }
 
@@ -645,7 +757,11 @@ final class ProgressStore: ObservableObject {
         }
     }
 
-    private func bumpStreak(_ p: inout UserProgress, now: Date) {
+    /// Advance the streak for study activity on `now`, then pay out any
+    /// newly-reached streak milestone (once per tier, `claimedStreakRewards`
+    /// ledger). Returns the milestone gems banked (0 = none).
+    @discardableResult
+    private func bumpStreak(_ p: inout UserProgress, now: Date) -> Int {
         let adv = Streak.advance(
             streak: p.streak,
             streakFreezes: p.streakFreezes ?? 0,
@@ -655,6 +771,50 @@ final class ProgressStore: ObservableObject {
         p.streak = adv.streak
         p.streakFreezes = adv.streakFreezes
         p.lastActiveDate = adv.lastActiveDate
+
+        let reward = Economy.streakMilestoneReward(p.streak)
+        var claimed = p.claimedStreakRewards ?? []
+        guard reward > 0, !claimed.contains(p.streak) else { return 0 }
+        claimed.append(p.streak)
+        p.claimedStreakRewards = claimed
+        p.gems = (p.gems ?? 0) + reward
+        p.lifetimeGems = (p.lifetimeGems ?? 0) + reward
+        return reward
+    }
+
+    // MARK: - Achievement ledger (permanent, never re-locks)
+
+    /// Snapshot of an arbitrary progress value (not necessarily the published
+    /// one) — used to latch achievements mid-mutation.
+    private func snapshot(of p: UserProgress) -> AchievementProgressSnapshot {
+        AchievementProgressSnapshot(
+            xp: p.xp,
+            streak: p.streak,
+            lifetimeGems: p.lifetimeGems ?? (p.gems ?? 0),
+            completedLessonCount: p.completedLessons.count,
+            perfectedLessonCount: p.completedLessons.values.filter { $0.stars == 3 }.count,
+            ownedCosmeticCount: Set(Cosmetics.starters.map(\.id)).union(p.ownedCosmetics ?? []).count,
+            reviewedMistakeCount: p.mistakesBank.filter { ($0.correctCount ?? 0) > 0 }.count
+        )
+    }
+
+    /// Merge currently-unlocked achievements into the permanent
+    /// `unlockedAchievements` ledger (only ever grows — a streak falling back
+    /// can never re-lock an earned badge) and pay each newly-latched
+    /// achievement's gem reward exactly once. Returns the newly unlocked ones.
+    private func latchAchievements(_ p: inout UserProgress) -> [Achievement] {
+        let current = Achievements.unlockedIds(for: snapshot(of: p))
+        let ledger = p.unlockedAchievements ?? []
+        let ledgerSet = Set(ledger)
+        let newlyUnlocked = Achievements.all.filter {
+            current.contains($0.id) && !ledgerSet.contains($0.id)
+        }
+        guard !newlyUnlocked.isEmpty else { return [] }
+        p.unlockedAchievements = Achievements.latchUnlocked(prevLedger: ledger, currentUnlockedIds: current)
+        let reward = newlyUnlocked.reduce(0) { $0 + $1.reward }
+        p.gems = (p.gems ?? 0) + reward
+        p.lifetimeGems = (p.lifetimeGems ?? 0) + reward
+        return newlyUnlocked
     }
 
     private func save() {

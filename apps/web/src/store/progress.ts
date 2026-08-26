@@ -4,6 +4,28 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type { Question, LessonResult } from "@/types";
 import { DEFAULT_EQUIPPED, getCosmeticById, getStarterCosmetics } from "@/lib/cosmetics";
+import {
+  starsFromAccuracy,
+  lessonGemDrip,
+  isWeekendXpActive,
+  dailyRewardForStreak,
+  MAX_HEARTS,
+  HEART_REGEN_SECONDS,
+  HEART_REFILL_COST,
+  FREEZE_COST,
+  MAX_FREEZES,
+  INITIAL_FREEZES,
+  STREAK_MAKEUP_COST,
+  STREAK_MILESTONE_REWARDS,
+  DAILY_GOAL_OPTIONS,
+  DEFAULT_DAILY_GOAL,
+  DAILY_GOAL_BONUS,
+  FIRST_PERFECT_XP_BONUS,
+} from "@cstf/core/economy";
+import {
+  ALL_ACHIEVEMENTS,
+  computeUnlockedAchievementIds,
+} from "@cstf/core/achievements";
 
 /**
  * 错题条目，含 SRS（间隔重复）字段。
@@ -107,6 +129,11 @@ interface ProgressState {
   // 与课程记录彻底分离：阅读只发 XP、不发宝石、不算课时（对齐 iOS completeReading）
   completedReadings: Record<string, string>;
 
+  // 🏆 v8：成就永久解锁账本（只进不出，防连胜回落"回锁"；奖励只发一次）
+  unlockedAchievements: Record<string, true>;
+  /** 最近一次发放但尚未庆祝的连胜里程碑（DailyRewardWatcher 消费后清空） */
+  pendingStreakMilestone: { streak: number; gems: number } | null;
+
   // actions
   setSelectedGrade: (grade: number | null) => void;
   recordLessonComplete: (lessonId: string, lessonTitle: string, accuracy: number, xpGained: number) => void;
@@ -122,6 +149,10 @@ interface ProgressState {
   loseHeart: () => void;
   refreshHearts: () => void;
   refillHeartsFull: () => void; // 调试/管理用
+  /** 花 350 宝石立即补满红心（先刷新自然回复；已满不扣费返回 false） */
+  buyHeartRefill: () => boolean;
+  /** 花 200 宝石购买一枚连胜护盾（持有上限 2，满则返回 false） */
+  buyStreakFreeze: () => boolean;
   setDailyGoal: (goal: number) => void;
 
   /** 更新/写入当前进行中的课程会话 */
@@ -155,40 +186,44 @@ interface ProgressState {
   // 🔁 连胜补卡：花 50 gems 找回昨天的 streak（不让小朋友因为漏了一天就清零）
   makeUpYesterdayStreak: () => boolean;
 
-  /** 领取今日登陆奖励，返回获得的 gems 数；已领过返回 0 */
-  claimDailyReward: () => number;
+  /**
+   * 领取今日登陆奖励。数额按「有效连胜」折算（断签未救回按 0 档）。
+   * 返回 { gems, effectiveStreak }；已领过返回 gems=0。
+   */
+  claimDailyReward: () => { gems: number; effectiveStreak: number };
+
+  /** 按成就账本发放一枚成就的解锁奖励（幂等），返回发放的宝石数；已在账本返回 0 */
+  claimAchievement: (id: string) => number;
+  /** 里程碑庆祝已展示，清除 pending 标记 */
+  clearPendingStreakMilestone: () => void;
 
   // 📚 SRS：复习答题后的更新
   reviewMistake: (lessonId: string, questionId: number, isCorrect: boolean) => void;
 }
 
-/** 美妆系统：单次连胜里程碑奖励的 gems 数（按里程碑 stage） */
-export const STREAK_MILESTONE_REWARDS: Record<number, number> = {
-  3: 30,
-  7: 80,
-  14: 150,
-  30: 300,
-  60: 500,
-  100: 800,
-};
-
-/** 连胜补卡价格 */
-export const STREAK_MAKEUP_COST = 50;
-
-/** 首次三星（零失误）通关的额外 XP 奖励 */
-export const FIRST_PERFECT_XP_BONUS = 5;
 /** 每多少课出现一个宝箱节点（真值在 @cstf/core/chestLogic 中，这里 re-export 保持向后兼容） */
 export { CHEST_EVERY_N_LESSONS } from "@cstf/core/chestLogic";
 
 // ============================================================
-// 常量
+// 常量 —— 全部来自 @cstf/core/economy（经济单一事实源），这里只 re-export
 // ============================================================
 
-export const MAX_HEARTS = 5;
-export const HEART_RECHARGE_MS = 5 * 60 * 1000; // 5 分钟
-export const MAX_FREEZES = 2;
-export const DAILY_GOAL_OPTIONS = [20, 50, 100, 200] as const;
-export const DEFAULT_DAILY_GOAL = 50;
+export {
+  MAX_HEARTS,
+  MAX_FREEZES,
+  FREEZE_COST,
+  HEART_REFILL_COST,
+  STREAK_MILESTONE_REWARDS,
+  STREAK_MAKEUP_COST,
+  FIRST_PERFECT_XP_BONUS,
+  DAILY_GOAL_OPTIONS,
+  DEFAULT_DAILY_GOAL,
+  dailyRewardForStreak,
+  isWeekendXpActive as isWeekendBonusActive,
+};
+
+/** 一颗红心的回复时长（ms），由 core HEART_REGEN_SECONDS 折算 */
+export const HEART_RECHARGE_MS = HEART_REGEN_SECONDS * 1000;
 
 // ============================================================
 // 工具函数
@@ -204,12 +239,6 @@ function daysBetween(a: string, b: string): number {
   const da = new Date(a);
   const db = new Date(b);
   return Math.round((db.getTime() - da.getTime()) / (1000 * 60 * 60 * 24));
-}
-
-function starsFromAccuracy(acc: number): 1 | 2 | 3 {
-  if (acc >= 0.95) return 3;
-  if (acc >= 0.75) return 2;
-  return 1;
 }
 
 /** 当前是否为周一（用于连胜护盾补给） */
@@ -255,7 +284,7 @@ function applyXpGain(
     newTodayXp >= state.dailyGoal &&
     state.dailyGoal > 0
   ) {
-    goalBonusGems = 20;
+    goalBonusGems = DAILY_GOAL_BONUS;
   }
   return {
     xp: state.xp + xpGained,
@@ -265,17 +294,19 @@ function applyXpGain(
   };
 }
 
-/** 周末双倍 XP 标记：用于 UI 展示 */
-export function isWeekendBonusActive(): boolean {
-  const d = new Date().getDay();
-  return d === 0 || d === 6;
-}
-
-/** 每日登陆奖励基础值（连续登陆越多奖励越大，截断到 7 日 cycle） */
-export function dailyRewardForStreak(streak: number): number {
-  // 1天:5 / 2:8 / 3:12 / 4:15 / 5:20 / 6:25 / 7+:30
-  const table = [5, 5, 8, 12, 15, 20, 25, 30];
-  return table[Math.min(streak, 7)];
+/**
+ * 有效连胜（展示/结算口径）：
+ * gap ≤ 1 或漏掉的天数能被护盾兜住 → 连胜仍有效；否则视为 0（已断签）。
+ */
+function effectiveStreakOf(
+  streak: number,
+  lastActiveDate: string,
+  streakFreezes: number,
+): number {
+  if (streak <= 0 || !lastActiveDate) return 0;
+  const gap = daysBetween(lastActiveDate, todayStr());
+  const alive = gap <= 1 || gap - 1 <= streakFreezes;
+  return alive ? streak : 0;
 }
 
 // ============================================================
@@ -300,7 +331,7 @@ export const useProgressStore = create<ProgressState>()(
       todayXp: 0,
       lastXpDate: "",
 
-      streakFreezes: MAX_FREEZES,
+      streakFreezes: INITIAL_FREEZES,
 
       activeLesson: null,
 
@@ -335,34 +366,31 @@ export const useProgressStore = create<ProgressState>()(
       // v7
       completedReadings: {},
 
-      recordLessonComplete: (lessonId, lessonTitle, accuracy, xpGained) => {
-        const stars = starsFromAccuracy(accuracy);
-        // 周末双倍 XP（周六/周日）
-        const day = new Date().getDay();
-        const isWeekend = day === 0 || day === 6;
-        if (isWeekend) {
-          xpGained = xpGained * 2;
-        }
-        const today = todayStr();
+      // v8
+      unlockedAchievements: {},
+      pendingStreakMilestone: null,
 
-        // === 💎 gem 经济：每节课的通关奖励 ===
-        // 基础：3 gems / 课
-        // 二星：+5 / 三星：+10
-        // 首次完美：+15
-        let gemsGained = 3;
-        if (stars === 2) gemsGained += 5;
-        if (stars === 3) gemsGained += 10;
+      recordLessonComplete: (lessonId, lessonTitle, accuracy, xpGained) => {
+        // ⚠️ XP 公式（含周末 ×2）由调用方经 @cstf/core xpForLesson 算好传入，
+        //    这里不再二次翻倍 —— 保证「结算展示值 == 入账值」。
+        const stars = starsFromAccuracy(accuracy);
+        const today = todayStr();
         const isFirstPerfect = stars === 3 && !get().perfectedLessons[lessonId];
-        if (isFirstPerfect) gemsGained += 15;
 
         set(state => {
-          // XP / todayXp / xpHistory 记账 + 每日目标 +20 gems 判定
+          // XP / todayXp / xpHistory 记账 + 每日目标首次达成判定
           const xpAccount = applyXpGain(state, xpGained, today);
           const newLessonHistory = pruneHistory({
             ...state.lessonHistory,
             [today]: (state.lessonHistory[today] ?? 0) + 1,
           });
-          const totalGems = gemsGained + xpAccount.goalBonusGems;
+          // 💎 每课宝石 drip —— 单一事实源 @cstf/core lessonGemDrip
+          //（含每日目标 +20，不再叠加 goalBonusGems）
+          const totalGems = lessonGemDrip({
+            stars,
+            isFirstPerfect,
+            crossedDailyGoal: xpAccount.goalBonusGems > 0,
+          });
 
           // === 只保留最好成绩：重玩得低星不回退（对齐 iOS ProgressStore）===
           // 仅当新星级 >= 旧星级时才覆盖；accuracy 取更优，completedAt 用最新
@@ -493,7 +521,7 @@ export const useProgressStore = create<ProgressState>()(
           }
         }
 
-        // === 💎 连胜里程碑奖励：3/7/14/30/60/100 天 ===
+        // === 💎 连胜里程碑奖励：3/7/14/30/60/100 天（每档一次） ===
         const reward = STREAK_MILESTONE_REWARDS[newStreak];
         if (reward && !get().claimedStreakRewards[newStreak]) {
           set(state => ({
@@ -503,6 +531,8 @@ export const useProgressStore = create<ProgressState>()(
               ...state.claimedStreakRewards,
               [newStreak]: true,
             },
+            // 留给 DailyRewardWatcher 弹「连续 N 天！+M💎」庆祝
+            pendingStreakMilestone: { streak: newStreak, gems: reward },
           }));
         }
       },
@@ -549,6 +579,31 @@ export const useProgressStore = create<ProgressState>()(
 
       refillHeartsFull: () => {
         set({ hearts: MAX_HEARTS, nextHeartAt: null });
+      },
+
+      buyHeartRefill: () => {
+        // 先结算自然回复，避免"已经回满还扣费"
+        get().refreshHearts();
+        const { gems, hearts } = get();
+        if (hearts >= MAX_HEARTS) return false;
+        if (gems < HEART_REFILL_COST) return false;
+        set(state => ({
+          gems: state.gems - HEART_REFILL_COST,
+          hearts: MAX_HEARTS,
+          nextHeartAt: null,
+        }));
+        return true;
+      },
+
+      buyStreakFreeze: () => {
+        const { gems, streakFreezes } = get();
+        if (streakFreezes >= MAX_FREEZES) return false;
+        if (gems < FREEZE_COST) return false;
+        set(state => ({
+          gems: state.gems - FREEZE_COST,
+          streakFreezes: state.streakFreezes + 1,
+        }));
+        return true;
       },
 
       setDailyGoal: goal => {
@@ -705,15 +760,34 @@ export const useProgressStore = create<ProgressState>()(
 
       claimDailyReward: () => {
         const today = todayStr();
-        const { lastDailyRewardDate, streak } = get();
-        if (lastDailyRewardDate === today) return 0;
-        const reward = dailyRewardForStreak(streak);
+        const { lastDailyRewardDate, streak, lastActiveDate, streakFreezes } = get();
+        if (lastDailyRewardDate === today) return { gems: 0, effectiveStreak: 0 };
+        // 数额按「有效连胜」折算：断签且护盾兜不住 → 按 0 档发（不谎报连续天数）
+        const effectiveStreak = effectiveStreakOf(streak, lastActiveDate, streakFreezes);
+        const reward = dailyRewardForStreak(effectiveStreak);
         set(state => ({
           gems: state.gems + reward,
           lifetimeGems: state.lifetimeGems + reward,
           lastDailyRewardDate: today,
         }));
-        return reward;
+        return { gems: reward, effectiveStreak };
+      },
+
+      claimAchievement: id => {
+        const { unlockedAchievements } = get();
+        if (unlockedAchievements[id]) return 0;
+        const ach = ALL_ACHIEVEMENTS.find(a => a.id === id);
+        if (!ach) return 0;
+        set(state => ({
+          unlockedAchievements: { ...state.unlockedAchievements, [id]: true },
+          gems: state.gems + ach.reward,
+          lifetimeGems: state.lifetimeGems + ach.reward,
+        }));
+        return ach.reward;
+      },
+
+      clearPendingStreakMilestone: () => {
+        set({ pendingStreakMilestone: null });
       },
 
       makeUpYesterdayStreak: () => {
@@ -749,7 +823,9 @@ export const useProgressStore = create<ProgressState>()(
       //   v5 → v6：新增 selectedGrade（首次进入引导选择年级）
       //   v6 → v7：阅读奖励从"伪课程"迁出 —— completedLessons/perfectedLessons 里
       //            passage-/story- 前缀的条目移入 completedReadings，课时统计尽力回退
-      version: 7,
+      //   v7 → v8：成就永久解锁账本 unlockedAchievements（当前实时解锁集一次性写入，
+      //            不补发奖励）+ pendingStreakMilestone + 护盾一次性迁移 max(现值, 2)
+      version: 8,
       migrate: (persistedState: unknown) => {
         const state = (persistedState as Partial<ProgressState>) ?? {};
         const starterOwned = Object.fromEntries(
@@ -786,6 +862,27 @@ export const useProgressStore = create<ProgressState>()(
           ),
         ) as Record<string, true>;
 
+        // === v8：成就账本 —— 把当前按进度算出来的解锁集一次性写入（不补发奖励，
+        //     这些是历史解锁；此后只有真正新解锁的成就才发宝石） ===
+        const unlockedAchievements: Record<string, true> = {
+          ...(state.unlockedAchievements ?? {}),
+        };
+        try {
+          for (const id of computeUnlockedAchievementIds({
+            xp: state.xp ?? 0,
+            streak: state.streak ?? 0,
+            lifetimeGems: state.lifetimeGems ?? 0,
+            completedLessons,
+            perfectedLessons,
+            ownedCosmetics: state.ownedCosmetics ?? {},
+            mistakesBank: state.mistakesBank ?? [],
+          })) {
+            unlockedAchievements[id] = true;
+          }
+        } catch {
+          /* 快照字段异常时保守跳过，账本从空开始 */
+        }
+
         return {
           ...state,
           hearts: state.hearts ?? MAX_HEARTS,
@@ -793,7 +890,8 @@ export const useProgressStore = create<ProgressState>()(
           dailyGoal: state.dailyGoal ?? DEFAULT_DAILY_GOAL,
           todayXp: state.todayXp ?? 0,
           lastXpDate: state.lastXpDate ?? "",
-          streakFreezes: state.streakFreezes ?? MAX_FREEZES,
+          // v8：护盾一次性迁移为 max(现值, 2)；超过 2 的不没收（只封新购）
+          streakFreezes: Math.max(state.streakFreezes ?? INITIAL_FREEZES, INITIAL_FREEZES),
           activeLesson: state.activeLesson ?? null,
           autoNarrate: state.autoNarrate ?? true,
           gems: state.gems ?? 0,
@@ -817,6 +915,9 @@ export const useProgressStore = create<ProgressState>()(
           selectedGrade: state.selectedGrade ?? null,
           // v7
           completedReadings,
+          // v8
+          unlockedAchievements,
+          pendingStreakMilestone: state.pendingStreakMilestone ?? null,
         } as ProgressState;
       },
     },

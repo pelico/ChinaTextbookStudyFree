@@ -8,13 +8,21 @@
  */
 
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { Modal } from "./Modal";
 import { Mascot } from "./Mascot";
-import { Lightning, Heart } from "./icons";
+import { Lightning, Heart, Gem } from "./icons";
 import { playSfx } from "@/lib/sfx";
 import { haptic } from "@/lib/haptic";
 import { useProgressStore } from "@/store/progress";
 import { useProgressTicker, formatMsCountdown } from "@/lib/useProgressTicker";
+import {
+  XP_PER_CORRECT,
+  WEEKEND_XP_MULTIPLIER,
+  HEART_REFILL_COST,
+  isWeekendXpActive,
+} from "@cstf/core/economy";
+import { useToast } from "./Toast";
 
 interface LessonStartModalProps {
   open: boolean;
@@ -40,15 +48,35 @@ export function LessonStartModal({
   kpTotal,
 }: LessonStartModalProps) {
   const router = useRouter();
+  const toast = useToast();
   const now = useProgressTicker();
   const hearts = useProgressStore(s => s.hearts);
   const nextHeartAt = useProgressStore(s => s.nextHeartAt);
+  const gems = useProgressStore(s => s.gems);
+  const buyHeartRefill = useProgressStore(s => s.buyHeartRefill);
   const activeLesson = useProgressStore(s => s.activeLesson);
   const clearLessonSession = useProgressStore(s => s.clearLessonSession);
 
+  // 周末双倍 XP —— 预估所见即所得
+  const [weekend] = useState(() => isWeekendXpActive());
   const canStart = hearts > 0;
   const msToNext = nextHeartAt ? Math.max(0, nextHeartAt - now) : 0;
-  const estimatedXp = questionCount * 10;
+  const estimatedXp =
+    questionCount * XP_PER_CORRECT * (weekend ? WEEKEND_XP_MULTIPLIER : 1);
+
+  function handleRefillHearts() {
+    playSfx("tap");
+    haptic("light");
+    const ok = buyHeartRefill();
+    if (ok) {
+      playSfx("unlock");
+      haptic("success");
+      toast.success("❤️ 红心已补满，马上开始吧！");
+    } else {
+      playSfx("wrong");
+      toast.error("宝石不够，先去学习攒宝石吧");
+    }
+  }
 
   // 是否存在同一课程的未完成会话？
   const resume =
@@ -107,6 +135,16 @@ export function LessonStartModal({
             <div className="text-xl font-extrabold text-secondary flex items-center justify-center gap-1 mt-1 tabular-nums">
               <Lightning className="w-4 h-4" />+{estimatedXp}
             </div>
+            {weekend && (
+              <div
+                className="mt-1 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold text-white"
+                style={{
+                  background: "linear-gradient(135deg, #1CB0F6, #7c3aed)",
+                }}
+              >
+                周末双倍 ×2
+              </div>
+            )}
           </div>
         </div>
 
@@ -122,6 +160,33 @@ export function LessonStartModal({
                 <span className="font-extrabold text-danger tabular-nums">
                   {formatMsCountdown(msToNext)}
                 </span>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={handleRefillHearts}
+              disabled={gems < HEART_REFILL_COST}
+              className={`w-full mt-3 inline-flex items-center justify-center gap-1.5 rounded-2xl py-2.5 font-extrabold text-sm transition-colors ${
+                gems >= HEART_REFILL_COST
+                  ? "text-white"
+                  : "bg-bg-softer text-ink-softer cursor-not-allowed"
+              }`}
+              style={
+                gems >= HEART_REFILL_COST
+                  ? {
+                      background: "linear-gradient(135deg, #a855f7, #7c3aed)",
+                      boxShadow: "0 4px 0 0 #6b21a8",
+                    }
+                  : undefined
+              }
+            >
+              <Gem className="w-4 h-4" />
+              <span className="tabular-nums">{HEART_REFILL_COST}</span>
+              <span>立即补满红心</span>
+            </button>
+            {gems < HEART_REFILL_COST && (
+              <div className="mt-1.5 text-[11px] text-ink-softer text-center">
+                宝石还差 {HEART_REFILL_COST - gems} 颗
               </div>
             )}
           </div>

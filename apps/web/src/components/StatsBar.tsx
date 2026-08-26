@@ -9,8 +9,9 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { MAX_HEARTS, useProgressStore } from "@/store/progress";
-import { Heart, Flame, Lightning, Snowflake } from "@/components/icons";
+import { MAX_HEARTS, HEART_REFILL_COST, useProgressStore } from "@/store/progress";
+import { Heart, Flame, Lightning, Snowflake, Gem } from "@/components/icons";
+import { useToast } from "./Toast";
 import { MuteToggle, AutoNarrateToggle, useSyncMute } from "./MuteToggle";
 import { Modal } from "./Modal";
 import { GemBadge } from "./GemBadge";
@@ -27,6 +28,7 @@ interface StatsBarProps {
 export function StatsBar({ compact = false }: StatsBarProps = {}) {
   useSyncMute();
   const now = useProgressTicker();
+  const toast = useToast();
 
   const hearts = useProgressStore(s => s.hearts);
   const nextHeartAt = useProgressStore(s => s.nextHeartAt);
@@ -34,6 +36,8 @@ export function StatsBar({ compact = false }: StatsBarProps = {}) {
   const lastActiveDate = useProgressStore(s => s.lastActiveDate);
   const freezes = useProgressStore(s => s.streakFreezes);
   const xp = useProgressStore(s => s.xp);
+  const gems = useProgressStore(s => s.gems);
+  const buyHeartRefill = useProgressStore(s => s.buyHeartRefill);
 
   const [hydrated, setHydrated] = useState(false);
   const [showHearts, setShowHearts] = useState(false);
@@ -136,12 +140,53 @@ export function StatsBar({ compact = false }: StatsBarProps = {}) {
           {heartsFull ? (
             <p className="text-ink-light mt-4">你的心数已满！</p>
           ) : (
-            <div className="mt-4">
+            <div className="mt-4 w-full">
               <p className="text-ink-light text-sm">下一颗心还需</p>
               <div className="text-3xl font-extrabold text-danger tabular-nums mt-1">
                 {formatMsCountdown(msToNext)}
               </div>
               <p className="text-xs text-ink-softer mt-2">每 5 分钟恢复 1 颗心</p>
+
+              {/* 350💎 立即补满 */}
+              <button
+                type="button"
+                onClick={() => {
+                  playSfx("tap");
+                  haptic("light");
+                  const ok = buyHeartRefill();
+                  if (ok) {
+                    playSfx("unlock");
+                    haptic("success");
+                    toast.success("❤️ 红心已补满！");
+                  } else {
+                    playSfx("wrong");
+                    toast.error("宝石不够，先去学习攒宝石吧");
+                  }
+                }}
+                disabled={gems < HEART_REFILL_COST}
+                className={`w-full mt-4 inline-flex items-center justify-center gap-1.5 rounded-2xl py-2.5 font-extrabold text-sm transition-colors ${
+                  gems >= HEART_REFILL_COST
+                    ? "text-white"
+                    : "bg-bg-softer text-ink-softer cursor-not-allowed"
+                }`}
+                style={
+                  gems >= HEART_REFILL_COST
+                    ? {
+                        background: "linear-gradient(135deg, #a855f7, #7c3aed)",
+                        boxShadow: "0 4px 0 0 #6b21a8",
+                      }
+                    : undefined
+                }
+              >
+                <Gem className="w-4 h-4" />
+                <span className="tabular-nums">{HEART_REFILL_COST}</span>
+                <span>立即补满</span>
+              </button>
+              {gems < HEART_REFILL_COST && (
+                <div className="mt-1.5 text-[11px] text-ink-softer">
+                  宝石还差 {HEART_REFILL_COST - gems} 颗
+                </div>
+              )}
             </div>
           )}
 

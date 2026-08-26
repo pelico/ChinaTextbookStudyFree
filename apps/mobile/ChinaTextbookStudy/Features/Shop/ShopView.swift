@@ -5,8 +5,8 @@ struct ShopView: View {
     @ObservedObject var progressStore: ProgressStore
     @State private var flash: String?
 
-    private let refillCost = 350
-    private let freezeCost = 200
+    private let refillCost = Economy.heartRefillCost
+    private let freezeCost = Economy.freezeCost
 
     var body: some View {
         ScrollView {
@@ -71,9 +71,12 @@ struct ShopView: View {
 
             functionalRow(
                 icon: "snowflake", tint: DuoColors.secondary,
-                title: "连胜护盾", subtitle: "当前拥有 \(progressStore.streakFreezes) 个 · 断签时自动顶替",
+                title: "连胜护盾",
+                subtitle: progressStore.streakFreezes >= Economy.maxFreezes
+                    ? "护盾已满 \(Economy.maxFreezes)/\(Economy.maxFreezes)"
+                    : "当前拥有 \(progressStore.streakFreezes)/\(Economy.maxFreezes) 个 · 断签时自动顶替",
                 cost: freezeCost,
-                enabled: progressStore.gems >= freezeCost
+                enabled: progressStore.streakFreezes < Economy.maxFreezes && progressStore.gems >= freezeCost
             ) {
                 if progressStore.buyStreakFreeze(cost: freezeCost) { win("已购买连胜护盾！") } else { fail() }
             }

@@ -63,6 +63,19 @@ struct HomeView: View {
             .presentationBackground(.clear)
         }
         .toolbar(.hidden, for: .navigationBar)
+        // Daily login reward — light celebration card the first time the app
+        // is opened each day (gems were already banked by the store).
+        .overlay {
+            if let claim = progressStore.pendingDailyReward {
+                DailyRewardCard(claim: claim) {
+                    withAnimation(.easeOut(duration: 0.25)) {
+                        progressStore.pendingDailyReward = nil
+                    }
+                }
+                .transition(.opacity)
+                .zIndex(2)
+            }
+        }
         .sheet(isPresented: $showBookPicker) {
             BookPickerSheet(
                 siteIndex: siteIndex,
@@ -306,17 +319,90 @@ private struct HomeStatsStrip: View {
     }
 }
 
+// MARK: - Daily login reward card
+
+/// 聪聪递宝石：每天第一次打开应用时的轻量登录奖励卡。
+/// 文案诚实：断签时按 0 档发放，不吹嘘一条已经断掉的连胜。
+private struct DailyRewardCard: View {
+    let claim: ProgressStore.DailyRewardClaim
+    let onDismiss: () -> Void
+
+    private var subtitle: String {
+        claim.effectiveStreak > 0
+            ? "已连续学习 \(claim.effectiveStreak) 天，继续加油！"
+            : "今天也来学一点吧！"
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.55).ignoresSafeArea()
+                .onTapGesture { onDismiss() }
+
+            VStack(spacing: 14) {
+                MascotView(mood: .happy, size: 88, reactTo: .correct)
+
+                Text("每日见面礼")
+                    .font(.system(size: 22, weight: .black))
+                    .foregroundStyle(DuoColors.ink)
+
+                HStack(spacing: 6) {
+                    Image(systemName: "diamond.fill")
+                        .font(.system(size: 20, weight: .heavy))
+                    Text("+\(claim.gems)")
+                        .font(.system(size: 26, weight: .black))
+                        .monospacedDigit()
+                }
+                .foregroundStyle(DuoColors.beetle)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 9)
+                .background(DuoColors.beetle.opacity(0.14), in: .capsule)
+
+                Text(subtitle)
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(DuoColors.inkMuted)
+                    .multilineTextAlignment(.center)
+
+                Button("收下啦") { onDismiss() }
+                    .buttonStyle(ChunkyButtonStyle(.primary))
+            }
+            .padding(24)
+            .frame(maxWidth: 320)
+            .background(DuoColors.surface, in: .rect(cornerRadius: Radius.large))
+            .overlay {
+                RoundedRectangle(cornerRadius: Radius.large)
+                    .strokeBorder(DuoColors.border, lineWidth: 2)
+            }
+            .padding(28)
+        }
+        .onAppear { SFXEngine.shared.play(.unlock) }
+        .accessibilityIdentifier("daily-reward-card")
+    }
+}
+
 // MARK: - Streak sheet
 
 private struct StreakDetailSheet: View {
     @ObservedObject var progressStore: ProgressStore
     @Environment(\.dismiss) private var dismiss
 
-    private let freezeCost = 200
+    private let freezeCost = Economy.freezeCost
+    private let makeupCost = Economy.streakMakeupCost
 
     /// Same tri-state as the HUD flame: studied today = lit, otherwise grey.
     private var flameColor: Color {
         progressStore.studiedToday ? DuoColors.fox : DuoColors.darkInkSofter
+    }
+
+    private var freezesFull: Bool { progressStore.streakFreezes >= Economy.maxFreezes }
+
+    /// The broken-chain state where the 50-gem make-up can still revive it:
+    /// nothing studied today, shields can't cover the gap, streak not yet
+    /// overwritten by a new run.
+    private var canOfferMakeup: Bool {
+        !progressStore.studiedToday
+            && progressStore.displayStreak == 0
+            && progressStore.progress.streak > 0
+            && SRS.daysBetween(progressStore.progress.lastActiveDate, SRS.todayString()) >= 2
     }
 
     /// Status line at the top: studied / still savable / already broken.
@@ -367,15 +453,59 @@ private struct StreakDetailSheet: View {
                 .padding(.top, 8)
 
                 VStack(alignment: .leading, spacing: 14) {
+                    // Broken chain + makeup still possible → the 50-gem revive.
+                    if canOfferMakeup {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack(spacing: 10) {
+                                Image(systemName: "bandage.fill")
+                                    .font(.system(size: 24, weight: .heavy))
+                                    .foregroundStyle(DuoColors.fox)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("补回 \(progressStore.progress.streak) 天连胜")
+                                        .font(.system(size: 16, weight: .heavy))
+                                        .foregroundStyle(DuoColors.darkInk)
+                                    Text("用宝石补上昨天的卡，今天再学一节就接上啦")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(DuoColors.darkInkMuted)
+                                }
+                                Spacer()
+                            }
+                            Button {
+                                if progressStore.makeUpYesterdayStreak() {
+                                    HapticEngine.shared.success()
+                                    SFXEngine.shared.play(.unlock)
+                                } else {
+                                    HapticEngine.shared.wrong()
+                                }
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "diamond.fill").font(.system(size: 14, weight: .heavy))
+                                    Text("连胜补卡  \(makeupCost)")
+                                }
+                            }
+                            .buttonStyle(ChunkyButtonStyle(
+                                progressStore.gems >= makeupCost ? .primary : .disabled
+                            ))
+                            .disabled(progressStore.gems < makeupCost)
+                            .accessibilityIdentifier("streak-makeup")
+                        }
+                        .padding(14)
+                        .background(DuoColors.fox.opacity(0.12), in: .rect(cornerRadius: 16))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 16)
+                                .strokeBorder(DuoColors.fox.opacity(0.4), lineWidth: 2)
+                        }
+                    }
+
                     HStack(spacing: 10) {
                         Image(systemName: "snowflake")
                             .font(.system(size: 28, weight: .heavy))
                             .foregroundStyle(DuoColors.secondary)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("连胜护盾 × \(progressStore.streakFreezes)")
+                            Text("连胜护盾 \(progressStore.streakFreezes)/\(Economy.maxFreezes)")
                                 .font(.system(size: 18, weight: .heavy))
                                 .foregroundStyle(DuoColors.darkInk)
-                            Text("一天没学习时，自动顶替你的连胜")
+                            Text("一天没学习时，自动顶替你的连胜 · 每周一自动补 1 个")
                                 .font(.system(size: 13))
                                 .foregroundStyle(DuoColors.darkInkMuted)
                         }
@@ -398,13 +528,15 @@ private struct StreakDetailSheet: View {
                     } label: {
                         HStack(spacing: 8) {
                             Image(systemName: "diamond.fill").font(.system(size: 14, weight: .heavy))
-                            Text("购买护盾  \(freezeCost)")
+                            Text(freezesFull
+                                 ? "护盾已满 \(Economy.maxFreezes)/\(Economy.maxFreezes)"
+                                 : "购买护盾  \(freezeCost)")
                         }
                     }
                     .buttonStyle(ChunkyButtonStyle(
-                        progressStore.gems >= freezeCost ? .secondary : .disabled
+                        (!freezesFull && progressStore.gems >= freezeCost) ? .secondary : .disabled
                     ))
-                    .disabled(progressStore.gems < freezeCost)
+                    .disabled(freezesFull || progressStore.gems < freezeCost)
                 }
 
                 Spacer(minLength: 4)
@@ -426,8 +558,8 @@ private struct GemShopSheet: View {
     @ObservedObject var progressStore: ProgressStore
     @Environment(\.dismiss) private var dismiss
 
-    private let refillCost = 350
-    private let freezeCost = 200
+    private let refillCost = Economy.heartRefillCost
+    private let freezeCost = Economy.freezeCost
 
     @State private var flash: String?
 
@@ -494,9 +626,11 @@ private struct GemShopSheet: View {
                     icon: "snowflake",
                     iconColor: DuoColors.secondary,
                     title: "连胜护盾",
-                    subtitle: "当前拥有 \(progressStore.streakFreezes) 个",
+                    subtitle: progressStore.streakFreezes >= Economy.maxFreezes
+                        ? "护盾已满 \(Economy.maxFreezes)/\(Economy.maxFreezes)"
+                        : "当前拥有 \(progressStore.streakFreezes)/\(Economy.maxFreezes) 个",
                     cost: freezeCost,
-                    enabled: progressStore.gems >= freezeCost
+                    enabled: progressStore.streakFreezes < Economy.maxFreezes && progressStore.gems >= freezeCost
                 ) {
                     if progressStore.buyStreakFreeze(cost: freezeCost) {
                         HapticEngine.shared.success()
@@ -631,7 +765,7 @@ private struct HeartDetailSheet: View {
                 }
 
                 Button {
-                    if progressStore.buyHeartRefill(cost: 350) {
+                    if progressStore.buyHeartRefill(cost: Economy.heartRefillCost) {
                         HapticEngine.shared.success()
                         SFXEngine.shared.play(.unlock)
                     } else {
@@ -640,13 +774,13 @@ private struct HeartDetailSheet: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "diamond.fill").font(.system(size: 13, weight: .heavy))
-                        Text("恢复所有心  350")
+                        Text("恢复所有心  \(Economy.heartRefillCost)")
                     }
                 }
                 .buttonStyle(ChunkyButtonStyle(
-                    (progressStore.hearts < ProgressStore.maxHearts && progressStore.gems >= 350) ? .secondary : .disabled
+                    (progressStore.hearts < ProgressStore.maxHearts && progressStore.gems >= Economy.heartRefillCost) ? .secondary : .disabled
                 ))
-                .disabled(progressStore.hearts >= ProgressStore.maxHearts || progressStore.gems < 350)
+                .disabled(progressStore.hearts >= ProgressStore.maxHearts || progressStore.gems < Economy.heartRefillCost)
 
                 Button("知道了") { dismiss() }
                     .buttonStyle(ChunkyButtonStyle(.primary))

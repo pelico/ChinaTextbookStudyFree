@@ -190,10 +190,11 @@ struct PassageReaderView: View {
         let done = progressStore.isReadingCompleted(passage.id)
         Button {
             guard !done else { return }
-            progressStore.completeReading(id: passage.id, xp: 10)
+            // 课文听读 XP —— 统一口径 Economy.ReadingXP.listen（无宝石）。
+            progressStore.completeReading(id: passage.id, xp: Economy.ReadingXP.listen)
             HapticEngine.shared.success(); SFXEngine.shared.play(.complete)
         } label: {
-            Text(done ? "已读完 ✓" : "读完了  +10 XP")
+            Text(done ? "已读完 ✓" : "读完了  +\(Economy.ReadingXP.listen) XP")
         }
         .buttonStyle(ChunkyButtonStyle(done ? .disabled : .primary))
         .disabled(done)

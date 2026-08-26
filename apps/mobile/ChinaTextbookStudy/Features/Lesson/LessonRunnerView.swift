@@ -132,6 +132,22 @@ struct LessonRunnerView: View {
 
             StyledProgressBar(progress: progress, height: 16, trackColor: DuoColors.surfaceAlt)
 
+            // Weekend ×2 XP must be visible while it applies — small honest badge.
+            if Economy.isWeekend() {
+                HStack(spacing: 2) {
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 11, weight: .heavy))
+                    Text("×2")
+                        .font(.system(size: 13, weight: .black))
+                        .monospacedDigit()
+                }
+                .foregroundStyle(DuoColors.bee)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 4)
+                .background(DuoColors.bee.opacity(0.16), in: .capsule)
+                .accessibilityLabel("周末双倍经验")
+            }
+
             HStack(spacing: 3) {
                 Image(systemName: "heart.fill")
                     .font(.system(size: 16, weight: .heavy))
@@ -291,7 +307,7 @@ struct LessonRunnerView: View {
         OutOfHeartsGate(
             progressStore: progressStore,
             onRefill: {
-                if progressStore.buyHeartRefill(cost: 350) {
+                if progressStore.buyHeartRefill(cost: Economy.heartRefillCost) {
                     HapticEngine.shared.success()
                     SFXEngine.shared.play(.unlock)
                     showOutOfHearts = false
@@ -326,7 +342,11 @@ struct LessonRunnerView: View {
             solvedIDs.insert(question.id)
             combo += 1; maxCombo = max(maxCombo, combo)
             SFXEngine.shared.play(.correct); HapticEngine.shared.correct()
-            xpFloaters.append(XPFloatItem(amount: 10))
+            // Per-correct XP floater — mirrors the real per-question rate,
+            // doubled on weekends so the promise matches the payout.
+            xpFloaters.append(XPFloatItem(
+                amount: Economy.xpPerCorrect * (Economy.isWeekend() ? Economy.weekendXpMultiplier : 1)
+            ))
             if [3, 5, 10].contains(combo) { comboDisplayValue = combo; showCombo = true }
         } else {
             attemptedThisQuestion = true
@@ -380,9 +400,9 @@ struct LessonRunnerView: View {
     }
 
     private func finish(lesson: Lesson) {
+        // 首答口径：missedIDs 记录的是「首答就错过」的题，correctCount = 首答答对数。
         let correctCount = originalTotal - missedIDs.count
-        let accuracy = Double(correctCount) / Double(originalTotal)
-        let outcome = progressStore.completeLesson(lessonId: lessonId, accuracy: accuracy, questionCount: originalTotal)
+        let outcome = progressStore.completeLesson(lessonId: lessonId, correctCount: correctCount, questionCount: originalTotal)
         let result = LessonRunResult(
             bookId: bookId, lessonId: lessonId, lessonTitle: lesson.title,
             questionCount: originalTotal, correctCount: correctCount, outcome: outcome
@@ -417,7 +437,7 @@ private struct OutOfHeartsGate: View {
     let onRefill: () -> Void
     let onQuit: () -> Void
 
-    private let refillCost = 350
+    private let refillCost = Economy.heartRefillCost
     @State private var tick = Date()
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 

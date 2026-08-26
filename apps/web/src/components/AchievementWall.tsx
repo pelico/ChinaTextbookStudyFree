@@ -44,7 +44,17 @@ const ICON_MAP = {
 
 export function AchievementWall() {
   const state = useProgressStore();
-  const unlockedIds = useMemo(() => computeUnlockedAchievementIds(state), [state]);
+  // 账本 ∪ 实时集：已解锁（进账本）的成就永不"回灰"，
+  // 实时集兜底账本尚未写入的瞬间（Watcher 稍后补账）
+  const unlockedIds = useMemo(
+    () => [
+      ...new Set([
+        ...Object.keys(state.unlockedAchievements),
+        ...computeUnlockedAchievementIds(state),
+      ]),
+    ],
+    [state],
+  );
   const unlockedSet = useMemo(() => new Set(unlockedIds), [unlockedIds]);
 
   useEffect(() => {

@@ -100,7 +100,7 @@ struct PathMapView: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                 Text("第 \(lessonNo) / \(unitNodes.count) 节" +
-                     (node.questionCount > 0 ? " · +\(node.questionCount * 10) XP" : ""))
+                     (node.questionCount > 0 ? " · 最多 +\(maxXp(for: node)) XP" : ""))
                     .duoFont(.caption)
                     .foregroundStyle(.white.opacity(0.9))
                 Button {
@@ -121,6 +121,17 @@ struct PathMapView: View {
             .frame(width: stageWidth - 48)
             .background(accent, in: .rect(cornerRadius: Radius.large))
         }
+    }
+
+    /// Honest XP ceiling for the start bubble: full marks + perfect bonus,
+    /// plus the first-3-star bonus while it's still winnable, weekend-aware.
+    private func maxXp(for node: PathMapNode) -> Int {
+        Economy.xpForLesson(
+            correctCount: node.questionCount,
+            perfect: true,
+            firstPerfect: node.stars < 3,
+            isWeekend: Economy.isWeekend()
+        )
     }
 
     // MARK: - Layout calculations

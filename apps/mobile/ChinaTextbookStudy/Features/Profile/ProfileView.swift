@@ -9,7 +9,7 @@ struct ProfileView: View {
     @State private var nameDraft = ""
 
     private var achievementSnapshot: AchievementProgressSnapshot { progressStore.achievementSnapshot }
-    private var unlockedCount: Int { Achievements.unlockedIds(for: achievementSnapshot).count }
+    private var unlockedCount: Int { progressStore.unlockedAchievementIds.count }
 
     var body: some View {
         ScrollView {

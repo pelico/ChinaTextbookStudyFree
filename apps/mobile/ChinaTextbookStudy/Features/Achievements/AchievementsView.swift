@@ -5,7 +5,8 @@ struct AchievementsView: View {
     @ObservedObject var progressStore: ProgressStore
 
     private var snapshot: AchievementProgressSnapshot { progressStore.achievementSnapshot }
-    private var unlockedIds: Set<String> { Set(Achievements.unlockedIds(for: snapshot)) }
+    /// Permanent ledger ∪ live snapshot — an earned badge never re-locks.
+    private var unlockedIds: Set<String> { progressStore.unlockedAchievementIds }
 
     private static let categoryOrder: [AchievementCategory] = [.milestone, .streak, .perfection, .review, .shop]
     private static let categoryLabels: [AchievementCategory: String] = [

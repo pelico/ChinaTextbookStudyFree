@@ -9,7 +9,18 @@ import type { Lesson, KnowledgeSummary } from "@/types";
 import { gradeAnswer } from "@/lib/grade";
 import { cn } from "@/lib/cn";
 import { MathText } from "@/components/MathText";
-import { useProgressStore, MAX_HEARTS, FIRST_PERFECT_XP_BONUS } from "@/store/progress";
+import { useProgressStore, MAX_HEARTS } from "@/store/progress";
+import {
+  XP_PER_CORRECT,
+  PERFECT_XP_BONUS,
+  FIRST_PERFECT_XP_BONUS,
+  THREE_STAR_ACCURACY,
+  TWO_STAR_ACCURACY,
+  WEEKEND_XP_MULTIPLIER,
+  starsFromAccuracy,
+  xpForLesson,
+  isWeekendXpActive,
+} from "@cstf/core/economy";
 import { playSfx } from "@/lib/sfx";
 import { haptic } from "@/lib/haptic";
 import { useProgressTicker, formatMsCountdown } from "@/lib/useProgressTicker";
@@ -77,16 +88,9 @@ const ComboOverlay = dynamic(
   { ssr: false },
 );
 
-const XP_PER_CORRECT = 10;
-const PERFECT_BONUS = 5;
-
 const PRAISE_BUBBLES = ["太棒!", "完美!", "漂亮!", "好厉害!", "继续!"];
 const COMFORT_BUBBLES = ["别灰心!", "再来一次!", "没关系!", "加油!"];
 const COMBO_BUBBLES = ["连击!", "火力全开!", "势不可挡!"];
-
-/** 三星 / 二星 阈值（与 progress.starsFromAccuracy 保持同步） */
-const THREE_STAR_THRESHOLD = 0.95;
-const TWO_STAR_THRESHOLD = 0.75;
 
 /**
  * 顶栏下方一条小提示：「再答对 N 题就能拿到 三/二 星」
@@ -111,9 +115,9 @@ function StarDistanceHint({
   const remaining = total - answered;
   if (remaining <= 0 || total === 0) return null;
 
-  // 当前所需答对数（达到三星 / 二星 的阈值）
-  const need3 = Math.ceil(THREE_STAR_THRESHOLD * total);
-  const need2 = Math.ceil(TWO_STAR_THRESHOLD * total);
+  // 当前所需答对数（达到三星 / 二星 的阈值 —— @cstf/core 单一事实源）
+  const need3 = Math.ceil(THREE_STAR_ACCURACY * total);
+  const need2 = Math.ceil(TWO_STAR_ACCURACY * total);
 
   // 还差多少道才能拿到对应星
   const missingFor3 = Math.max(0, need3 - correctCount);
@@ -179,10 +183,12 @@ interface LessonRunnerProps {
  */
 interface SessionStats {
   accuracy: number;
-  /** 最终写入 store 的总 XP（含 perfect / first perfect 奖励） */
+  /** 最终写入 store 的总 XP（含 perfect / 首次三星 奖励，周末已 ×2） */
   xp: number;
   perfect: boolean;
   firstPerfect: boolean;
+  /** 本节是否享受周末双倍 XP */
+  weekend: boolean;
   maxCombo: number;
   durationSec: number;
   gemsEarned: number;
@@ -213,6 +219,10 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
     return { background: item.data.background };
   }, [backdropId]);
   const prefersReduced = useReducedMotion();
+
+  // 周末双倍 XP（本地时间周六/周日）—— 所见即所得：预览/飘字/结算全部按 ×2 显示
+  const [weekend] = useState(() => isWeekendXpActive());
+  const xpPerCorrectShown = weekend ? XP_PER_CORRECT * WEEKEND_XP_MULTIPLIER : XP_PER_CORRECT;
 
   // 等待从 zustand persist 恢复已保存的会话后再渲染，避免闪烁
   const [ready, setReady] = useState(false);
@@ -501,17 +511,16 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
     if (failed) return;
     if (index + 1 >= total) {
       const accuracy = correctCount / total;
-      const baseXp = correctCount * XP_PER_CORRECT;
       const perfect = mistakeCount === 0;
-      const perfectBonus = perfect ? PERFECT_BONUS : 0;
 
-      // 首次三星（零失误）额外奖励 —— 写入前只读快照判断，
+      // 首次三星（该课历史首次达 3 星）额外奖励 —— 写入前只读快照判断，
       // 真正的 perfectedLessons 标记由 recordLessonComplete 内部完成
       const alreadyPerfected =
         !!useProgressStore.getState().perfectedLessons[lesson.id];
-      const firstPerfect = perfect && !alreadyPerfected;
-      const firstPerfectBonus = firstPerfect ? FIRST_PERFECT_XP_BONUS : 0;
-      const xp = baseXp + perfectBonus + firstPerfectBonus;
+      const firstPerfect = starsFromAccuracy(accuracy) === 3 && !alreadyPerfected;
+      // XP 公式单一事实源：@cstf/core xpForLesson（含周末 ×2）
+      // recordLessonComplete 不再二次翻倍 → 结算展示值 == 入账值
+      const xp = xpForLesson({ correctCount, perfect, firstPerfect, isWeekend: weekend });
 
       // 通关宝箱命中：有 chestSlot 且尚未领取
       const chestReward =
@@ -532,6 +541,7 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
         xp,
         perfect,
         firstPerfect,
+        weekend,
         maxCombo,
         durationSec: Math.round((Date.now() - startTimeRef.current) / 1000),
         gemsEarned: chestReward?.gems ?? 0,
@@ -667,7 +677,12 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
               }}
             >
               <Lightning className="w-4 h-4" />
-              +{XP_PER_CORRECT}
+              +{xpPerCorrectShown}
+              {weekend && (
+                <span className="ml-0.5 text-[10px] font-extrabold bg-white/25 rounded-full px-1.5 py-0.5">
+                  周末×2
+                </span>
+              )}
             </motion.div>
           ))}
         </AnimatePresence>
@@ -748,7 +763,7 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
             )}
           </AnimatePresence>
 
-          {/* 本节已得 XP 徽章（飘字目标） */}
+          {/* 本节已得 XP 徽章（飘字目标）—— 周末按 ×2 显示并挂角标 */}
           <motion.div
             ref={xpTargetRef}
             animate={
@@ -757,11 +772,25 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
                 : { scale: 1 }
             }
             transition={{ duration: 0.35, ease: "easeOut" }}
-            className="h-8 px-2.5 inline-flex items-center gap-1 rounded-full border-2 border-secondary/40 text-secondary-dark bg-secondary/10 font-extrabold text-sm select-none tabular-nums"
+            className="relative h-8 px-2.5 inline-flex items-center gap-1 rounded-full border-2 border-secondary/40 text-secondary-dark bg-secondary/10 font-extrabold text-sm select-none tabular-nums"
             aria-label="本节已得 XP"
           >
             <Lightning className="w-4 h-4" />
-            <span>{sessionXpPreview}</span>
+            <span>
+              {weekend ? sessionXpPreview * WEEKEND_XP_MULTIPLIER : sessionXpPreview}
+            </span>
+            {weekend && (
+              <span
+                className="absolute -top-2 -right-2 text-[9px] leading-none font-extrabold text-white rounded-full px-1.5 py-0.5"
+                style={{
+                  background: "linear-gradient(135deg, #a855f7, #7c3aed)",
+                  boxShadow: "0 2px 0 0 #6b21a8",
+                }}
+                aria-label="周末双倍 XP"
+              >
+                ×2
+              </span>
+            )}
           </motion.div>
 
           <HeartsBar total={MAX_HEARTS} remaining={hearts} />
@@ -910,8 +939,8 @@ function CompletionScreen({
   stats: SessionStats;
   onBack: () => void;
 }) {
-  const { accuracy, xp, perfect, firstPerfect, maxCombo, durationSec, gemsEarned, chestReward } = stats;
-  const stars = accuracy >= 0.95 ? 3 : accuracy >= 0.75 ? 2 : 1;
+  const { accuracy, xp, perfect, firstPerfect, weekend, maxCombo, durationSec, gemsEarned, chestReward } = stats;
+  const stars = starsFromAccuracy(accuracy);
   const [revealedStars, setRevealedStars] = useState(0);
   const [mascotReactKey, setMascotReactKey] = useState(0);
   const [chestOpen, setChestOpen] = useState(false);
@@ -1019,7 +1048,7 @@ function CompletionScreen({
               }}
             >
               <Star className="w-3.5 h-3.5 fill-current" />
-              <span>零失误 +{PERFECT_BONUS} XP</span>
+              <span>零失误 +{PERFECT_XP_BONUS} XP</span>
             </motion.div>
           )}
         </AnimatePresence>
@@ -1038,7 +1067,26 @@ function CompletionScreen({
               }}
             >
               <Sparkle className="w-3.5 h-3.5" />
-              <span>首次完美 +{FIRST_PERFECT_XP_BONUS} XP</span>
+              <span>首次三星 +{FIRST_PERFECT_XP_BONUS} XP</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* 周末双倍徽章 —— 总额已按 ×2 入账，所见即所得 */}
+        <AnimatePresence>
+          {weekend && (
+            <motion.div
+              initial={{ scale: 0, y: 6, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              transition={{ delay: 0.85, type: "spring", damping: 12 }}
+              className="inline-flex items-center gap-1.5 h-7 px-3 mt-2 ml-2 rounded-full font-extrabold text-sm text-white"
+              style={{
+                background: "linear-gradient(135deg, #1CB0F6, #7c3aed)",
+                boxShadow: "0 4px 0 0 #0d7aa8",
+              }}
+            >
+              <Confetti className="w-3.5 h-3.5" />
+              <span>周末双倍 ×2</span>
             </motion.div>
           )}
         </AnimatePresence>

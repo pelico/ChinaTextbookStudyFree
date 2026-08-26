@@ -15,17 +15,20 @@
     "./cosmetics": "./src/cosmetics.ts",
     "./cn": "./src/cn.ts",
     "./chestLogic": "./src/chestLogic.ts",
+    "./economy": "./src/economy.ts",
     "./mascotTriggers": "./src/mascotTriggers.ts",
     "./achievements": "./src/achievements.ts"
   },
   "scripts": {
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "clsx": "^2.1.1",
     "tailwind-merge": "^2.6.0"
   },
   "devDependencies": {
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
   }
 }

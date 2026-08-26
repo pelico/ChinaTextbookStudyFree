@@ -42,18 +42,27 @@ function writeSeen(set: Set<string>) {
   }
 }
 
+/** 解锁集合 = 永久账本 ∪ 实时计算（已入账本的永不"回锁"） */
+function currentUnlockedIds(): string[] {
+  const state = useProgressStore.getState();
+  return [
+    ...new Set([
+      ...Object.keys(state.unlockedAchievements),
+      ...computeUnlockedAchievementIds(state),
+    ]),
+  ];
+}
+
 /** 当前是否存在尚未被用户查看的已解锁成就 */
 export function hasUnseenAchievements(): boolean {
   if (typeof window === "undefined") return false;
-  const unlocked = computeUnlockedAchievementIds(useProgressStore.getState());
   const seen = readSeen();
-  return unlocked.some(id => !seen.has(id));
+  return currentUnlockedIds().some(id => !seen.has(id));
 }
 
 /** 把当前所有解锁标记为已读（用户进入成就墙时调用） */
 export function markAllSeen(): void {
-  const unlocked = computeUnlockedAchievementIds(useProgressStore.getState());
   const seen = readSeen();
-  unlocked.forEach(id => seen.add(id));
+  currentUnlockedIds().forEach(id => seen.add(id));
   writeSeen(seen);
 }

@@ -29,6 +29,10 @@ struct LessonOutcome: Hashable {
     var dailyGoalReachedNow: Bool = false
     var gemsGained: Int = 0
     var newAchievements: [Achievement] = []
+    /// Streak-milestone gems banked by this lesson (0 = no milestone hit).
+    var milestoneGems: Int = 0
+    /// Whether the weekend ×2 multiplier was applied to `xpGained`.
+    var weekendDoubled: Bool = false
     var streakIncreased: Bool { streakAfter > streakBefore }
 }
 
@@ -44,11 +48,5 @@ struct LessonRunResult: Hashable {
         guard questionCount > 0 else { return 0 }
         return Double(correctCount) / Double(questionCount)
     }
-    var stars: Int {
-        switch accuracy {
-        case 0.95...: return 3
-        case 0.80...: return 2
-        default:      return 1
-        }
-    }
+    var stars: Int { Economy.starsFromAccuracy(accuracy) }
 }

@@ -11,11 +11,12 @@ struct OnboardingView: View {
     @State private var selectedGrade = 1
     @State private var selectedBookId: String?
 
+    /// 每日目标档位 —— 与 Economy.dailyGoalOptions（20/50/100/200）一致。
     private let goals: [(label: String, xp: Int, sub: String)] = [
-        ("轻松", 50, "每天 1 节"),
-        ("标准", 100, "每天 2 节"),
-        ("认真", 200, "每天 4 节"),
-        ("学霸", 500, "冲刺满分"),
+        ("轻松", 20, "每天几分钟"),
+        ("标准", 50, "每天 1 节"),
+        ("认真", 100, "每天 2 节"),
+        ("学霸", 200, "每天 4 节"),
     ]
 
     var body: some View {

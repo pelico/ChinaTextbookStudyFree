@@ -26,6 +26,11 @@ export interface AchievementProgressSnapshot {
   mistakesBank: ReadonlyArray<{ correctCount?: number }>;
 }
 
+/**
+ * 成就奖励分量（宝石）：轻量 20 / 中量 50 / 重量 100。
+ */
+export type AchievementRewardGems = 20 | 50 | 100;
+
 export interface Achievement {
   id: string;
   category: AchievementCategory;
@@ -44,6 +49,8 @@ export interface Achievement {
     | "sparkle";
   color: string;
   goal: number;
+  /** 解锁奖励宝石（只发一次，解锁写入永久 unlockedAchievements 账本） */
+  reward: AchievementRewardGems;
   getProgress: (s: AchievementProgressSnapshot) => number;
 }
 
@@ -57,6 +64,7 @@ const A: Achievement[] = [
     iconKey: "rocket",
     color: "#1CB0F6",
     goal: 1,
+    reward: 20,
     getProgress: s => Object.keys(s.completedLessons).length,
   },
   {
@@ -67,6 +75,7 @@ const A: Achievement[] = [
     iconKey: "bookmark",
     color: "#1CB0F6",
     goal: 10,
+    reward: 50,
     getProgress: s => Object.keys(s.completedLessons).length,
   },
   {
@@ -77,6 +86,7 @@ const A: Achievement[] = [
     iconKey: "trophy",
     color: "#A855F7",
     goal: 50,
+    reward: 100,
     getProgress: s => Object.keys(s.completedLessons).length,
   },
 
@@ -89,6 +99,7 @@ const A: Achievement[] = [
     iconKey: "lightning",
     color: "#1CB0F6",
     goal: 100,
+    reward: 20,
     getProgress: s => s.xp,
   },
   {
@@ -99,6 +110,7 @@ const A: Achievement[] = [
     iconKey: "lightning",
     color: "#A855F7",
     goal: 1000,
+    reward: 50,
     getProgress: s => s.xp,
   },
   {
@@ -109,6 +121,7 @@ const A: Achievement[] = [
     iconKey: "lightning",
     color: "#FFC800",
     goal: 5000,
+    reward: 100,
     getProgress: s => s.xp,
   },
 
@@ -121,6 +134,7 @@ const A: Achievement[] = [
     iconKey: "flame",
     color: "#FF9600",
     goal: 3,
+    reward: 20,
     getProgress: s => s.streak,
   },
   {
@@ -131,6 +145,7 @@ const A: Achievement[] = [
     iconKey: "flame",
     color: "#FF9600",
     goal: 7,
+    reward: 50,
     getProgress: s => s.streak,
   },
   {
@@ -141,6 +156,7 @@ const A: Achievement[] = [
     iconKey: "flame",
     color: "#FF4B4B",
     goal: 30,
+    reward: 100,
     getProgress: s => s.streak,
   },
   {
@@ -151,6 +167,7 @@ const A: Achievement[] = [
     iconKey: "flame",
     color: "#FFC800",
     goal: 100,
+    reward: 100,
     getProgress: s => s.streak,
   },
 
@@ -163,6 +180,7 @@ const A: Achievement[] = [
     iconKey: "star",
     color: "#FFC800",
     goal: 1,
+    reward: 20,
     getProgress: s => Object.keys(s.perfectedLessons).length,
   },
   {
@@ -173,6 +191,7 @@ const A: Achievement[] = [
     iconKey: "star",
     color: "#FFC800",
     goal: 10,
+    reward: 50,
     getProgress: s => Object.keys(s.perfectedLessons).length,
   },
   {
@@ -183,6 +202,7 @@ const A: Achievement[] = [
     iconKey: "crown",
     color: "#A855F7",
     goal: 50,
+    reward: 100,
     getProgress: s => Object.keys(s.perfectedLessons).length,
   },
 
@@ -195,6 +215,7 @@ const A: Achievement[] = [
     iconKey: "sparkle",
     color: "#A855F7",
     goal: 1,
+    reward: 20,
     getProgress: s => Math.max(0, Object.keys(s.ownedCosmetics).length - 3),
   },
   {
@@ -205,6 +226,7 @@ const A: Achievement[] = [
     iconKey: "gem",
     color: "#A855F7",
     goal: 500,
+    reward: 50,
     getProgress: s => s.lifetimeGems,
   },
 
@@ -217,6 +239,7 @@ const A: Achievement[] = [
     iconKey: "medal",
     color: "#58CC02",
     goal: 1,
+    reward: 20,
     getProgress: s => s.mistakesBank.filter(m => (m.correctCount ?? 0) > 0).length,
   },
 ];
@@ -236,4 +259,27 @@ export function diffNewlyUnlocked(
 ): Achievement[] {
   const beforeSet = new Set(computeUnlockedAchievementIds(before));
   return ALL_ACHIEVEMENTS.filter(a => a.getProgress(after) >= a.goal && !beforeSet.has(a.id));
+}
+
+/**
+ * 永久解锁账本合并（只进不出）：把「当前按进度算出来的解锁集合」并进
+ * 已持久化的 unlockedAchievements 账本。连胜回落等导致进度倒退时，
+ * 已解锁的成就不会被「回锁」，奖励也因此只会发一次。
+ *
+ * 返回的数组保持 prevLedger 原有顺序，新解锁的按 currentUnlockedIds
+ * 顺序追加；结果去重。入参不被修改。
+ */
+export function latchUnlocked(
+  prevLedger: ReadonlyArray<string>,
+  currentUnlockedIds: ReadonlyArray<string>,
+): string[] {
+  const seen = new Set(prevLedger);
+  const merged = [...prevLedger];
+  for (const id of currentUnlockedIds) {
+    if (!seen.has(id)) {
+      seen.add(id);
+      merged.push(id);
+    }
+  }
+  return merged;
 }

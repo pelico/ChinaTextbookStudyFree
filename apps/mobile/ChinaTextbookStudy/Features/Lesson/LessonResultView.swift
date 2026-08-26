@@ -14,6 +14,8 @@ struct LessonResultView: View {
     @State private var appeared = false
     /// The chest slot this lesson just filled (every 5th lesson of a unit).
     @State private var chestSlotId: String?
+    /// Full-screen streak-milestone celebration (big flame + gems).
+    @State private var showMilestone = false
 
     var body: some View {
         ZStack {
@@ -63,6 +65,11 @@ struct LessonResultView: View {
                         )
                     }
 
+                    // Weekend ×2 — the doubled XP must be visibly labeled.
+                    if result.outcome.weekendDoubled {
+                        celebrationBanner(icon: "bolt.fill", tint: DuoColors.bee, text: "周末双倍 ×2")
+                    }
+
                     // Streak / daily-goal celebration beats
                     if result.outcome.streakIncreased {
                         celebrationBanner(icon: "flame.fill", tint: DuoColors.fox, text: "连续 \(result.outcome.streakAfter) 天！")
@@ -74,7 +81,7 @@ struct LessonResultView: View {
                         celebrationBanner(
                             icon: "rosette",
                             tint: Color(hex: achievement.colorHex),
-                            text: "解锁成就「\(achievement.name)」"
+                            text: "解锁成就「\(achievement.name)」 +\(achievement.reward)💎"
                         )
                     }
 
@@ -141,6 +148,13 @@ struct LessonResultView: View {
                 )
                 .transition(.opacity)
             }
+
+            // Streak-milestone celebration — plays after the star reveal,
+            // before any chest, so the big flame gets its own moment.
+            if showMilestone {
+                milestoneOverlay
+                    .transition(.opacity)
+            }
         }
         .navigationTitle("结算")
         .navigationBarTitleDisplayMode(.inline)
@@ -164,11 +178,80 @@ struct LessonResultView: View {
             // every-5th-lesson slot (same rule as the path + web).
             if let slot = chestSlotAfterThisLesson(), !progressStore.isChestClaimed(slot.id) {
                 chestSlotId = slot.id
+            }
+
+            if result.outcome.milestoneGems > 0 {
+                // Milestone first (after the star reveal); the chest — if any —
+                // follows once the milestone layer is dismissed.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+                    withAnimation { showMilestone = true }
+                }
+            } else if chestSlotId != nil {
                 // Show chest after star reveal completes (~1.5s)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                     withAnimation { showChest = true }
                 }
             }
+        }
+    }
+
+    // MARK: - Streak milestone celebration layer
+
+    private var milestoneOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.72).ignoresSafeArea()
+            ConfettiView(active: true)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+
+            VStack(spacing: 18) {
+                Image(systemName: "flame.fill")
+                    .font(.system(size: 96, weight: .heavy))
+                    .foregroundStyle(DuoColors.fox)
+                    .shadow(color: DuoColors.fox.opacity(0.6), radius: 24)
+
+                Text("\(result.outcome.streakAfter)")
+                    .font(.system(size: 72, weight: .black))
+                    .foregroundStyle(.white)
+                    .monospacedDigit()
+
+                Text("天连胜里程碑！")
+                    .font(.system(size: 22, weight: .heavy))
+                    .foregroundStyle(.white)
+
+                HStack(spacing: 6) {
+                    Image(systemName: "diamond.fill")
+                        .font(.system(size: 18, weight: .heavy))
+                    Text("+\(result.outcome.milestoneGems)")
+                        .font(.system(size: 22, weight: .black))
+                        .monospacedDigit()
+                }
+                .foregroundStyle(DuoColors.beetle)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 10)
+                .background(.white, in: .capsule)
+
+                Button {
+                    withAnimation { showMilestone = false }
+                    // Milestone dismissed — the chest (if this lesson earned
+                    // one) gets its turn.
+                    if chestSlotId != nil {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                            withAnimation { showChest = true }
+                        }
+                    }
+                } label: {
+                    Text("太棒了！")
+                        .frame(maxWidth: 220)
+                }
+                .buttonStyle(ChunkyButtonStyle(.primary))
+                .padding(.top, 8)
+            }
+            .padding(24)
+        }
+        .onAppear {
+            SFXEngine.shared.play(.complete)
+            HapticEngine.shared.success()
         }
     }
 
@@ -184,8 +267,13 @@ struct LessonResultView: View {
 
     private var awardedXp: Int {
         if result.outcome.xpGained > 0 { return result.outcome.xpGained }
-        let base = result.questionCount * 10
-        return result.stars == 3 ? base * 2 : base
+        // Fallback mirrors the real formula (first-perfect bonus unknown here).
+        return Economy.xpForLesson(
+            correctCount: result.correctCount,
+            perfect: result.correctCount >= result.questionCount,
+            firstPerfect: false,
+            isWeekend: Economy.isWeekend()
+        )
     }
 
     private func celebrationBanner(icon: String, tint: Color, text: String) -> some View {
