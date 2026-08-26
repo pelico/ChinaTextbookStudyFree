@@ -25,33 +25,8 @@ import { haptic } from "@/lib/haptic";
 import { cn } from "@/lib/cn";
 import type { Passage } from "@/types";
 
-/** 课文听读完成奖励：在 localStorage 里记一个集合避免重复发 */
-const PASSAGE_REWARDS_KEY = "csf-passage-rewards-v1";
+/** 课文听读/跟读奖励的两种类型：奖励记录存在 progress store 的 completedReadings 里 */
 type RewardKind = "listen" | "followup";
-function hasPassageReward(passageId: string, kind: RewardKind): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    const raw = window.localStorage.getItem(PASSAGE_REWARDS_KEY);
-    const obj = raw ? (JSON.parse(raw) as Record<string, RewardKind[]>) : {};
-    return (obj[passageId] ?? []).includes(kind);
-  } catch {
-    return false;
-  }
-}
-function markPassageReward(passageId: string, kind: RewardKind): void {
-  if (typeof window === "undefined") return;
-  try {
-    const raw = window.localStorage.getItem(PASSAGE_REWARDS_KEY);
-    const obj = raw ? (JSON.parse(raw) as Record<string, RewardKind[]>) : {};
-    const list = obj[passageId] ?? [];
-    if (!list.includes(kind)) {
-      obj[passageId] = [...list, kind];
-      window.localStorage.setItem(PASSAGE_REWARDS_KEY, JSON.stringify(obj));
-    }
-  } catch {
-    // 静默
-  }
-}
 
 const XP_LISTEN = 5;
 const XP_FOLLOWUP = 10;
@@ -73,16 +48,16 @@ export function PassageReader({ passage, backHref }: Props) {
   const abortRef = useRef(false);
   const rec = useRecorder();
 
-  // XP 奖励集成（接进 progress store 当 XP / gems 算）
-  const recordPassageXp = useProgressStore(s => s.recordLessonComplete);
+  // XP 奖励集成：走 store 的 completeReading（纯 XP、不发宝石、不算课时）
+  const completeReading = useProgressStore(s => s.completeReading);
   const [xpToast, setXpToast] = useState<{ amount: number; key: number } | null>(null);
 
   function grantPassageReward(kind: RewardKind, xp: number) {
-    if (hasPassageReward(passage.id, kind)) return;
-    markPassageReward(passage.id, kind);
-    // 用 recordLessonComplete 走主流：accuracy=1 → 三星 → 自动加 XP + gems + dailyGoal 进度
-    // lessonId 用 passage- 前缀，避免和真正的 lesson 冲突
-    recordPassageXp(`passage-${passage.id}-${kind}`, passage.title, 1.0, xp);
+    // id 用 passage- 前缀，避免和真正的 lesson / story 冲突
+    const readingId = `passage-${passage.id}-${kind}`;
+    // 幂等：领过就不再发（store 内也会查重，这里提前 return 避免重复 toast）
+    if (useProgressStore.getState().completedReadings[readingId]) return;
+    completeReading(readingId, xp);
     setXpToast({ amount: xp, key: Date.now() });
     playSfx("star");
     haptic("success");

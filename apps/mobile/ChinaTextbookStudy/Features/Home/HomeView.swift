@@ -244,10 +244,13 @@ private struct HomeStatsStrip: View {
             .buttonStyle(.plain)
 
             Button { activeSheet = .streak } label: {
+                // Three honest flame states: studied today = lit orange;
+                // not yet but still savable = grey ("今天还没保住");
+                // chain broken = grey with a truthful 0.
                 statItem(
                     icon: Image(systemName: "flame.fill"),
-                    value: "\(progressStore.progress.streak)",
-                    color: progressStore.progress.streak > 0 ? DuoColors.fox : DuoColors.darkInkSofter
+                    value: "\(progressStore.displayStreak)",
+                    color: progressStore.studiedToday ? DuoColors.fox : DuoColors.darkInkSofter
                 )
             }
             .buttonStyle(.plain)
@@ -311,25 +314,53 @@ private struct StreakDetailSheet: View {
 
     private let freezeCost = 200
 
+    /// Same tri-state as the HUD flame: studied today = lit, otherwise grey.
+    private var flameColor: Color {
+        progressStore.studiedToday ? DuoColors.fox : DuoColors.darkInkSofter
+    }
+
+    /// Status line at the top: studied / still savable / already broken.
+    private var statusText: String? {
+        if progressStore.studiedToday { return "今日已打卡 ✓" }
+        let display = progressStore.displayStreak
+        if display > 0 { return "今天再学一节，保住 \(display) 天连胜" }
+        if progressStore.progress.streak > 0 { return "连胜中断了，今天重新出发" }
+        return nil   // brand-new learner: "开始你的连胜" below says it all
+    }
+
+    private var statusColor: Color {
+        if progressStore.studiedToday { return DuoColors.primary }
+        return progressStore.displayStreak > 0 ? DuoColors.fox : DuoColors.darkInkMuted
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 22) {
                 VStack(spacing: 8) {
+                    if let statusText {
+                        Text(statusText)
+                            .font(.system(size: 14, weight: .heavy))
+                            .foregroundStyle(statusColor)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 7)
+                            .background(statusColor.opacity(0.14), in: .capsule)
+                    }
+
                     ZStack {
                         Circle()
-                            .fill(DuoColors.fox.opacity(0.18))
+                            .fill(flameColor.opacity(0.18))
                             .frame(width: 112, height: 112)
                         Image(systemName: "flame.fill")
                             .font(.system(size: 66, weight: .heavy))
-                            .foregroundStyle(DuoColors.fox)
+                            .foregroundStyle(flameColor)
                     }
 
-                    Text("\(progressStore.progress.streak)")
+                    Text("\(progressStore.displayStreak)")
                         .font(.system(size: 54, weight: .black))
                         .foregroundStyle(DuoColors.darkInk)
                         .monospacedDigit()
 
-                    Text(progressStore.progress.streak > 0 ? "天连胜" : "开始你的连胜")
+                    Text(progressStore.displayStreak > 0 ? "天连胜" : "开始你的连胜")
                         .font(.system(size: 16, weight: .heavy))
                         .foregroundStyle(DuoColors.darkInkMuted)
                 }

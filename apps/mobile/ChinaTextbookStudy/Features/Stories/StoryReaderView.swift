@@ -168,7 +168,7 @@ private struct StoryQuizItem: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 8) {
-                Text(question.question).duoFont(.subhead).foregroundStyle(DuoColors.ink)
+                Text(MathText.render(question.question)).duoFont(.subhead).foregroundStyle(DuoColors.ink)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 TTSButton(path: question.audio?.question, size: 15)
             }
@@ -185,10 +185,10 @@ private struct StoryQuizItem: View {
                         .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(ok ? DuoColors.primary : DuoColors.danger)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(ok ? "答对了！" : "正确答案：\(question.answer)")
+                        Text(ok ? "答对了！" : "正确答案：\(MathText.render(question.answer))")
                             .duoFont(.caption).foregroundStyle(ok ? DuoColors.primary : DuoColors.danger)
                         if !question.explanation.isEmpty {
-                            Text(question.explanation).duoFont(.caption).foregroundStyle(DuoColors.inkMuted)
+                            Text(MathText.render(question.explanation)).duoFont(.caption).foregroundStyle(DuoColors.inkMuted)
                         }
                     }
                 }

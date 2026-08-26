@@ -31,6 +31,7 @@ export function StatsBar({ compact = false }: StatsBarProps = {}) {
   const hearts = useProgressStore(s => s.hearts);
   const nextHeartAt = useProgressStore(s => s.nextHeartAt);
   const streak = useProgressStore(s => s.streak);
+  const lastActiveDate = useProgressStore(s => s.lastActiveDate);
   const freezes = useProgressStore(s => s.streakFreezes);
   const xp = useProgressStore(s => s.xp);
 
@@ -39,12 +40,14 @@ export function StatsBar({ compact = false }: StatsBarProps = {}) {
   useEffect(() => setHydrated(true), []);
 
   const dHearts = hydrated ? hearts : MAX_HEARTS;
-  const dStreak = hydrated ? streak : 0;
   const dFreezes = hydrated ? freezes : 0;
   const dXp = hydrated ? xp : 0;
   const dNextHeartAt = hydrated ? nextHeartAt : null;
 
-  const streakActive = dStreak > 0;
+  // 连胜两态（对齐多邻国）：断签且护盾兜不住 → 显示 0；火焰只在"今天已学"时点亮
+  const { value: dStreak, litToday: streakActive } = hydrated
+    ? displayStreak(streak, lastActiveDate, freezes)
+    : { value: 0, litToday: false };
   const heartsFull = dHearts >= MAX_HEARTS;
   const msToNext = dNextHeartAt ? Math.max(0, dNextHeartAt - now) : 0;
 
@@ -80,7 +83,7 @@ export function StatsBar({ compact = false }: StatsBarProps = {}) {
           transition={{ delay: 0.05 }}
           className={`h-8 px-2.5 inline-flex items-center gap-1 rounded-full border-2 font-extrabold text-sm select-none tabular-nums ${
             streakActive
-              ? "border-warning text-warning bg-warning/10"
+              ? "border-fox text-fox bg-fox/10"
               : "border-bg-softer text-ink-softer bg-bg-soft"
           }`}
         >
@@ -165,4 +168,41 @@ export function StatsBar({ compact = false }: StatsBarProps = {}) {
       </Modal>
     </>
   );
+}
+
+// ============================================================
+// 连胜展示口径（纯函数，不改 store —— store 只在下一次学习时结算）
+// ============================================================
+
+/** 本地时区的今天，YYYY-MM-DD（与 store 同实现） */
+function todayStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** 两个 YYYY-MM-DD 日期相差的天数（与 store 同实现） */
+function daysBetween(a: string, b: string): number {
+  if (!a || !b) return Infinity;
+  const da = new Date(a);
+  const db = new Date(b);
+  return Math.round((db.getTime() - da.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+/**
+ * 展示用连胜：
+ * - gap ≤ 1（今天已学 / 昨天学过）→ 连胜有效，显示原值；
+ * - gap > 1 但漏掉的天数 (gap-1) 能被护盾兜住 → 仍有效，显示原值；
+ * - 否则连胜已断 → 显示 0。
+ * 火焰只在「连胜有效 且 今天已学」时点亮（litToday）。
+ */
+function displayStreak(
+  streak: number,
+  lastActiveDate: string,
+  streakFreezes: number,
+): { value: number; litToday: boolean } {
+  if (streak <= 0 || !lastActiveDate) return { value: 0, litToday: false };
+  const gap = daysBetween(lastActiveDate, todayStr());
+  const alive = gap <= 1 || gap - 1 <= streakFreezes;
+  if (!alive) return { value: 0, litToday: false };
+  return { value: streak, litToday: gap === 0 };
 }

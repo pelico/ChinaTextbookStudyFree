@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 /// App entry — delegates to `MainShell` once the site index is loaded.
 ///
@@ -8,6 +9,7 @@ struct RootView: View {
     @StateObject private var progressStore = ProgressStore.shared
     @StateObject private var downloader = AssetDownloader.shared
     @ObservedObject private var settings = SettingsStore.shared
+    @Environment(\.scenePhase) private var scenePhase
     @State private var siteIndex: SiteIndex?
     @State private var loadError: String?
 
@@ -65,12 +67,19 @@ struct RootView: View {
             }
             _ = downloader.loadCachedManifest()
             Task { try? await downloader.loadManifest() }
-            // Refresh the rolling reminder window so a lapsed learner keeps
-            // getting evening nudges (no-op unless the toggle is on).
-            NotificationService.shared.rescheduleStreakReminder(
-                streak: progressStore.reminderStreak,
-                studiedToday: progressStore.studiedToday
-            )
+            // Settle hearts / day-derived state / the rolling reminder window
+            // once at launch (the reminder part is a no-op unless the toggle
+            // is on).
+            progressStore.refreshForNow()
+        }
+        // An app left in the background overnight must not wake up showing
+        // yesterday: re-sync clocked state on every return to foreground and
+        // whenever the calendar day rolls over while we stay frontmost.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { progressStore.refreshForNow() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
+            progressStore.refreshForNow()
         }
     }
 }

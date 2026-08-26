@@ -103,9 +103,15 @@ interface ProgressState {
   // 🎒 v6：用户选择的年级（首次进入时引导选择，决定 home 显示哪一年级的教材）
   selectedGrade: number | null;
 
+  // 📖 v7：阅读完成记录（课文听读/跟读、故事阅读），id → 完成时间 ISO。
+  // 与课程记录彻底分离：阅读只发 XP、不发宝石、不算课时（对齐 iOS completeReading）
+  completedReadings: Record<string, string>;
+
   // actions
   setSelectedGrade: (grade: number | null) => void;
   recordLessonComplete: (lessonId: string, lessonTitle: string, accuracy: number, xpGained: number) => void;
+  /** 完成一篇阅读（课文听读/跟读/故事）：幂等，首次才发 XP，不发通关宝石、不写课程记录 */
+  completeReading: (id: string, xp: number) => void;
   addMistake: (lessonId: string, lessonTitle: string, question: Question) => void;
   removeMistake: (lessonId: string, questionId: number) => void;
   clearMistakesForLesson: (lessonId: string) => void;
@@ -221,6 +227,44 @@ function pruneHistory<T>(history: Record<string, T>): Record<string, T> {
   return out;
 }
 
+/**
+ * 一次 XP 入账的通用记账：xp / todayXp / xpHistory 累加 + 每日目标首次达成的 +20 gems 判定。
+ * recordLessonComplete 与 completeReading 共用，避免两份手抄的记账逻辑漂移。
+ */
+function applyXpGain(
+  state: ProgressState,
+  xpGained: number,
+  today: string,
+): {
+  xp: number;
+  todayXp: number;
+  xpHistory: Record<string, number>;
+  /** 首次跨过 dailyGoal 阈值的一次性奖励（未达成为 0） */
+  goalBonusGems: number;
+} {
+  const isSameDay = state.lastXpDate === today;
+  const prevTodayXp = isSameDay ? state.todayXp : 0;
+  const newTodayXp = prevTodayXp + xpGained;
+  const newXpHistory = pruneHistory({
+    ...state.xpHistory,
+    [today]: (state.xpHistory[today] ?? 0) + xpGained,
+  });
+  let goalBonusGems = 0;
+  if (
+    prevTodayXp < state.dailyGoal &&
+    newTodayXp >= state.dailyGoal &&
+    state.dailyGoal > 0
+  ) {
+    goalBonusGems = 20;
+  }
+  return {
+    xp: state.xp + xpGained,
+    todayXp: newTodayXp,
+    xpHistory: newXpHistory,
+    goalBonusGems,
+  };
+}
+
 /** 周末双倍 XP 标记：用于 UI 展示 */
 export function isWeekendBonusActive(): boolean {
   const d = new Date().getDay();
@@ -288,6 +332,9 @@ export const useProgressStore = create<ProgressState>()(
       selectedGrade: null,
       setSelectedGrade: grade => set({ selectedGrade: grade }),
 
+      // v7
+      completedReadings: {},
+
       recordLessonComplete: (lessonId, lessonTitle, accuracy, xpGained) => {
         const stars = starsFromAccuracy(accuracy);
         // 周末双倍 XP（周六/周日）
@@ -296,12 +343,6 @@ export const useProgressStore = create<ProgressState>()(
         if (isWeekend) {
           xpGained = xpGained * 2;
         }
-        const result: LessonResult = {
-          lessonId,
-          stars,
-          accuracy,
-          completedAt: new Date().toISOString(),
-        };
         const today = todayStr();
 
         // === 💎 gem 经济：每节课的通关奖励 ===
@@ -315,39 +356,35 @@ export const useProgressStore = create<ProgressState>()(
         if (isFirstPerfect) gemsGained += 15;
 
         set(state => {
-          const isSameDay = state.lastXpDate === today;
-          const prevTodayXp = isSameDay ? state.todayXp : 0;
-          const newTodayXp = prevTodayXp + xpGained;
-
-          // === 历史聚合：用于周报 ===
-          const newXpHistory = pruneHistory({
-            ...state.xpHistory,
-            [today]: (state.xpHistory[today] ?? 0) + xpGained,
-          });
+          // XP / todayXp / xpHistory 记账 + 每日目标 +20 gems 判定
+          const xpAccount = applyXpGain(state, xpGained, today);
           const newLessonHistory = pruneHistory({
             ...state.lessonHistory,
             [today]: (state.lessonHistory[today] ?? 0) + 1,
           });
+          const totalGems = gemsGained + xpAccount.goalBonusGems;
 
-          // === 每日目标达成奖励：首次跨过 dailyGoal 阈值时给一次性 +20 gems ===
-          let bonusGoalGems = 0;
-          if (
-            prevTodayXp < state.dailyGoal &&
-            newTodayXp >= state.dailyGoal &&
-            state.dailyGoal > 0
-          ) {
-            bonusGoalGems = 20;
-          }
-          const totalGems = gemsGained + bonusGoalGems;
+          // === 只保留最好成绩：重玩得低星不回退（对齐 iOS ProgressStore）===
+          // 仅当新星级 >= 旧星级时才覆盖；accuracy 取更优，completedAt 用最新
+          const prior = state.completedLessons[lessonId];
+          const result: LessonResult =
+            prior && stars < prior.stars
+              ? prior
+              : {
+                  lessonId,
+                  stars,
+                  accuracy: Math.max(accuracy, prior?.accuracy ?? 0),
+                  completedAt: new Date().toISOString(),
+                };
 
           return {
-            xp: state.xp + xpGained,
+            xp: xpAccount.xp,
             completedLessons: { ...state.completedLessons, [lessonId]: result },
-            todayXp: newTodayXp,
+            todayXp: xpAccount.todayXp,
             lastXpDate: today,
             gems: state.gems + totalGems,
             lifetimeGems: state.lifetimeGems + totalGems,
-            xpHistory: newXpHistory,
+            xpHistory: xpAccount.xpHistory,
             lessonHistory: newLessonHistory,
           };
         });
@@ -364,6 +401,29 @@ export const useProgressStore = create<ProgressState>()(
         }
         // 记录 lessonTitle 到最近结果（未使用但便于未来）
         void lessonTitle;
+      },
+
+      // 📖 阅读完成（课文听读/跟读、故事）——对齐 iOS completeReading：
+      // 纯 XP，不发通关宝石、不写 completedLessons/lessonHistory，重复完成不再奖励
+      completeReading: (id, xp) => {
+        if (get().completedReadings[id]) return; // 已完成过，幂等
+        const today = todayStr();
+        set(state => {
+          const xpAccount = applyXpGain(state, xp, today);
+          return {
+            xp: xpAccount.xp,
+            todayXp: xpAccount.todayXp,
+            lastXpDate: today,
+            xpHistory: xpAccount.xpHistory,
+            gems: state.gems + xpAccount.goalBonusGems,
+            lifetimeGems: state.lifetimeGems + xpAccount.goalBonusGems,
+            completedReadings: {
+              ...state.completedReadings,
+              [id]: new Date().toISOString(),
+            },
+          };
+        });
+        get().bumpStreakIfNeeded();
       },
 
       addMistake: (lessonId, lessonTitle, question) => {
@@ -687,12 +747,45 @@ export const useProgressStore = create<ProgressState>()(
       //   v3 → v4：新增美妆系统 ownedCosmetics / equippedXxx + claimedStreakRewards + 时间关怀
       //   v4 → v5：新增 xpHistory / lessonHistory / lastDailyRewardDate
       //   v5 → v6：新增 selectedGrade（首次进入引导选择年级）
-      version: 6,
+      //   v6 → v7：阅读奖励从"伪课程"迁出 —— completedLessons/perfectedLessons 里
+      //            passage-/story- 前缀的条目移入 completedReadings，课时统计尽力回退
+      version: 7,
       migrate: (persistedState: unknown) => {
         const state = (persistedState as Partial<ProgressState>) ?? {};
         const starterOwned = Object.fromEntries(
           getStarterCosmetics().map(c => [c.id, true as const]),
         );
+
+        // === v7：把历史上以 recordLessonComplete 记录的阅读（passage-/story- 伪 id）
+        //     移入 completedReadings，不再污染课程记录与成就统计 ===
+        const isReadingId = (id: string) =>
+          id.startsWith("passage-") || id.startsWith("story-");
+        const completedLessons: Record<string, LessonResult> = {};
+        const completedReadings: Record<string, string> = {
+          ...(state.completedReadings ?? {}),
+        };
+        const lessonHistory: Record<string, number> = {
+          ...(state.lessonHistory ?? {}),
+        };
+        for (const [id, result] of Object.entries(state.completedLessons ?? {})) {
+          if (isReadingId(id)) {
+            completedReadings[id] =
+              completedReadings[id] ?? (result.completedAt || new Date().toISOString());
+            // 课时统计尽力回退：按完成日期 -1（阅读不该算课时）
+            const dayKey = (result.completedAt ?? "").slice(0, 10);
+            if (dayKey && lessonHistory[dayKey]) {
+              lessonHistory[dayKey] = Math.max(0, lessonHistory[dayKey] - 1);
+            }
+          } else {
+            completedLessons[id] = result;
+          }
+        }
+        const perfectedLessons = Object.fromEntries(
+          Object.entries(state.perfectedLessons ?? {}).filter(
+            ([id]) => !isReadingId(id),
+          ),
+        ) as Record<string, true>;
+
         return {
           ...state,
           hearts: state.hearts ?? MAX_HEARTS,
@@ -706,7 +799,8 @@ export const useProgressStore = create<ProgressState>()(
           gems: state.gems ?? 0,
           lifetimeGems: state.lifetimeGems ?? 0,
           claimedChests: state.claimedChests ?? {},
-          perfectedLessons: state.perfectedLessons ?? {},
+          completedLessons,
+          perfectedLessons,
           // v4 新字段
           ownedCosmetics: { ...starterOwned, ...(state.ownedCosmetics ?? {}) },
           equippedMascotSkin: state.equippedMascotSkin ?? DEFAULT_EQUIPPED.mascotSkin,
@@ -717,10 +811,12 @@ export const useProgressStore = create<ProgressState>()(
           dailyTimeLimitMs: state.dailyTimeLimitMs ?? 0,
           sessionTimeLimitMs: state.sessionTimeLimitMs ?? 0,
           xpHistory: state.xpHistory ?? {},
-          lessonHistory: state.lessonHistory ?? {},
+          lessonHistory,
           lastDailyRewardDate: state.lastDailyRewardDate ?? "",
           // v6
           selectedGrade: state.selectedGrade ?? null,
+          // v7
+          completedReadings,
         } as ProgressState;
       },
     },

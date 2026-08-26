@@ -61,7 +61,8 @@ private struct ChoiceQuestionView: View {
                     }
                 } label: {
                     HStack(spacing: 12) {
-                        Text(opt)
+                        // 只做显示转换；判分仍走原始 opt/letter，不受影响。
+                        Text(MathText.render(opt))
                             .multilineTextAlignment(.leading)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         checkMark(for: state)
@@ -303,7 +304,7 @@ private struct WordOrderQuestionView: View {
 
     private func chip(text: String, filled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(text)
+            Text(MathText.render(text))
                 .duoFont(.subhead)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
@@ -317,7 +318,7 @@ private struct WordOrderQuestionView: View {
     }
 
     private func chipGhost(text: String) -> some View {
-        Text(text)
+        Text(MathText.render(text))
             .duoFont(.subhead)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -435,7 +436,7 @@ private struct MatchingQuestionView: View {
         let isWrong = (side == .left && flashWrong?.left == key) || (side == .right && flashWrong?.right == key)
         let border: Color = isWrong ? DuoColors.danger : (isActive ? DuoColors.secondary : DuoColors.border)
         let fill: Color = isWrong ? DuoColors.danger.opacity(0.14) : (isActive ? DuoColors.secondary.opacity(0.12) : DuoColors.surface)
-        return Text(label)
+        return Text(MathText.render(label))
             .duoFont(.subhead)
             .foregroundStyle(DuoColors.ink)
             .multilineTextAlignment(.leading)

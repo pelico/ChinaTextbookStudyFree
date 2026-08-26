@@ -86,7 +86,7 @@ struct MistakeReviewRunnerView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     Text("复习错题").duoFont(.caption).foregroundStyle(DuoColors.fox)
                     HStack(alignment: .top, spacing: 8) {
-                        Text(q.question).duoFont(.subhead, weight: .medium).foregroundStyle(DuoColors.ink)
+                        Text(MathText.render(q.question)).duoFont(.subhead, weight: .medium).foregroundStyle(DuoColors.ink)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         TTSButton(path: q.audio?.question)
                     }
@@ -109,7 +109,7 @@ struct MistakeReviewRunnerView: View {
                     Image(systemName: ok ? "checkmark.circle.fill" : "xmark.circle.fill")
                         .font(.system(size: 22, weight: .bold))
                         .foregroundStyle(ok ? DuoColors.primary : DuoColors.danger)
-                    Text(ok ? "答对了！" : "正确答案：\(q.answer)")
+                    Text(ok ? "答对了！" : "正确答案：\(MathText.render(q.answer))")
                         .duoFont(.caption).foregroundStyle(ok ? DuoColors.primary : DuoColors.danger)
                     Spacer()
                 }

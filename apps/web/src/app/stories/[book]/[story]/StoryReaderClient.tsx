@@ -18,27 +18,6 @@ const XP_STORY_READ = 5;
 const XP_QUIZ_GOOD = 10;
 const GOOD_THRESHOLD = 0.8;
 
-const STORY_REWARDS_KEY = "csf-story-rewards-v1";
-function hasStoryReward(storyId: string): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    const raw = window.localStorage.getItem(STORY_REWARDS_KEY);
-    const set: string[] = raw ? JSON.parse(raw) : [];
-    return set.includes(storyId);
-  } catch { return false; }
-}
-function markStoryReward(storyId: string): void {
-  if (typeof window === "undefined") return;
-  try {
-    const raw = window.localStorage.getItem(STORY_REWARDS_KEY);
-    const set: string[] = raw ? JSON.parse(raw) : [];
-    if (!set.includes(storyId)) {
-      set.push(storyId);
-      window.localStorage.setItem(STORY_REWARDS_KEY, JSON.stringify(set));
-    }
-  } catch { /* silent */ }
-}
-
 type Phase = "reading" | "quiz" | "result";
 type PlayMode = "idle" | "playing";
 
@@ -76,7 +55,7 @@ export default function StoryReaderClient({ story, backHref }: Props) {
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
   const [correctCount, setCorrectCount] = useState(0);
 
-  const recordXp = useProgressStore(s => s.recordLessonComplete);
+  const completeReading = useProgressStore(s => s.completeReading);
 
   // 离开页面时停止
   useEffect(() => {
@@ -171,11 +150,9 @@ export default function StoryReaderClient({ story, backHref }: Props) {
       setIsCorrect(null);
     } else {
       const accuracy = story.questions.length > 0 ? correctCount / story.questions.length : 0;
-      if (!hasStoryReward(story.id)) {
-        markStoryReward(story.id);
-        const xp = accuracy >= GOOD_THRESHOLD ? XP_STORY_READ + XP_QUIZ_GOOD : XP_STORY_READ;
-        recordXp(`story-${story.id}`, story.title, accuracy, xp);
-      }
+      // 阅读奖励：纯 XP，首次完成才发（completeReading 内部按 id 查重幂等）
+      const xp = accuracy >= GOOD_THRESHOLD ? XP_STORY_READ + XP_QUIZ_GOOD : XP_STORY_READ;
+      completeReading(`story-${story.id}`, xp);
       setPhase("result");
       playSfx("star");
       haptic("success");

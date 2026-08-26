@@ -159,7 +159,7 @@ struct LessonRunnerView: View {
                     .padding(.top, 6)
 
                 HStack(alignment: .top, spacing: 10) {
-                    Text(q.question)
+                    Text(MathText.render(q.question))
                         .duoFont(.subhead, weight: .medium)
                         .foregroundStyle(DuoColors.inkMuted)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -236,7 +236,7 @@ struct LessonRunnerView: View {
                         .duoFont(.heading)
                         .foregroundStyle(accent)
                     if !ok {
-                        Text("正确答案：\(question.answer)")
+                        Text("正确答案：\(MathText.render(question.answer))")
                             .duoFont(.caption)
                             .foregroundStyle(accent)
                     } else if !feedbackBubble.isEmpty {
@@ -250,7 +250,7 @@ struct LessonRunnerView: View {
 
             if !question.explanation.isEmpty {
                 HStack(alignment: .top, spacing: 8) {
-                    Text(question.explanation)
+                    Text(MathText.render(question.explanation))
                         .duoFont(.body)
                         .foregroundStyle(DuoColors.inkMuted)
                         .frame(maxWidth: .infinity, alignment: .leading)

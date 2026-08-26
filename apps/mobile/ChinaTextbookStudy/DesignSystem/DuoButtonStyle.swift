@@ -25,11 +25,13 @@ struct ChunkyButtonStyle: ButtonStyle {
         let pressOffset: CGFloat = isPressed ? depth : 0
 
         ZStack {
-            // Bottom "depth" layer — always visible behind the surface
+            // Bottom "depth" layer — always visible behind the surface.
+            // Same width + radius as the surface (no horizontal padding here:
+            // the surface's padding sits INSIDE its background, so padding the
+            // base would leave it 24pt short on each side).
             RoundedRectangle(cornerRadius: cornerRadius)
                 .fill(isPressed ? colors.background : colors.shadow)
                 .frame(minHeight: 50)
-                .padding(.horizontal, 24)
 
             // Main surface layer — shifts down on press
             configuration.label

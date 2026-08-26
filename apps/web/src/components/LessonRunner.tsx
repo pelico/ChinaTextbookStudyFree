@@ -199,11 +199,7 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
   const upsertLessonSession = useProgressStore(s => s.upsertLessonSession);
   const clearLessonSession = useProgressStore(s => s.clearLessonSession);
   const addGems = useProgressStore(s => s.addGems);
-  const markPerfected = useProgressStore(s => s.markPerfected);
   const claimChest = useProgressStore(s => s.claimChest);
-  const alreadyPerfected = useProgressStore(
-    s => !!s.perfectedLessons[lesson.id],
-  );
   const chestAlreadyClaimed = useProgressStore(
     s => !!(chestSlot && s.claimedChests[chestSlot.id]),
   );
@@ -356,114 +352,148 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
     };
   }, []);
 
-  function handleCheck() {
-    if (!answer.trim()) return;
-    const ok = gradeAnswer(current, answer);
-    setIsCorrect(ok);
+  /**
+   * 答错 / 跳过共用的"判错"流程：
+   * 进入 checked 相位 → 清连击、记错题、扣心 → 触感音效 + 抖动 + 气泡 + 心碎音
+   */
+  function applyWrongAnswer() {
+    setIsCorrect(false);
     setPhase("checked");
 
     // === 上下文感知的 mascot mood/reaction 决策 ===
-    const newCombo = ok ? combo + 1 : 0;
     const triggerCtx: MascotTriggerContext = {
-      isCorrect: ok,
-      isPerfectSession: ok && mistakeCount === 0,
+      isCorrect: false,
+      isPerfectSession: false,
       attemptCount: 1, // 每题只答一次（无重做机制）
-      remainingHearts: ok ? hearts : Math.max(0, hearts - 1),
-      combo: newCombo,
-      maxCombo: Math.max(maxCombo, newCombo),
+      remainingHearts: Math.max(0, hearts - 1),
+      combo: 0,
+      maxCombo,
       index,
       total,
-      totalCorrectInSession: ok ? correctCount + 1 : correctCount,
+      totalCorrectInSession: correctCount,
     };
     const nextMood = decideMascotMood(triggerCtx);
     const nextReaction = decideMascotReaction(triggerCtx);
     setMascotMood(nextMood);
 
-    if (ok) {
-      setCorrectCount(c => c + 1);
-      setSessionXpPreview(xp => xp + XP_PER_CORRECT);
-      setCombo(newCombo);
-      setMaxCombo(mc => (newCombo > mc ? newCombo : mc));
+    setCombo(0);
+    setMistakeCount(m => m + 1);
+    addMistake(lesson.id, lesson.title, current);
 
-      // ★ T+0ms ★ 触觉立即响应
-      haptic("light");
-      // ★ T+0ms ★ 音效（Web Audio 几乎零延迟）
-      playSfx("correct");
+    // ★ T+0ms ★ 重触觉 + 错音
+    haptic("heavy");
+    playSfx("wrong");
 
-      // +XP 飘字：从屏幕中间飞到顶栏 XP 徽章
-      if (typeof window !== "undefined" && xpTargetRef.current) {
-        const rect = xpTargetRef.current.getBoundingClientRect();
-        const endX = rect.left + rect.width / 2;
-        const endY = rect.top + rect.height / 2;
-        const startX = window.innerWidth / 2;
-        const startY = window.innerHeight * 0.45;
-        const id = ++xpFloatIdRef.current;
-        setXpFloats(list => [...list, { id, startX, startY, endX, endY }]);
-      }
+    // ★ T+35ms ★ Mascot 反应（错峰）
+    setTimeout(() => triggerReact(nextReaction), 35);
 
-      // ★ T+35ms ★ Mascot 反应（错峰，让用户先听到声音再看到动作）
-      setTimeout(() => triggerReact(nextReaction), 35);
+    // ★ T+50ms ★ 题区抖动
+    if (!prefersReduced) {
+      setTimeout(() => {
+        shakeControls.start({
+          x: [0, -8, 8, -5, 5, 0],
+          transition: { duration: 0.45 },
+        });
+      }, 50);
+    }
 
-      // ★ T+200ms ★ 进度条脉冲：combo 越高，幅度越大（递增刺激）
-      if (!prefersReduced) {
-        const pulseAmp = Math.min(1.6 + newCombo * 0.05, 2.1);
-        setTimeout(() => {
-          progressControls.start({
-            scaleY: [1, pulseAmp, 1],
-            transition: { duration: 0.35 },
-          });
-        }, 200);
-      }
+    // ★ T+50ms ★ 气泡按 mood
+    setTimeout(
+      () => showBubble(pickBubble(nextMood), moodToTone(nextMood), 1800),
+      50,
+    );
 
-      // ★ T+50ms ★ 气泡：按 mood 选择文案
-      setTimeout(
-        () => showBubble(pickBubble(nextMood), moodToTone(nextMood), 1400),
-        50,
-      );
+    // ★ T+120ms ★ 心碎音效（错峰避免和 wrong 重叠）
+    setTimeout(() => playSfx("heartLoss"), 120);
 
-      // ★ T+320ms ★ Combo 里程碑
-      if (newCombo === 3 || newCombo === 5 || newCombo === 10) {
-        setTimeout(() => {
-          playSfx("combo");
-          showComboOverlay(newCombo);
-        }, 320);
-      }
-    } else {
-      setCombo(0);
-      setMistakeCount(m => m + 1);
-      addMistake(lesson.id, lesson.title, current);
+    loseHeart();
+    // hearts 是 store 订阅值，下一次渲染会更新；这里直接判断下一次会是多少
+    if (hearts - 1 <= 0) {
+      setFailed(true);
+    }
+  }
 
-      // ★ T+0ms ★ 重触觉 + 错音
-      haptic("heavy");
-      playSfx("wrong");
+  /** 跳过本题：不判分，直接按答错处理（与多邻国 SKIP 语义一致） */
+  function skipQuestion() {
+    // 清掉已选答案，反馈阶段只高亮正确答案
+    setAnswer("");
+    applyWrongAnswer();
+  }
 
-      // ★ T+35ms ★ Mascot 反应（错峰）
-      setTimeout(() => triggerReact(nextReaction), 35);
+  function handleCheck() {
+    if (!answer.trim()) return;
+    const ok = gradeAnswer(current, answer);
+    if (!ok) {
+      applyWrongAnswer();
+      return;
+    }
+    setIsCorrect(true);
+    setPhase("checked");
 
-      // ★ T+50ms ★ 题区抖动
-      if (!prefersReduced) {
-        setTimeout(() => {
-          shakeControls.start({
-            x: [0, -8, 8, -5, 5, 0],
-            transition: { duration: 0.45 },
-          });
-        }, 50);
-      }
+    // === 上下文感知的 mascot mood/reaction 决策 ===
+    const newCombo = combo + 1;
+    const triggerCtx: MascotTriggerContext = {
+      isCorrect: true,
+      isPerfectSession: mistakeCount === 0,
+      attemptCount: 1, // 每题只答一次（无重做机制）
+      remainingHearts: hearts,
+      combo: newCombo,
+      maxCombo: Math.max(maxCombo, newCombo),
+      index,
+      total,
+      totalCorrectInSession: correctCount + 1,
+    };
+    const nextMood = decideMascotMood(triggerCtx);
+    const nextReaction = decideMascotReaction(triggerCtx);
+    setMascotMood(nextMood);
 
-      // ★ T+50ms ★ 气泡按 mood
-      setTimeout(
-        () => showBubble(pickBubble(nextMood), moodToTone(nextMood), 1800),
-        50,
-      );
+    setCorrectCount(c => c + 1);
+    setSessionXpPreview(xp => xp + XP_PER_CORRECT);
+    setCombo(newCombo);
+    setMaxCombo(mc => (newCombo > mc ? newCombo : mc));
 
-      // ★ T+120ms ★ 心碎音效（错峰避免和 wrong 重叠）
-      setTimeout(() => playSfx("heartLoss"), 120);
+    // ★ T+0ms ★ 触觉立即响应
+    haptic("light");
+    // ★ T+0ms ★ 音效（Web Audio 几乎零延迟）
+    playSfx("correct");
 
-      loseHeart();
-      // hearts 是 store 订阅值，下一次渲染会更新；这里直接判断下一次会是多少
-      if (hearts - 1 <= 0) {
-        setFailed(true);
-      }
+    // +XP 飘字：从屏幕中间飞到顶栏 XP 徽章
+    if (typeof window !== "undefined" && xpTargetRef.current) {
+      const rect = xpTargetRef.current.getBoundingClientRect();
+      const endX = rect.left + rect.width / 2;
+      const endY = rect.top + rect.height / 2;
+      const startX = window.innerWidth / 2;
+      const startY = window.innerHeight * 0.45;
+      const id = ++xpFloatIdRef.current;
+      setXpFloats(list => [...list, { id, startX, startY, endX, endY }]);
+    }
+
+    // ★ T+35ms ★ Mascot 反应（错峰，让用户先听到声音再看到动作）
+    setTimeout(() => triggerReact(nextReaction), 35);
+
+    // ★ T+200ms ★ 进度条脉冲：combo 越高，幅度越大（递增刺激）
+    if (!prefersReduced) {
+      const pulseAmp = Math.min(1.6 + newCombo * 0.05, 2.1);
+      setTimeout(() => {
+        progressControls.start({
+          scaleY: [1, pulseAmp, 1],
+          transition: { duration: 0.35 },
+        });
+      }, 200);
+    }
+
+    // ★ T+50ms ★ 气泡：按 mood 选择文案
+    setTimeout(
+      () => showBubble(pickBubble(nextMood), moodToTone(nextMood), 1400),
+      50,
+    );
+
+    // ★ T+320ms ★ Combo 里程碑
+    if (newCombo === 3 || newCombo === 5 || newCombo === 10) {
+      setTimeout(() => {
+        playSfx("combo");
+        showComboOverlay(newCombo);
+      }, 320);
     }
   }
 
@@ -475,7 +505,10 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
       const perfect = mistakeCount === 0;
       const perfectBonus = perfect ? PERFECT_BONUS : 0;
 
-      // 首次三星（零失误）额外奖励
+      // 首次三星（零失误）额外奖励 —— 写入前只读快照判断，
+      // 真正的 perfectedLessons 标记由 recordLessonComplete 内部完成
+      const alreadyPerfected =
+        !!useProgressStore.getState().perfectedLessons[lesson.id];
       const firstPerfect = perfect && !alreadyPerfected;
       const firstPerfectBonus = firstPerfect ? FIRST_PERFECT_XP_BONUS : 0;
       const xp = baseXp + perfectBonus + firstPerfectBonus;
@@ -486,8 +519,7 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
           ? { slot: chestSlot, gems: rollChestReward().gems }
           : null;
 
-      // 写入 store（记录 + 宝箱领取 + 首次完美标记）
-      if (firstPerfect) markPerfected(lesson.id);
+      // 写入 store（记录 + 宝箱领取；首次完美的标记在 recordComplete 内部）
       if (chestReward) {
         claimChest(chestReward.slot.id);
         addGems(chestReward.gems);
@@ -513,6 +545,31 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
     setIsCorrect(null);
     setPhase("answering");
     setMascotMood("happy");
+  }
+
+  /**
+   * 失败后"重新开始"：本组件是纯客户端渲染，router.refresh() 不会重置
+   * client state，必须手动把整个会话 state 归零后从第一题重来。
+   */
+  function resetSession() {
+    clearLessonSession();
+    setIndex(0);
+    setAnswer("");
+    setPhase("answering");
+    setIsCorrect(null);
+    setCorrectCount(0);
+    setMistakeCount(0);
+    setDone(false);
+    setSessionStats(null);
+    setFailed(false);
+    setCombo(0);
+    setMaxCombo(0);
+    setSessionXpPreview(0);
+    setXpFloats([]);
+    setMascotMood("happy");
+    setBubbleText(null);
+    setComboOverlay(null);
+    startTimeRef.current = Date.now();
   }
 
   function handleRequestExit() {
@@ -555,7 +612,7 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
     return (
       <FailScreen
         lesson={lesson}
-        onRetry={() => router.refresh()}
+        onRetry={resetSession}
         onBack={() => router.push(`/book/${lesson.bookId}/`)}
       />
     );
@@ -781,13 +838,7 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
           <div className="max-w-md lg:max-w-2xl mx-auto px-5 py-4 flex items-center gap-3">
             <button
               type="button"
-              onClick={() => {
-                playSfx("tap");
-                haptic("light");
-                // 跳过：等价于直接判错并继续
-                setAnswer("");
-                handleCheck();
-              }}
+              onClick={skipQuestion}
               className="btn-chunky-ghost px-6"
               aria-label="跳过本题"
             >

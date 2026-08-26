@@ -82,6 +82,10 @@ final class ProgressStore: ObservableObject {
         questionCount: Int,
         now: Date = Date()
     ) -> LessonOutcome {
+        // Hearts may have recharged while the learner sat in the lesson —
+        // settle the timer before anything below reads a stale count.
+        tickHeartRecharge(now: now)
+
         let stars: Int
         switch accuracy {
         case 0.95...:  stars = 3
@@ -261,20 +265,30 @@ final class ProgressStore: ObservableObject {
     /// Whether any study activity (lesson / review / reading) happened today.
     var studiedToday: Bool { progress.lastActiveDate == SRS.todayString() }
 
-    /// The streak value a reminder may truthfully quote: the current streak
-    /// when studying today would still continue it (incl. shield coverage),
-    /// else 0 so the notification falls back to generic copy instead of
-    /// promising to save a streak that is already gone.
-    var reminderStreak: Int {
-        if studiedToday { return progress.streak }
+    /// The streak value that studying today could still continue (incl. shield
+    /// coverage): the current streak while it's salvageable, else 0. Shared by
+    /// the HUD (`displayStreak`) and the reminder copy (`reminderStreak`) so
+    /// neither ever quotes a streak that is already gone.
+    func salvageableStreak(now: Date = Date()) -> Int {
+        let today = SRS.todayString(now: now)
+        if progress.lastActiveDate == today { return progress.streak }
         let adv = Streak.advance(
             streak: progress.streak,
             streakFreezes: progress.streakFreezes ?? 0,
             lastActiveDate: progress.lastActiveDate,
-            today: SRS.todayString()
+            today: today
         )
         return adv.streak == progress.streak + 1 ? progress.streak : 0
     }
+
+    /// Honest streak for the home HUD: a stale "连续 N 天" never survives a
+    /// broken chain — once shields can't cover the gap this drops to 0.
+    var displayStreak: Int { salvageableStreak() }
+
+    /// The streak value a reminder may truthfully quote; 0 makes the
+    /// notification fall back to generic copy instead of promising to save a
+    /// streak that is already gone.
+    var reminderStreak: Int { salvageableStreak() }
 
     /// Unix timestamp (seconds) for the next heart recharge, or nil if full.
     var nextHeartAt: Date? {
@@ -284,6 +298,9 @@ final class ProgressStore: ObservableObject {
 
     /// Lose one heart. Called on wrong answer in lesson runner.
     func loseHeart(now: Date = Date()) {
+        // Settle any pending recharge first so we never eat a heart the timer
+        // already gave back while no UI was ticking it.
+        tickHeartRecharge(now: now)
         var p = progress
         let current = p.hearts ?? Self.maxHearts
         guard current > 0 else { return }
@@ -310,6 +327,32 @@ final class ProgressStore: ObservableObject {
         p.nextHeartAt = currentHearts < Self.maxHearts ? nextMs : nil
         progress = p
         save()
+    }
+
+    /// Day key the published state was last rendered against — lets
+    /// `refreshForNow` detect a calendar rollover while the app was inactive.
+    private var lastKnownDay = SRS.todayString()
+
+    /// Re-sync every time-derived piece of state with the wall clock: recharge
+    /// hearts, poke observers when the calendar day changed (todayXp /
+    /// studiedToday / displayStreak are all computed against "today"), and
+    /// refresh the rolling reminder window. Called at launch, on returning to
+    /// foreground, and on the system's day-changed notification — so an app
+    /// left overnight never shows yesterday's state.
+    func refreshForNow(now: Date = Date()) {
+        tickHeartRecharge(now: now)
+        let today = SRS.todayString(now: now)
+        if today != lastKnownDay {
+            lastKnownDay = today
+            // Derived accessors read the wall clock; nothing stored changed,
+            // so fire the publisher by hand to make every view recompute.
+            objectWillChange.send()
+        }
+        NotificationService.shared.rescheduleStreakReminder(
+            streak: salvageableStreak(now: now),
+            studiedToday: progress.lastActiveDate == today,
+            now: now
+        )
     }
 
     /// Refill hearts to max (used by streak freeze or debug).
@@ -354,9 +397,12 @@ final class ProgressStore: ObservableObject {
         return true
     }
 
-    /// Spend gems to refill all hearts. Returns true on success.
+    /// Spend gems to refill all hearts. Returns true on success. Ticks the
+    /// recharge timer first — hearts that came back on their own while the UI
+    /// was stale must never be sold back to the learner for gems.
     @discardableResult
-    func buyHeartRefill(cost: Int = 350) -> Bool {
+    func buyHeartRefill(cost: Int = 350, now: Date = Date()) -> Bool {
+        tickHeartRecharge(now: now)
         guard hearts < Self.maxHearts else { return false }
         guard spendGems(cost) else { return false }
         refillHearts()

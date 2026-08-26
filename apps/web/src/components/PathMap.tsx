@@ -300,12 +300,11 @@ export function PathMap({
 
 /**
  * 单元内部的蛇形路径渲染：
- * - 使用 400px 宽的居中舞台 (viewBox -200..200)
+ * - 设计稿舞台宽 440px；窄容器（手机）按 容器宽/440 等比缩放横向坐标，杜绝横向溢出
  * - SVG cubic bezier 连接相邻节点（控制点放在中点 y 上，自然形成 S 曲线）
  * - 节点以绝对定位放置到同一坐标系
  */
 const STAGE_WIDTH = 440;
-const STAGE_HALF = STAGE_WIDTH / 2;
 const NODE_SIZE = 80;
 const STEP_Y = 120;
 const PAD_TOP = 16;
@@ -368,9 +367,9 @@ function renderDecoIcon(kind: DecoKind, size: number) {
   }
 }
 
-function buildSnakePath(points: Array<{ x: number; y: number }>): string {
+function buildSnakePath(points: Array<{ x: number; y: number }>, stageHalf: number): string {
   if (points.length < 2) return "";
-  const toX = (x: number) => x + STAGE_HALF;
+  const toX = (x: number) => x + stageHalf;
   let d = `M ${toX(points[0].x)} ${points[0].y}`;
   for (let i = 1; i < points.length; i++) {
     const a = points[i - 1];
@@ -408,6 +407,28 @@ function UnitPath({
   onChest,
   sectionRefs,
 }: UnitPathProps) {
+  // 响应式舞台宽：容器窄于设计稿 440px 时（iPhone 375-430 等）按比例收窄，
+  // 桌面（容器 ≥ 440）scale = 1，渲染与设计稿逐像素一致。
+  // SSR / 首帧安全初值取 STAGE_WIDTH，配合外层 overflow-x-clip 不会撑出横向滚动，
+  // useLayoutEffect 在首次绘制前同步测宽，避免可见跳动。
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState<number | null>(null);
+
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    setContainerWidth(el.clientWidth);
+    const observer = new ResizeObserver(() => {
+      setContainerWidth(el.clientWidth);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const stageWidth = Math.min(STAGE_WIDTH, containerWidth ?? STAGE_WIDTH);
+  const stageHalf = stageWidth / 2;
+  const scale = stageWidth / STAGE_WIDTH;
+
   const flat: FlatEntry[] = [];
   entries.forEach(([unitNum, group], gi) => {
     group.items.forEach((item, idx) => {
@@ -422,19 +443,20 @@ function UnitPath({
   });
 
   const positions = flat.map((_, i) => ({
-    x: snakeOffset(i),
+    x: snakeOffset(i) * scale,
     y: PAD_TOP + NODE_SIZE / 2 + i * STEP_Y,
   }));
   const height = PAD_TOP + NODE_SIZE + Math.max(0, flat.length - 1) * STEP_Y + PAD_BOTTOM;
-  const pathD = buildSnakePath(positions);
+  const pathD = buildSnakePath(positions, stageHalf);
 
   return (
-    <div className="relative mx-auto" style={{ width: STAGE_WIDTH, height }}>
+    <div ref={containerRef} className="w-full overflow-x-clip">
+    <div className="relative mx-auto" style={{ width: stageWidth, height }}>
       <svg
         className="absolute inset-0 pointer-events-none"
-        width={STAGE_WIDTH}
+        width={stageWidth}
         height={height}
-        viewBox={`0 0 ${STAGE_WIDTH} ${height}`}
+        viewBox={`0 0 ${stageWidth} ${height}`}
         aria-hidden
       >
         <path
@@ -451,7 +473,7 @@ function UnitPath({
       {generateDecorations(flat.length).map((d, i) => {
         if (d.atIndex >= flat.length) return null;
         const p = positions[d.atIndex];
-        const cx = d.side === 1 ? STAGE_WIDTH - d.size / 2 - 8 : d.size / 2 + 8;
+        const cx = d.side === 1 ? stageWidth - d.size / 2 - 8 : d.size / 2 + 8;
         const cy = p.y + d.yOffset;
         return (
           <motion.div
@@ -521,7 +543,7 @@ function UnitPath({
       {flat.map((entry, idx) => {
         const p = positions[idx];
         const style: CSSProperties = {
-          left: STAGE_HALF + p.x - NODE_SIZE / 2,
+          left: stageHalf + p.x - NODE_SIZE / 2,
           top: p.y - NODE_SIZE / 2,
           width: NODE_SIZE,
         };
@@ -555,6 +577,7 @@ function UnitPath({
           </div>
         );
       })}
+    </div>
     </div>
   );
 }
