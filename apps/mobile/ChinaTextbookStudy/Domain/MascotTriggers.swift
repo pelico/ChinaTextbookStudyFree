@@ -26,6 +26,9 @@ enum MascotTriggers {
             if isLastQuestion && ctx.isPerfectSession { return .proud }
             if ctx.remainingHearts == 1 { return .happy }
             if ctx.combo >= 5 { return .cheer }
+            // Wave F (ios-feel-16)：连击刚起步的答对偶尔来个「哇！」——
+            // 10% 概率 surprise，给聪聪多一点活人感。
+            if ctx.combo == 1, Double.random(in: 0..<1) < 0.1 { return .surprise }
             return .happy
         }
 
@@ -54,7 +57,7 @@ enum MascotTriggers {
         .proud:       ["你太棒了!", "实力派!", "学霸预定!", "我为你骄傲!"],
         .sad:         ["别灰心!", "再来一次!", "差一点点!", "下次一定!"],
         .think:       ["想想看?", "再仔细一点!", "别急!", "慢慢来!"],
-        .embarrassed: ["小心呀!", "保住心心!", "稳住!", "深呼吸!"],
+        .embarrassed: ["小心呀!", "保住红心!", "稳住!", "深呼吸!"],
         .wave:        ["加油!", "我们一起!"],
         .surprise:    ["哇!", "诶?", "厉害厉害!"],
     ]

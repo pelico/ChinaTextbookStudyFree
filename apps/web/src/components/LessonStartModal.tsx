@@ -4,7 +4,7 @@
  * LessonStartModal — 点击路径节点后弹出的课程摘要卡
  *
  * 多邻国风格：小卡片显示课程标题、题目数、预计 XP，下方一个大"开始"按钮。
- * 若心数为 0，按钮禁用并显示下一颗心的倒计时。
+ * 若红心为 0，按钮禁用并显示下一颗心的倒计时。
  */
 
 import { useRouter } from "next/navigation";
@@ -146,7 +146,7 @@ export function LessonStartModal({
         <div className="grid grid-cols-2 gap-3 w-full mt-6">
           <div
             className="bg-bg-soft rounded-2xl p-4 border-2 border-bg-softer"
-            style={{ boxShadow: "0 3px 0 0 #e5e5e5" }}
+            style={{ boxShadow: "0 3px 0 0 var(--shadow-card-color)" }}
           >
             <div className="text-[11px] uppercase tracking-wider text-ink-softer font-extrabold">
               {resume ? "剩余题数" : "题目数"}
@@ -157,7 +157,7 @@ export function LessonStartModal({
           </div>
           <div
             className="bg-bg-soft rounded-2xl p-4 border-2 border-bg-softer"
-            style={{ boxShadow: "0 3px 0 0 #e5e5e5" }}
+            style={{ boxShadow: "0 3px 0 0 var(--shadow-card-color)" }}
           >
             <div className="text-[11px] uppercase tracking-wider text-ink-softer font-extrabold">
               可获得
@@ -194,7 +194,7 @@ export function LessonStartModal({
           <div className="mt-4 w-full rounded-2xl border-2 border-danger/30 bg-danger/10 px-4 py-3">
             <div className="flex items-center justify-center gap-2 text-danger font-extrabold">
               <Heart className="w-5 h-5" />
-              <span>心数不足</span>
+              <span>红心不足</span>
             </div>
             {nextHeartAt && (
               <div className="mt-1 text-xs text-ink-light">

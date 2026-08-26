@@ -94,7 +94,7 @@ export function DailyQuestsPanel() {
   return (
     <div
       className="rounded-2xl border-2 border-bg-softer bg-white p-4"
-      style={{ boxShadow: "0 2px 0 0 #e5e5e5" }}
+      style={{ boxShadow: "0 2px 0 0 var(--shadow-card-color)" }}
     >
       <div className="flex items-baseline justify-between mb-3">
         <div className="text-sm font-extrabold text-ink">每日任务</div>
@@ -212,7 +212,7 @@ function QuestRow({
         ) : (
           <div className="flex flex-col items-center text-ink-softer">
             <Chest className="w-6 h-6" />
-            <span className="mt-0.5 inline-flex items-center gap-0.5 text-[10px] font-extrabold text-purple-500 tabular-nums">
+            <span className="mt-0.5 inline-flex items-center gap-0.5 text-[10px] font-extrabold text-secondary tabular-nums">
               <Gem className="w-3 h-3" />
               {quest.reward}
             </span>
@@ -228,7 +228,7 @@ function QuestRow({
             animate={{ opacity: [0, 1, 1, 0], y: -28, scale: 1.1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 1.1, ease: "easeOut" }}
-            className="pointer-events-none absolute right-1 top-0 inline-flex items-center gap-0.5 text-sm font-extrabold text-purple-600"
+            className="pointer-events-none absolute right-1 top-0 inline-flex items-center gap-0.5 text-sm font-extrabold text-secondary-dark"
           >
             <Gem className="w-4 h-4" />+{quest.reward}
           </motion.div>

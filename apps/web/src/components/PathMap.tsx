@@ -20,7 +20,7 @@ import {
   type ReactNode,
 } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Lock, Star, Crown, Chest, Book, Owl, Sparkle, Trophy } from "@/components/icons";
+import { Lock, Star, Crown, Chest, Book, Panda, Sparkle, Trophy } from "@/components/icons";
 import { cn } from "@/lib/cn";
 import { playSfx } from "@/lib/sfx";
 import { haptic } from "@/lib/haptic";
@@ -28,7 +28,12 @@ import { LessonStartModal } from "./LessonStartModal";
 import { ChestModal } from "./ChestModal";
 import { SoundLink } from "./SoundLink";
 import { useToast } from "./Toast";
-import { computeChestsForBook, rollChestReward, type ChestSlot } from "@/lib/chestLogic";
+import {
+  computeChestsForBook,
+  rollChestReward,
+  type ChestSlot,
+  type ChestRewardTier,
+} from "@/lib/chestLogic";
 import { useProgressStore } from "@/store/progress";
 import type { PathLessonMeta, LessonStatus } from "@cstf/core";
 
@@ -77,6 +82,8 @@ interface ActiveChestState {
   slot: ChestSlot;
   /** 本次开箱抽到的奖励 */
   gems: number;
+  /** 奖励档位（common/rare/epic）—— ChestModal 按档位分层演出 */
+  tier: ChestRewardTier;
 }
 
 /** Duolingo 各单元的颜色循环 —— 按 unit index 取模 */
@@ -222,13 +229,14 @@ export function PathMap({
     playSfx("tap");
     haptic("medium");
     if (claimedChests[slot.id]) {
-      setActiveChest({ slot, gems: 0 });
+      // 已领取的宝箱不再进入开箱流程（避免开出 +0 的挫败感）
+      toast.info("这个宝箱已经开过啦");
       return;
     }
     const reward = rollChestReward();
     claimChest(slot.id);
     addGems(reward.gems);
-    setActiveChest({ slot, gems: reward.gems });
+    setActiveChest({ slot, gems: reward.gems, tier: reward.tier });
   }
 
   function handleExamClick(unitNumber: number, meta: ExamNodeMeta) {
@@ -370,6 +378,7 @@ export function PathMap({
         <ChestModal
           open={!!activeChest}
           gems={activeChest.gems}
+          tier={activeChest.tier}
           onClose={() => setActiveChest(null)}
         />
       )}
@@ -411,7 +420,7 @@ const PAD_BOTTOM = 28;
  * side：1=右，-1=左（贴近 stage 边缘）；
  * yOffset：相对该节点 y 的上下偏移（px）；
  */
-type DecoKind = "owl" | "sparkle" | "crown" | "star";
+type DecoKind = "panda" | "sparkle" | "crown" | "star";
 interface DecoSpec {
   atIndex: number;
   side: 1 | -1;
@@ -423,7 +432,7 @@ interface DecoSpec {
   delay: number;
 }
 
-const DECO_KINDS: DecoKind[] = ["owl", "sparkle", "star", "owl", "crown", "sparkle"];
+const DECO_KINDS: DecoKind[] = ["panda", "sparkle", "star", "panda", "crown", "sparkle"];
 const DECO_COLORS = ["#58CC02", "#FFC800", "#CE82FF", "#1CB0F6", "#FF9600", "#FF4B4B"];
 const DECO_Y_OFFSETS = [30, -12, 18, 6, -6, 24];
 const DECO_SIZES = [64, 36, 44, 60, 40, 56];
@@ -451,8 +460,8 @@ function generateDecorations(len: number): DecoSpec[] {
 function renderDecoIcon(kind: DecoKind, size: number) {
   const common = { className: "w-full h-full" };
   switch (kind) {
-    case "owl":
-      return <Owl {...common} size={size} />;
+    case "panda":
+      return <Panda {...common} size={size} />;
     case "sparkle":
       return <Sparkle {...common} size={size} />;
     case "crown":
@@ -654,6 +663,7 @@ function UnitPath({
                 status={status}
                 stars={stars[lesson.id] ?? 0}
                 breatheDelay={idx * 0.12}
+                color={unitColor(entry.unitOrderIndex)}
                 onSelect={() => onLesson(lesson)}
               />
             </div>
@@ -703,10 +713,18 @@ interface PathNodeProps {
   status: LessonStatus;
   stars: number;
   breatheDelay: number;
+  /** 所属单元的循环色（web-shell-15）：current 节点底色/阴影/光晕随单元色 */
+  color: { bg: string; shadow: string };
   onSelect: () => void;
 }
 
-function PathNode({ lesson, status, stars, breatheDelay, onSelect }: PathNodeProps) {
+/** #RRGGBB → rgba 字符串（光晕用） */
+function hexToRgba(hex: string, alpha: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 0xff}, ${(n >> 8) & 0xff}, ${n & 0xff}, ${alpha})`;
+}
+
+function PathNode({ lesson, status, stars, breatheDelay, color, onSelect }: PathNodeProps) {
   const isLocked = status === "locked";
   const isCurrent = status === "current";
   const isCompleted = status === "completed";
@@ -730,17 +748,21 @@ function PathNode({ lesson, status, stars, breatheDelay, onSelect }: PathNodePro
         className={cn(
           "relative w-20 h-20 rounded-full flex items-center justify-center",
           "transition-colors duration-200",
-          isCurrent && "path-node-current",
+          isCurrent && "path-node-current text-white",
           isLocked && "bg-bg-softer text-ink-softer",
-          isCurrent && "bg-primary text-white",
           isCompleted && "bg-gold text-white",
         )}
         style={{
+          // current 节点底色/阴影/光晕跟随单元循环色（UNIT_COLORS）
+          backgroundColor: isCurrent ? color.bg : undefined,
           boxShadow: isLocked
             ? "0 4px 0 0 #d5d5d5"
             : isCompleted
               ? "0 5px 0 0 #c89600"
-              : "0 5px 0 0 #58a700",
+              : `0 5px 0 0 ${color.shadow}`,
+          ...(isCurrent
+            ? ({ "--node-glow-color": hexToRgba(color.bg, 0.35) } as CSSProperties)
+            : null),
         }}
       >
         {isLocked && <Lock className="w-7 h-7" />}

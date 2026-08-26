@@ -127,7 +127,7 @@ export function Modal({ open, onClose, children, dismissible = true, ariaLabel }
             transition={{ type: "spring", damping: 20, stiffness: 260 }}
             onClick={e => e.stopPropagation()}
             className="w-full max-w-sm bg-white rounded-3xl border-2 border-bg-softer p-6 focus:outline-none"
-            style={{ boxShadow: "0 10px 0 0 #e5e5e5, 0 16px 40px rgba(0,0,0,0.15)" }}
+            style={{ boxShadow: "0 10px 0 0 var(--shadow-card-color), 0 16px 40px rgba(0,0,0,0.15)" }}
           >
             {children}
           </motion.div>

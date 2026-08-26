@@ -4,6 +4,8 @@ import SwiftUI
 struct ShopView: View {
     @ObservedObject var progressStore: ProgressStore
     @State private var flash: String?
+    /// 未拥有的装扮点开先看大图确认（ios-economy-15）——不再一击误买。
+    @State private var previewItem: CosmeticItem?
 
     private let refillCost = Economy.heartRefillCost
     private let freezeCost = Economy.freezeCost
@@ -33,6 +35,16 @@ struct ShopView: View {
         .background(DuoColors.bg.ignoresSafeArea())
         .navigationTitle("商店")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $previewItem) { item in
+            CosmeticPreviewSheet(
+                item: item,
+                gems: progressStore.gems,
+                preview: { AnyView(cosmeticPreview(item, large: true)) },
+                onConfirm: { confirmPurchase(item) }
+            )
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
+        }
     }
 
     // MARK: - Balance
@@ -58,15 +70,18 @@ struct ShopView: View {
 
     private var powerUps: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("生命 & 连击")
+            sectionHeader("红心 & 连胜")
 
             functionalRow(
                 icon: "heart.fill", tint: DuoColors.danger,
-                title: "补满爱心", subtitle: progressStore.hearts >= ProgressStore.maxHearts ? "爱心已满" : "立即恢复 5 颗爱心",
+                title: "补满红心", subtitle: progressStore.hearts >= ProgressStore.maxHearts ? "红心已满" : "立即恢复 5 颗红心",
                 cost: refillCost,
                 enabled: progressStore.hearts < ProgressStore.maxHearts && progressStore.gems >= refillCost
             ) {
-                if progressStore.buyHeartRefill(cost: refillCost) { win("爱心已补满！") } else { fail() }
+                if progressStore.buyHeartRefill(cost: refillCost) {
+                    SFXEngine.shared.play(.purchase)
+                    win("红心已补满！")
+                } else { fail() }
             }
 
             functionalRow(
@@ -78,7 +93,10 @@ struct ShopView: View {
                 cost: freezeCost,
                 enabled: progressStore.streakFreezes < Economy.maxFreezes && progressStore.gems >= freezeCost
             ) {
-                if progressStore.buyStreakFreeze(cost: freezeCost) { win("已购买连胜护盾！") } else { fail() }
+                if progressStore.buyStreakFreeze(cost: freezeCost) {
+                    SFXEngine.shared.play(.purchase)
+                    win("已购买连胜护盾！")
+                } else { fail() }
             }
         }
     }
@@ -189,20 +207,30 @@ struct ShopView: View {
         .accessibilityIdentifier("cosmetic-\(item.id)")
     }
 
+    /// 已拥有 → 一击装备；未拥有 → 先弹预览确认 sheet（ios-economy-15）。
     private func tapCosmetic(_ item: CosmeticItem, owned: Bool, equipped: Bool, affordable: Bool) {
         if equipped { return }
         if owned {
             HapticEngine.shared.tap(); SFXEngine.shared.play(.tap)
             progressStore.equipCosmetic(item)
-        } else if affordable {
-            if progressStore.buyCosmetic(item) {
-                progressStore.equipCosmetic(item)
-                HapticEngine.shared.success(); SFXEngine.shared.play(.unlock)
-                win("已解锁「\(item.name)」！")
-            } else { fail() }
         } else {
-            fail("宝石不够，继续学习赚取更多吧")
+            HapticEngine.shared.tap()
+            previewItem = item
         }
+    }
+
+    /// 预览 sheet 里点了「确认购买」。
+    private func confirmPurchase(_ item: CosmeticItem) {
+        previewItem = nil
+        guard progressStore.gems >= item.cost else {
+            fail("宝石不够，继续学习赚取更多吧")
+            return
+        }
+        if progressStore.buyCosmetic(item) {
+            progressStore.equipCosmetic(item)
+            HapticEngine.shared.success(); SFXEngine.shared.play(.purchase)
+            win("已解锁「\(item.name)」！")
+        } else { fail() }
     }
 
     // MARK: - Helpers
@@ -223,45 +251,116 @@ struct ShopView: View {
 
     /// Live preview of what the item actually does — the mascot wearing the
     /// skin, the theme's own colors, the backdrop's own gradient.
+    /// `large` = the confirm sheet's hero rendition of the same preview.
     @ViewBuilder
-    private func cosmeticPreview(_ item: CosmeticItem) -> some View {
+    private func cosmeticPreview(_ item: CosmeticItem, large: Bool = false) -> some View {
+        let scale: CGFloat = large ? 2 : 1
         switch item.type {
         case .mascotSkin:
-            MascotView(size: 78, skin: item.id)
+            MascotView(size: 78 * scale, skin: item.id)
 
         case .uiTheme:
             if let data = Cosmetics.uiThemes.first(where: { $0.item.id == item.id })?.data {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 10).fill(data.bg)
-                    VStack(spacing: 5) {
-                        Capsule().fill(data.primary).frame(width: 46, height: 13)
-                        HStack(spacing: 5) {
-                            Circle().fill(data.accent).frame(width: 13, height: 13)
-                            Capsule().fill(data.primary.opacity(0.35)).frame(width: 28, height: 8)
+                    RoundedRectangle(cornerRadius: 10 * scale).fill(data.bg)
+                    VStack(spacing: 5 * scale) {
+                        Capsule().fill(data.primary).frame(width: 46 * scale, height: 13 * scale)
+                        HStack(spacing: 5 * scale) {
+                            Circle().fill(data.accent).frame(width: 13 * scale, height: 13 * scale)
+                            Capsule().fill(data.primary.opacity(0.35)).frame(width: 28 * scale, height: 8 * scale)
                         }
                     }
                 }
-                .frame(width: 74, height: 60)
-                .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(.black.opacity(0.10), lineWidth: 1) }
+                .frame(width: 74 * scale, height: 60 * scale)
+                .overlay { RoundedRectangle(cornerRadius: 10 * scale).strokeBorder(.black.opacity(0.10), lineWidth: 1) }
             }
 
         case .lessonBackdrop:
             if let data = Cosmetics.lessonBackdrops.first(where: { $0.item.id == item.id })?.data {
                 ZStack {
                     if data.stops.isEmpty {
-                        RoundedRectangle(cornerRadius: 10).fill(data.bg)
+                        RoundedRectangle(cornerRadius: 10 * scale).fill(data.bg)
                     } else {
-                        RoundedRectangle(cornerRadius: 10)
+                        RoundedRectangle(cornerRadius: 10 * scale)
                             .fill(LinearGradient(colors: data.stops, startPoint: .top, endPoint: .bottom))
                     }
                     Image(systemName: "text.alignleft")
-                        .font(.system(size: 17, weight: .bold))
+                        .font(.system(size: 17 * scale, weight: .bold))
                         .foregroundStyle(data.needsOverlay ? .white.opacity(0.85) : DuoColors.eel.opacity(0.45))
                 }
-                .frame(width: 74, height: 60)
-                .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(.black.opacity(0.10), lineWidth: 1) }
+                .frame(width: 74 * scale, height: 60 * scale)
+                .overlay { RoundedRectangle(cornerRadius: 10 * scale).strokeBorder(.black.opacity(0.10), lineWidth: 1) }
             }
         }
     }
 
+}
+
+// MARK: - 装扮预览确认 sheet（ios-economy-15）
+
+/// 大图预览 + 价格 + 明确的「确认购买」——孩子不会再因为点了一下小格子
+/// 就意外花掉宝石。
+private struct CosmeticPreviewSheet: View {
+    let item: CosmeticItem
+    let gems: Int
+    let preview: () -> AnyView
+    let onConfirm: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    private var affordable: Bool { gems >= item.cost }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Capsule()
+                .fill(Color.clear)
+                .frame(height: 4)
+                .padding(.top, 8)
+
+            ZStack {
+                RoundedRectangle(cornerRadius: Radius.large)
+                    .fill(item.rarity.color.opacity(0.14))
+                preview()
+                    .padding(16)
+            }
+            .frame(maxWidth: 280, minHeight: 180)
+
+            VStack(spacing: 6) {
+                Text(item.name)
+                    .duoFont(.heading)
+                    .foregroundStyle(DuoColors.ink)
+                HStack(spacing: 5) {
+                    Image(systemName: "diamond.fill").font(.system(size: 15, weight: .heavy))
+                    Text("\(item.cost)").duoNumeral(.subhead)
+                }
+                .foregroundStyle(affordable ? DuoColors.secondary : DuoColors.inkMuted)
+                if !affordable {
+                    Text("宝石不够，继续学习赚取更多吧")
+                        .duoFont(.caption)
+                        .foregroundStyle(DuoColors.inkMuted)
+                }
+            }
+
+            VStack(spacing: 10) {
+                Button {
+                    onConfirm()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "diamond.fill").font(.system(size: 14, weight: .heavy))
+                        Text("确认购买  \(item.cost)")
+                    }
+                }
+                .buttonStyle(ChunkyButtonStyle(affordable ? .primary : .disabled))
+                .disabled(!affordable)
+                .accessibilityIdentifier("cosmetic-confirm-buy")
+
+                Button("再想想") { dismiss() }
+                    .buttonStyle(ChunkyButtonStyle(.ghost))
+                    .accessibilityIdentifier("cosmetic-cancel-buy")
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 20)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(DuoColors.bg.ignoresSafeArea())
+    }
 }

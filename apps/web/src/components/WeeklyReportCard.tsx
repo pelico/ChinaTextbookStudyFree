@@ -88,7 +88,7 @@ export function WeeklyReportCard() {
   return (
     <section
       className="bg-white rounded-3xl border-2 border-bg-softer p-5"
-      style={{ boxShadow: "0 4px 0 0 #e5e5e5" }}
+      style={{ boxShadow: "0 4px 0 0 var(--shadow-card-color)" }}
       aria-label="本周学习报告"
     >
       <div className="flex items-center justify-between mb-4">

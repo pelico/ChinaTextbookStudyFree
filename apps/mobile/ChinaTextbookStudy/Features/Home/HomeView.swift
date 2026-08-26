@@ -24,7 +24,7 @@ struct HomeView: View {
     @State private var examSlots: [ExamSlot] = []
     /// A path chest the learner tapped and is currently opening.
     @State private var activeChest: ActiveChest?
-    /// 0 心预拦截（ios-lesson-8）：没有心时点课程节点弹心数详情而不是进课。
+    /// 0 红心预拦截（ios-lesson-8）：没有红心时点课程节点弹红心详情而不是进课。
     @State private var showZeroHeartsSheet = false
 
     private struct ActiveChest: Identifiable { let id: String }
@@ -160,8 +160,8 @@ struct HomeView: View {
                         if node.kind == .chest {
                             activeChest = ActiveChest(id: node.id)
                         } else {
-                            // 0 心预拦截（ios-lesson-8）：先结算回复计时器再看余量，
-                            // 没心就弹心数详情（倒计时 + 宝石补满），不进课。
+                            // 0 红心预拦截（ios-lesson-8）：先结算回复计时器再看余量，
+                            // 没红心就弹红心详情（倒计时 + 宝石补满），不进课。
                             progressStore.tickHeartRecharge()
                             if progressStore.hearts == 0 {
                                 HapticEngine.shared.wrong()
@@ -193,10 +193,10 @@ struct HomeView: View {
                         .font(.largeTitle)
                         .foregroundStyle(DuoColors.darkInkMuted)
                     Text("这本书还没下载")
-                        .font(.headline)
+                        .duoFont(.subhead)
                         .foregroundStyle(DuoColors.darkInk)
                     Text(err)
-                        .font(.footnote)
+                        .duoFont(.caption)
                         .foregroundStyle(DuoColors.darkInkMuted)
                     if let entry = downloader.manifest?.books.first(where: { $0.bookId == book.id }) {
                         BookDownloadCard(entry: entry, downloader: downloader) { reloadOutline() }
@@ -232,7 +232,7 @@ struct HomeView: View {
             Spacer()
             MascotView(mood: .wave, size: 120)
             Text("挑一本书开始学习吧")
-                .font(.title3.weight(.heavy))
+                .duoFont(.heading)
                 .foregroundStyle(DuoColors.darkInk)
             Button("选择课本") { showBookPicker = true }
                 .buttonStyle(ChunkyButtonStyle(.primary))
@@ -310,7 +310,7 @@ private struct HomeStatsStrip: View {
                                 .stroke(Color.black.opacity(0.3), lineWidth: 1.5)
                         }
                     Text(Subjects.resolve(book: book).label)
-                        .font(.system(size: 12, weight: .heavy))
+                        .duoFont(.micro, weight: .heavy)
                         .foregroundStyle(.white)
                 }
             }
@@ -327,6 +327,7 @@ private struct HomeStatsStrip: View {
                 )
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("连胜 \(progressStore.displayStreak) 天")
 
             Button { activeSheet = .gems } label: {
                 statItem(
@@ -336,6 +337,7 @@ private struct HomeStatsStrip: View {
                 )
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("宝石 \(progressStore.gems)")
 
             Button { activeSheet = .hearts } label: {
                 statItem(
@@ -345,6 +347,7 @@ private struct HomeStatsStrip: View {
                 )
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("红心 \(progressStore.hearts)")
 
             Spacer(minLength: 8)
 
@@ -372,9 +375,8 @@ private struct HomeStatsStrip: View {
                 .font(.system(size: 18, weight: .heavy))
                 .foregroundStyle(color)
             Text(value)
-                .font(.system(size: 17, weight: .heavy))
+                .duoNumeral(.button)
                 .foregroundStyle(color)
-                .monospacedDigit()
         }
     }
 }
@@ -402,15 +404,14 @@ private struct DailyRewardCard: View {
                 MascotView(mood: .happy, size: 88, reactTo: .correct)
 
                 Text("每日见面礼")
-                    .font(.system(size: 22, weight: .black))
+                    .duoFont(.heading, weight: .black)
                     .foregroundStyle(DuoColors.ink)
 
                 HStack(spacing: 6) {
                     Image(systemName: "diamond.fill")
                         .font(.system(size: 20, weight: .heavy))
                     Text("+\(claim.gems)")
-                        .font(.system(size: 26, weight: .black))
-                        .monospacedDigit()
+                        .duoNumeral(.title, weight: .black)
                 }
                 .foregroundStyle(DuoColors.beetle)
                 .padding(.horizontal, 18)
@@ -418,7 +419,7 @@ private struct DailyRewardCard: View {
                 .background(DuoColors.beetle.opacity(0.14), in: .capsule)
 
                 Text(subtitle)
-                    .font(.system(size: 14, weight: .bold))
+                    .duoFont(.caption)
                     .foregroundStyle(DuoColors.inkMuted)
                     .multilineTextAlignment(.center)
 
@@ -485,7 +486,7 @@ private struct StreakDetailSheet: View {
                 VStack(spacing: 8) {
                     if let statusText {
                         Text(statusText)
-                            .font(.system(size: 14, weight: .heavy))
+                            .duoFont(.caption, weight: .heavy)
                             .foregroundStyle(statusColor)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 7)
@@ -507,7 +508,7 @@ private struct StreakDetailSheet: View {
                         .monospacedDigit()
 
                     Text(progressStore.displayStreak > 0 ? "天连胜" : "开始你的连胜")
-                        .font(.system(size: 16, weight: .heavy))
+                        .duoFont(.body, weight: .heavy)
                         .foregroundStyle(DuoColors.darkInkMuted)
                 }
                 .padding(.top, 8)
@@ -515,7 +516,7 @@ private struct StreakDetailSheet: View {
                 // 本周 7 格日历（ios-path-8）：哪天学了一眼看清。
                 VStack(alignment: .leading, spacing: 10) {
                     Text("本周")
-                        .font(.system(size: 13, weight: .heavy))
+                        .duoFont(.caption)
                         .tracking(1.2)
                         .foregroundStyle(DuoColors.darkInkMuted)
                     StreakCalendarView(
@@ -541,10 +542,10 @@ private struct StreakDetailSheet: View {
                                     .foregroundStyle(DuoColors.fox)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("补回 \(progressStore.progress.streak) 天连胜")
-                                        .font(.system(size: 16, weight: .heavy))
+                                        .duoFont(.body, weight: .heavy)
                                         .foregroundStyle(DuoColors.darkInk)
                                     Text("用宝石补上昨天的卡，今天再学一节就接上啦")
-                                        .font(.system(size: 12))
+                                        .duoFont(.caption)
                                         .foregroundStyle(DuoColors.darkInkMuted)
                                 }
                                 Spacer()
@@ -552,7 +553,7 @@ private struct StreakDetailSheet: View {
                             Button {
                                 if progressStore.makeUpYesterdayStreak() {
                                     HapticEngine.shared.success()
-                                    SFXEngine.shared.play(.unlock)
+                                    SFXEngine.shared.play(.purchase)
                                 } else {
                                     HapticEngine.shared.wrong()
                                 }
@@ -582,10 +583,10 @@ private struct StreakDetailSheet: View {
                             .foregroundStyle(DuoColors.secondary)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("连胜护盾 \(progressStore.streakFreezes)/\(Economy.maxFreezes)")
-                                .font(.system(size: 18, weight: .heavy))
+                                .duoFont(.subhead, weight: .heavy)
                                 .foregroundStyle(DuoColors.darkInk)
                             Text("一天没学习时，自动顶替你的连胜 · 每周一自动补 1 个")
-                                .font(.system(size: 13))
+                                .duoFont(.caption)
                                 .foregroundStyle(DuoColors.darkInkMuted)
                         }
                         Spacer()
@@ -600,7 +601,7 @@ private struct StreakDetailSheet: View {
                     Button {
                         if progressStore.buyStreakFreeze(cost: freezeCost) {
                             HapticEngine.shared.success()
-                            SFXEngine.shared.play(.unlock)
+                            SFXEngine.shared.play(.purchase)
                         } else {
                             HapticEngine.shared.wrong()
                         }
@@ -652,11 +653,10 @@ private struct GemShopSheet: View {
                         .foregroundStyle(DuoColors.secondary)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(progressStore.gems)")
-                            .font(.system(size: 28, weight: .black))
+                            .duoNumeral(.title, weight: .black)
                             .foregroundStyle(DuoColors.darkInk)
-                            .monospacedDigit()
                         Text("我的宝石")
-                            .font(.system(size: 12, weight: .heavy))
+                            .duoFont(.micro, weight: .heavy)
                             .foregroundStyle(DuoColors.darkInkMuted)
                     }
                     Spacer()
@@ -671,7 +671,7 @@ private struct GemShopSheet: View {
 
                 if let flash {
                     Text(flash)
-                        .font(.system(size: 14, weight: .heavy))
+                        .duoFont(.caption, weight: .heavy)
                         .foregroundStyle(DuoColors.primary)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
@@ -680,22 +680,22 @@ private struct GemShopSheet: View {
                 }
 
                 Text("宝石商店")
-                    .font(.system(size: 13, weight: .heavy))
+                    .duoFont(.caption)
                     .tracking(1.2)
                     .foregroundStyle(DuoColors.darkInkMuted)
 
                 shopRow(
                     icon: "heart.fill",
                     iconColor: DuoColors.danger,
-                    title: "恢复所有心",
-                    subtitle: progressStore.hearts >= ProgressStore.maxHearts ? "心数已满" : "立即装满 5 颗心",
+                    title: "补满红心",
+                    subtitle: progressStore.hearts >= ProgressStore.maxHearts ? "红心已满" : "立即补满 5 颗红心",
                     cost: refillCost,
                     enabled: progressStore.hearts < ProgressStore.maxHearts && progressStore.gems >= refillCost
                 ) {
                     if progressStore.buyHeartRefill(cost: refillCost) {
                         HapticEngine.shared.success()
-                        SFXEngine.shared.play(.unlock)
-                        flash = "心数已恢复！"
+                        SFXEngine.shared.play(.purchase)
+                        flash = "红心已补满！"
                     } else {
                         HapticEngine.shared.wrong()
                     }
@@ -713,7 +713,7 @@ private struct GemShopSheet: View {
                 ) {
                     if progressStore.buyStreakFreeze(cost: freezeCost) {
                         HapticEngine.shared.success()
-                        SFXEngine.shared.play(.unlock)
+                        SFXEngine.shared.play(.purchase)
                         flash = "已购买连胜护盾！"
                     } else {
                         HapticEngine.shared.wrong()
@@ -721,8 +721,8 @@ private struct GemShopSheet: View {
                 }
 
                 Text("完成课程可获得更多宝石")
-                    .font(.system(size: 12))
-                    .foregroundStyle(DuoColors.darkInkSofter)
+                    .duoFont(.caption)
+                    .foregroundStyle(DuoColors.darkInkMuted)
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.top, 8)
 
@@ -754,13 +754,13 @@ private struct GemShopSheet: View {
                     Image(systemName: icon).font(.system(size: 22, weight: .heavy)).foregroundStyle(iconColor)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.system(size: 16, weight: .heavy)).foregroundStyle(DuoColors.darkInk)
-                    Text(subtitle).font(.system(size: 12)).foregroundStyle(DuoColors.darkInkMuted)
+                    Text(title).duoFont(.body, weight: .heavy).foregroundStyle(DuoColors.darkInk)
+                    Text(subtitle).duoFont(.caption).foregroundStyle(DuoColors.darkInkMuted)
                 }
                 Spacer()
                 HStack(spacing: 4) {
                     Image(systemName: "diamond.fill").font(.system(size: 13, weight: .heavy))
-                    Text("\(cost)").font(.system(size: 14, weight: .black)).monospacedDigit()
+                    Text("\(cost)").duoNumeral(.caption, weight: .black)
                 }
                 .foregroundStyle(enabled ? DuoColors.secondary : DuoColors.darkInkSofter)
                 .padding(.horizontal, 10)
@@ -795,8 +795,8 @@ private struct HeartDetailSheet: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 22) {
-                Text("心数")
-                    .font(.system(size: 24, weight: .black))
+                Text("红心")
+                    .duoFont(.title, weight: .black)
                     .foregroundStyle(DuoColors.darkInk)
                     .padding(.top, 6)
 
@@ -809,21 +809,21 @@ private struct HeartDetailSheet: View {
                 }
 
                 if progressStore.hearts >= ProgressStore.maxHearts {
-                    Text("你的心数已满！")
-                        .font(.system(size: 15, weight: .heavy))
+                    Text("你的红心已满！")
+                        .duoFont(.body, weight: .heavy)
                         .foregroundStyle(DuoColors.darkInkMuted)
                 } else if let next = progressStore.nextHeartAt {
                     VStack(spacing: 4) {
-                        Text("下一颗心还需")
-                            .font(.system(size: 12, weight: .heavy))
+                        Text("下一颗红心还需")
+                            .duoFont(.caption, weight: .heavy)
                             .foregroundStyle(DuoColors.darkInkMuted)
                         Text(formatCountdown(to: next, now: tick))
-                            .font(.system(size: 40, weight: .black))
+                            .font(.system(size: 40, weight: .black, design: .rounded))
                             .foregroundStyle(DuoColors.danger)
                             .monospacedDigit()
-                        Text("每 5 分钟恢复 1 颗心")
-                            .font(.system(size: 11))
-                            .foregroundStyle(DuoColors.darkInkSofter)
+                        Text("每 5 分钟恢复 1 颗红心")
+                            .duoFont(.micro)
+                            .foregroundStyle(DuoColors.darkInkMuted)
                     }
                 }
 
@@ -831,7 +831,7 @@ private struct HeartDetailSheet: View {
                     HStack(spacing: 8) {
                         Image(systemName: "snowflake").foregroundStyle(DuoColors.secondary)
                         Text("连胜护盾 × \(progressStore.streakFreezes)")
-                            .font(.system(size: 14, weight: .heavy))
+                            .duoFont(.caption, weight: .heavy)
                             .foregroundStyle(DuoColors.secondary)
                     }
                     .padding(.horizontal, 12)
@@ -846,14 +846,14 @@ private struct HeartDetailSheet: View {
                 Button {
                     if progressStore.buyHeartRefill(cost: Economy.heartRefillCost) {
                         HapticEngine.shared.success()
-                        SFXEngine.shared.play(.unlock)
+                        SFXEngine.shared.play(.purchase)
                     } else {
                         HapticEngine.shared.wrong()
                     }
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "diamond.fill").font(.system(size: 13, weight: .heavy))
-                        Text("恢复所有心  \(Economy.heartRefillCost)")
+                        Text("补满红心  \(Economy.heartRefillCost)")
                     }
                 }
                 .buttonStyle(ChunkyButtonStyle(
@@ -929,7 +929,7 @@ private struct BookPickerSheet: View {
                         }
                         if booksForGrade.isEmpty {
                             Text("这个年级暂无课本")
-                                .font(.subheadline.weight(.bold))
+                                .duoFont(.body, weight: .bold)
                                 .foregroundStyle(DuoColors.darkInkMuted)
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .padding(.vertical, 20)
@@ -952,11 +952,11 @@ private struct BookPickerSheet: View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("课本库")
-                    .font(.caption.weight(.heavy))
+                    .duoFont(.caption, weight: .heavy)
                     .tracking(1.5)
                     .foregroundStyle(DuoColors.darkInkMuted)
                 Text("换本课本")
-                    .font(.system(size: 28, weight: .black))
+                    .duoFont(.title, weight: .black)
                     .foregroundStyle(DuoColors.darkInk)
             }
             Spacer()
@@ -969,14 +969,18 @@ private struct BookPickerSheet: View {
                     .frame(width: 40, height: 40)
                     .background(DuoColors.darkSurface, in: .circle)
                     .overlay(Circle().strokeBorder(DuoColors.darkSurfaceAlt, lineWidth: 2))
+                    // ≥44pt hit target (ios-feel-18) — visual stays 40pt.
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("关闭")
         }
     }
 
     private func sectionLabel(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 13, weight: .heavy))
+            .duoFont(.caption)
             .tracking(1.2)
             .foregroundStyle(DuoColors.darkInkMuted)
     }
@@ -1011,7 +1015,8 @@ private struct BookPickerSheet: View {
                     .offset(y: 3)
                 // Top surface
                 Text("\(g)年级")
-                    .font(.system(size: 15, weight: .heavy))
+                    .duoFont(.body, weight: .heavy)
+                    .minimumScaleFactor(0.6)   // XXL 档在固定宽度里自动收缩
                     .foregroundStyle(selected ? .white : DuoColors.darkInkMuted)
                     .frame(width: 76, height: 42)
                     .background(selected ? DuoColors.primary : DuoColors.darkSurface, in: .capsule)

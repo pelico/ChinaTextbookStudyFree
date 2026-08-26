@@ -5,6 +5,12 @@ import SwiftUI
 /// redesigned as a panda with purchasable accessory skins.)
 ///
 /// Supports 8 moods, breathing animation, random blink, and 3 reaction types.
+///
+/// Wave F (ios-feel-16) 可玩性：
+/// - `allowsTap: true` 时点聪聪会播随机 reaction + 音效（Profile / 空态开启）
+/// - wave 心情时手臂小幅摆动
+/// - 空闲时每 8–15s 随机瞟一眼（瞳孔小幅移动）
+/// - Reduce Motion：呼吸 / 摆手 / 瞟眼全部安静下来
 struct MascotView: View {
     var mood: MascotMood = .happy
     var size: CGFloat = 120
@@ -12,8 +18,11 @@ struct MascotView: View {
     var reactKey: Int = 0
     /// Explicit skin id — used by shop previews. When nil the equipped skin wins.
     var skin: String? = nil
+    /// 点击互动开关：点一下播随机 reaction + 音效（默认关，反馈面板等场景不抢戏）。
+    var allowsTap: Bool = false
 
     @ObservedObject private var progressStore = ProgressStore.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var activeSkin: String { skin ?? progressStore.equippedMascotSkin }
 
     // Animation state
@@ -23,9 +32,14 @@ struct MascotView: View {
     @State private var reactionScale: CGFloat = 1
     @State private var reactionRotation: Double = 0
     @State private var reactionY: CGFloat = 0
-    @State private var wingRotation: Double = -15
     @State private var showSweat = false
     @State private var showGlow = false
+    /// 眼神瞟动：瞳孔的临时位移（120 viewBox 坐标系）。
+    @State private var glance: CGSize = .zero
+    /// wave 手臂摆动角度。
+    @State private var armSwing = false
+    /// 点击互动触发的一次性 reaction（独立于外部 reactTo）。
+    @State private var tapReaction: MascotReaction? = nil
 
     private let eel = Color(hex: 0x3A3A3A)
     private let pandaBlack = Color(hex: 0x2E2E2E)
@@ -59,7 +73,10 @@ struct MascotView: View {
 
                 // Arms (black paws at the sides)
                 drawEllipse(context: context, cx: 22*s, cy: 78*s, rx: 9*s, ry: 15*s, fill: pandaBlack)
-                drawEllipse(context: context, cx: 98*s, cy: 78*s, rx: 9*s, ry: 15*s, fill: pandaBlack)
+                // wave 时右臂交给 overlay 的摆动视图画。
+                if !isArmWaving {
+                    drawEllipse(context: context, cx: 98*s, cy: 78*s, rx: 9*s, ry: 15*s, fill: pandaBlack)
+                }
 
                 // Feet (black, bottom)
                 drawEllipse(context: context, cx: 46*s, cy: 104*s, rx: 11*s, ry: 8*s, fill: pandaBlack)
@@ -114,6 +131,22 @@ struct MascotView: View {
                 drawAccessory(context: context, s: s, skin: activeSkin)
             }
             .frame(width: size, height: size)
+            // wave：右臂单独画，绕肩部（顶端）小幅摆动。
+            .overlay {
+                if isArmWaving {
+                    Ellipse()
+                        .fill(pandaBlack)
+                        .frame(width: size * 18 / 120, height: size * 30 / 120)
+                        .rotationEffect(.degrees(armSwing ? -26 : 6), anchor: .top)
+                        .position(x: size * 98 / 120, y: size * 78 / 120)
+                        .onAppear {
+                            withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
+                                armSwing = true
+                            }
+                        }
+                        .onDisappear { armSwing = false }
+                }
+            }
 
             // Sweat drop (wrong reaction)
             if showSweat {
@@ -124,8 +157,16 @@ struct MascotView: View {
         .scaleEffect(reactionScale * breatheScale)
         .offset(y: reactionY + breatheY)
         .rotationEffect(.degrees(reactionRotation))
+        // 只在 allowsTap 时挂手势，避免在反馈面板等场景抢走父视图的点击。
+        .overlay {
+            if allowsTap {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { playTapReaction() }
+            }
+        }
         .onAppear {
-            startBreathing(); startBlinking()
+            startBreathing(); startBlinking(); scheduleGlance()
             // If this mascot is mounted with a reaction already set (e.g. the
             // lesson feedback panel, which re-mounts per question), play it once
             // on appear — onChange(reactKey) only fires on subsequent changes.
@@ -135,6 +176,19 @@ struct MascotView: View {
         }
         .onChange(of: reactKey) { _, _ in triggerReaction() }
         .accessibilityLabel("聪聪")
+        .accessibilityAddTraits(allowsTap ? .isButton : [])
+    }
+
+    /// wave 摆臂只在动效允许时启用。
+    private var isArmWaving: Bool { mood == .wave && !reduceMotion }
+
+    /// 点击互动：随机来一段开心的小动作 + 音效（ios-feel-16）。
+    private func playTapReaction() {
+        HapticEngine.shared.tap()
+        SFXEngine.shared.play(.tap)
+        let pool: [MascotReaction] = [.correct, .correct, .levelup]
+        tapReaction = pool.randomElement() ?? .correct
+        if let reaction = tapReaction { run(reaction) }
     }
 
     // MARK: - Eyes
@@ -153,6 +207,9 @@ struct MascotView: View {
     }
 
     private func drawEyes(context: GraphicsContext, s: CGFloat, mood: MascotMood) {
+        // 空闲瞟眼：瞳孔在眼窝里小幅偏移（只影响圆形瞳孔的心情）。
+        let gx = CGFloat(glance.width)
+        let gy = CGFloat(glance.height)
         switch mood {
         case .cheer:
             var leftCheer = Path()
@@ -174,8 +231,8 @@ struct MascotView: View {
             context.stroke(browR, with: .color(eel), style: StrokeStyle(lineWidth: 2.5*s, lineCap: .round))
 
         case .think:
-            drawCircle(context: context, cx: 44*s, cy: 48*s, r: 5*s, fill: eel)
-            drawCircle(context: context, cx: 45.5*s, cy: 46.5*s, r: 1.5*s, fill: .white)
+            drawCircle(context: context, cx: (44+gx)*s, cy: (48+gy)*s, r: 5*s, fill: eel)
+            drawCircle(context: context, cx: (45.5+gx)*s, cy: (46.5+gy)*s, r: 1.5*s, fill: .white)
             var thinkR = Path()
             thinkR.move(to: CGPoint(x: 68*s, y: 48*s))
             thinkR.addQuadCurve(to: CGPoint(x: 84*s, y: 48*s), control: CGPoint(x: 76*s, y: 46*s))
@@ -205,15 +262,15 @@ struct MascotView: View {
             context.stroke(browRP, with: .color(eel), style: StrokeStyle(lineWidth: 2.5*s, lineCap: .round))
 
         case .embarrassed:
-            drawCircle(context: context, cx: 44*s, cy: 50*s, r: 3.5*s, fill: eel)
-            drawCircle(context: context, cx: 76*s, cy: 50*s, r: 3.5*s, fill: eel)
+            drawCircle(context: context, cx: (44+gx)*s, cy: (50+gy)*s, r: 3.5*s, fill: eel)
+            drawCircle(context: context, cx: (76+gx)*s, cy: (50+gy)*s, r: 3.5*s, fill: eel)
 
         case .happy, .wave:
             // Default happy eyes with highlight dot
-            drawCircle(context: context, cx: 44*s, cy: 48*s, r: 5*s, fill: eel)
-            drawCircle(context: context, cx: 45.5*s, cy: 46.5*s, r: 1.5*s, fill: .white)
-            drawCircle(context: context, cx: 76*s, cy: 48*s, r: 5*s, fill: eel)
-            drawCircle(context: context, cx: 77.5*s, cy: 46.5*s, r: 1.5*s, fill: .white)
+            drawCircle(context: context, cx: (44+gx)*s, cy: (48+gy)*s, r: 5*s, fill: eel)
+            drawCircle(context: context, cx: (45.5+gx)*s, cy: (46.5+gy)*s, r: 1.5*s, fill: .white)
+            drawCircle(context: context, cx: (76+gx)*s, cy: (48+gy)*s, r: 5*s, fill: eel)
+            drawCircle(context: context, cx: (77.5+gx)*s, cy: (46.5+gy)*s, r: 1.5*s, fill: .white)
         }
     }
 
@@ -350,9 +407,27 @@ struct MascotView: View {
     // MARK: - Animations
 
     private func startBreathing() {
+        guard !reduceMotion else { return }
         withAnimation(.easeInOut(duration: 2.6).repeatForever(autoreverses: true)) {
             breatheY = -3
             breatheScale = 1.02
+        }
+    }
+
+    /// 空闲眼神：每 8–15 秒随机瞟一眼（瞳孔小幅偏移 ~0.7s 再回正）。
+    private func scheduleGlance() {
+        guard !reduceMotion else { return }
+        Timer.scheduledTimer(withTimeInterval: Double.random(in: 8...15), repeats: false) { _ in
+            Task { @MainActor in
+                glance = CGSize(
+                    width: [-2.4, 2.4].randomElement() ?? 2.4,
+                    height: Double.random(in: -0.8...1.2)
+                )
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+                    glance = .zero
+                    scheduleGlance()
+                }
+            }
         }
     }
 
@@ -370,7 +445,11 @@ struct MascotView: View {
 
     private func triggerReaction() {
         guard let reaction = reactTo else { return }
+        run(reaction)
+    }
 
+    /// 播放一段 reaction 动画（外部 reactTo 与点击互动共用）。
+    private func run(_ reaction: MascotReaction) {
         switch reaction {
         case .correct:
             withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) {

@@ -3,7 +3,7 @@
 /**
  * RightRail —— 桌面端右侧 rail（仿 Duolingo web）
  *
- * 顺序：StatsBar HUD / LeaderboardTeaserCard / DailyQuestsPanel / 页脚
+ * 顺序：StatsBar HUD / LeaderboardTeaserCard / DailyQuestsPanel
  * 每日目标环继续留在 profile；rail 上的目标卡已被「每日任务卡」取代。
  */
 
@@ -32,8 +32,6 @@ export function RightRail() {
       </div>
       <LeaderboardTeaserCard />
       <DailyQuestsPanel />
-      <CreateProfilePromptCard />
-      <FooterLinks />
     </div>
   );
 }
@@ -42,7 +40,7 @@ function CardShell({ children }: { children: React.ReactNode }) {
   return (
     <div
       className="rounded-2xl border-2 border-bg-softer bg-white p-4"
-      style={{ boxShadow: "0 2px 0 0 #e5e5e5" }}
+      style={{ boxShadow: "0 2px 0 0 var(--shadow-card-color)" }}
     >
       {children}
     </div>
@@ -133,10 +131,3 @@ function LeaderboardTeaserCard() {
   );
 }
 
-function CreateProfilePromptCard() {
-  return null;
-}
-
-function FooterLinks() {
-  return null;
-}

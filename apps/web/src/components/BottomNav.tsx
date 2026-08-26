@@ -11,10 +11,14 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import {
   Home as HomeIcon,
+  HomeFill,
   Trophy,
+  TrophyFill,
   Bookmark,
+  BookmarkFill,
   Gem,
   User,
+  UserFill,
   type IconProps,
 } from "@/components/icons";
 import { playSfx } from "@/lib/sfx";
@@ -28,6 +32,8 @@ interface NavItem {
   href: string;
   label: string;
   Icon: ComponentType<IconProps>;
+  /** 激活态的粗填充变体（web-shell-19），视觉重量对齐 iOS */
+  IconActive: ComponentType<IconProps>;
   /** 命中前缀判断 active */
   matchPrefix: string;
   /** 激活态主色 */
@@ -41,6 +47,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/",
     label: "学习",
     Icon: HomeIcon,
+    IconActive: HomeFill,
     matchPrefix: "/",
     activeColor: "text-primary",
     activeBg: "bg-primary/10",
@@ -49,6 +56,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/league/",
     label: "排行榜",
     Icon: Trophy,
+    IconActive: TrophyFill,
     matchPrefix: "/league",
     activeColor: "text-gold",
     activeBg: "bg-gold/15",
@@ -57,6 +65,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/review/",
     label: "错题本",
     Icon: Bookmark,
+    IconActive: BookmarkFill,
     matchPrefix: "/review",
     activeColor: "text-warning",
     activeBg: "bg-warning/15",
@@ -65,14 +74,16 @@ const NAV_ITEMS: NavItem[] = [
     href: "/shop/",
     label: "商店",
     Icon: Gem,
+    IconActive: Gem,
     matchPrefix: "/shop",
-    activeColor: "text-purple-600",
-    activeBg: "bg-purple-100",
+    activeColor: "text-secondary",
+    activeBg: "bg-secondary/15",
   },
   {
     href: "/profile/",
     label: "我的",
     Icon: User,
+    IconActive: UserFill,
     matchPrefix: "/profile",
     activeColor: "text-secondary-dark",
     activeBg: "bg-secondary/15",
@@ -155,11 +166,11 @@ export function BottomNav() {
         代替旧版全局 body pb-16 —— 导航隐藏时占位也随之消失 */}
     <div
       aria-hidden="true"
-      className="lg:hidden"
+      className="md:hidden"
       style={{ height: "calc(3.5rem + max(env(safe-area-inset-bottom), 0px))" }}
     />
     <nav
-      className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t-2 border-bg-softer"
+      className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t-2 border-bg-softer"
       style={{
         paddingBottom: "max(env(safe-area-inset-bottom), 0px)",
         boxShadow: "0 -2px 12px rgba(0,0,0,0.04)",
@@ -169,7 +180,7 @@ export function BottomNav() {
       <div className="grid grid-cols-5 max-w-md mx-auto h-14">
         {NAV_ITEMS.map(item => {
           const active = isActive(pathname, item);
-          const Icon = item.Icon;
+          const Icon = active ? item.IconActive : item.Icon;
           const badge = getBadge(item);
           return (
             <Link

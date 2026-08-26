@@ -181,7 +181,7 @@ export function DailyRewardWatcher() {
         <h2 className="text-2xl font-extrabold text-ink mt-3">连胜要断啦！</h2>
         <p className="text-ink-light mt-2">
           昨天忘了学习。花{" "}
-          <span className="inline-flex items-center gap-0.5 font-extrabold text-purple-600">
+          <span className="inline-flex items-center gap-0.5 font-extrabold text-secondary-dark">
             <Gem className="w-4 h-4" />
             {STREAK_MAKEUP_COST}
           </span>{" "}

@@ -510,7 +510,7 @@ function HeartGateModal({
         <Mascot mood="sad" size={96} />
         <h2 className="text-2xl font-extrabold text-ink mt-3">红心用完了！</h2>
         <p className="text-ink-light mt-2">跳级测试要用红心，补满再来挑战吧～</p>
-        <div className="mt-3 inline-flex items-center gap-1.5 text-sm font-extrabold text-purple-600">
+        <div className="mt-3 inline-flex items-center gap-1.5 text-sm font-extrabold text-secondary-dark">
           <Gem className="w-4 h-4" />
           <span className="tabular-nums">当前宝石 {gems}</span>
         </div>

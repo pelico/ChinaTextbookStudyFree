@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * StatsBar — 顶栏持续状态条（心数 · 连续天数 · XP · 静音）
+ * StatsBar — 顶栏持续状态条（红心 · 连续天数 · XP · 静音）
  *
  * 放在 Home / Grade / Book 等主页面的右上角。
- * 心数胶囊可点击弹出恢复倒计时详情。
+ * 红心胶囊可点击弹出恢复倒计时详情。
  */
 
 import { useEffect, useState } from "react";
@@ -70,7 +70,7 @@ export function StatsBar({ compact = false }: StatsBarProps = {}) {
   return (
     <>
       <div className="flex items-center gap-1.5">
-        {/* 心数胶囊 */}
+        {/* 红心胶囊 */}
         <motion.button
           type="button"
           onClick={() => {
@@ -86,7 +86,7 @@ export function StatsBar({ compact = false }: StatsBarProps = {}) {
               ? "border-danger/40 text-danger bg-danger/10"
               : "border-bg-softer text-ink-softer bg-bg-soft"
           }`}
-          aria-label="心数"
+          aria-label="红心"
         >
           <Heart className="w-4 h-4" />
           <span>{dHearts}</span>
@@ -141,11 +141,11 @@ export function StatsBar({ compact = false }: StatsBarProps = {}) {
         )}
       </div>
 
-      {/* 心数详情弹窗 */}
+      {/* 红心详情弹窗 */}
       <Modal open={showHearts} onClose={() => setShowHearts(false)}>
         <div className="flex flex-col items-center text-center">
           <Mascot mood={heartsFull ? "happy" : "think"} size={88} />
-          <h2 className="text-2xl font-extrabold text-ink mt-3">心数</h2>
+          <h2 className="text-2xl font-extrabold text-ink mt-3">红心</h2>
           <div className="flex items-center justify-center gap-2 mt-3">
             {Array.from({ length: MAX_HEARTS }).map((_, i) => {
               const alive = i < dHearts;
@@ -158,7 +158,7 @@ export function StatsBar({ compact = false }: StatsBarProps = {}) {
             })}
           </div>
           {heartsFull ? (
-            <p className="text-ink-light mt-4">你的心数已满！</p>
+            <p className="text-ink-light mt-4">你的红心已满！</p>
           ) : (
             <div className="mt-4 w-full">
               <p className="text-ink-light text-sm">下一颗心还需</p>
@@ -192,8 +192,8 @@ export function StatsBar({ compact = false }: StatsBarProps = {}) {
                 style={
                   gems >= HEART_REFILL_COST
                     ? {
-                        background: "linear-gradient(135deg, #a855f7, #7c3aed)",
-                        boxShadow: "0 4px 0 0 #6b21a8",
+                        background: "linear-gradient(135deg, #1CB0F6, #1899D6)",
+                        boxShadow: "0 4px 0 0 #0d7aa8",
                       }
                     : undefined
                 }
@@ -404,7 +404,7 @@ function StreakModal({
               <span className="text-ink">
                 距 {nextMilestone} 天还差 {nextMilestone - streakDisplay} 天
               </span>
-              <span className="inline-flex items-center gap-0.5 text-purple-600 tabular-nums">
+              <span className="inline-flex items-center gap-0.5 text-secondary-dark tabular-nums">
                 <Gem className="w-3.5 h-3.5" />+{STREAK_MILESTONE_REWARDS[nextMilestone]}
               </span>
             </div>
@@ -424,7 +424,7 @@ function StreakModal({
             <span className="text-sm font-extrabold text-secondary-dark">
               连胜护盾 {freezes}/{MAX_FREEZES}
             </span>
-            <span className="ml-auto text-[10px] text-ink-light">漏学一天自动抵挡</span>
+            <span className="ml-auto text-[10px] text-ink-light">每周一学习即可补 1 个（上限 2）</span>
           </div>
           {freezes < MAX_FREEZES && (
             <button

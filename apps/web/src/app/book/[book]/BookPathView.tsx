@@ -104,7 +104,7 @@ export function BookPathView({
           <SoundLink
             href={`/reading/${bookId}/`}
             className="inline-flex items-center gap-1.5 px-3 h-9 rounded-xl bg-white border-2 border-bg-softer text-xs font-extrabold text-primary hover:border-primary/40 transition-colors"
-            style={{ boxShadow: "0 2px 0 0 #e5e5e5" }}
+            style={{ boxShadow: "0 2px 0 0 var(--shadow-card-color)" }}
           >
             <BookOpen className="w-4 h-4" />
             课文听读
@@ -114,7 +114,7 @@ export function BookPathView({
           <SoundLink
             href={`/stories/${bookId}/`}
             className="inline-flex items-center gap-1.5 px-3 h-9 rounded-xl bg-white border-2 border-bg-softer text-xs font-extrabold text-warning hover:border-warning/40 transition-colors"
-            style={{ boxShadow: "0 2px 0 0 #e5e5e5" }}
+            style={{ boxShadow: "0 2px 0 0 var(--shadow-card-color)" }}
           >
             <BookOpen className="w-4 h-4" />
             故事阅读

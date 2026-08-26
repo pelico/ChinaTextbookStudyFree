@@ -133,7 +133,7 @@ export function ReviewClient() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: gi * 0.04 }}
                 className="bg-white rounded-3xl border-2 border-bg-softer overflow-hidden"
-                style={{ boxShadow: "0 4px 0 0 #e5e5e5" }}
+                style={{ boxShadow: "0 4px 0 0 var(--shadow-card-color)" }}
               >
                 <div className="px-5 py-3 border-b-2 border-bg-softer bg-bg-soft">
                   <div className="text-xs text-ink-light font-semibold">课程</div>
@@ -201,7 +201,7 @@ function SrsSummary({
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       className="mb-5 bg-white rounded-3xl border-2 border-bg-softer p-5"
-      style={{ boxShadow: "0 4px 0 0 #e5e5e5" }}
+      style={{ boxShadow: "0 4px 0 0 var(--shadow-card-color)" }}
     >
       <div className="flex items-center justify-between mb-3">
         <div className="text-base font-extrabold text-ink">今日复习计划</div>

@@ -48,6 +48,16 @@ const DUO = {
   eel: "#4B4B4B",
 } as const;
 
+// ============================================================
+// 深色（night）色板 —— 与 iOS DuoColors 同一组 hex
+//   bg #131F24 / surface #202F36 / border(surfaceAlt) #37464F
+// ============================================================
+const NIGHT = {
+  bg: "#131F24",
+  surface: "#202F36",
+  border: "#37464F",
+} as const;
+
 const config: Config = {
   content: ["./src/**/*.{js,ts,jsx,tsx,mdx}"],
   theme: {
@@ -101,6 +111,19 @@ const config: Config = {
           DEFAULT: DUO.snow,      // #FFFFFF
           soft: DUO.polar,        // #F7F7F7
           softer: DUO.swan,       // #E5E5E5 ← 修正（原 #EFEFEF）
+        },
+
+        // 宝石 token —— 与 iOS 一致的 macaw 蓝（替代早期紫色系）
+        gem: {
+          DEFAULT: DUO.macaw,     // #1CB0F6
+          dark: DUO.whale,        // #1899D6
+        },
+
+        // 深色（night）色板 —— 与 iOS DuoColors 同 hex
+        night: {
+          DEFAULT: NIGHT.bg,      // #131F24 页面背景
+          surface: NIGHT.surface, // #202F36 卡片
+          border: NIGHT.border,   // #37464F 边框/嵌入面
         },
       },
       fontFamily: {

@@ -13,6 +13,29 @@
   --theme-primary-dark: #58A700;
   --theme-accent: #1CB0F6;
   --theme-bg: #F7F7F7;
+
+  /* 卡片厚阴影颜色 —— 深色模式下由 .theme-dark 覆盖（替代旧的 [style*=...] 字符串匹配） */
+  --shadow-card-color: #e5e5e5;
+  /* 当前路径节点光晕色 —— 随单元色由 PathMap 内联覆盖 */
+  --node-glow-color: rgba(88, 204, 2, 0.35);
+}
+
+/* ============================================================
+ * 深色 night 色板缺省值 —— 与 iOS DuoColors / tailwind night token 同 hex
+ *   免费三态深色模式（系统 / 手动）只挂 .theme-dark 类即可拿到整套 token；
+ *   购买的暗色美妆主题（theme_midnight / theme_obsidian）由 ThemeProvider
+ *   在 html 上内联同名变量覆盖 —— 「强制暗色」但底层同一套 token。
+ * ============================================================ */
+.theme-dark {
+  --app-bg: #131F24;
+  --app-bg-soft: #131F24;
+  --app-bg-softer: #37464F;
+  --app-card: #202F36;
+  --app-border: #37464F;
+  --app-ink: #F1F5F9;
+  --app-ink-light: #CBD5E1;
+  --app-ink-softer: #94A3B8;
+  --shadow-card-color: rgba(0, 0, 0, 0.4);
 }
 
 html {
@@ -67,7 +90,7 @@ h3,
   padding-top: 0;
   padding-bottom: 0;
   letter-spacing: 0.01em;
-  box-shadow: 0 4px 0 0 #e5e5e5;
+  box-shadow: 0 4px 0 0 var(--shadow-card-color);
   transition: transform 120ms cubic-bezier(0.2, 0.9, 0.3, 1.2),
     box-shadow 120ms cubic-bezier(0.2, 0.9, 0.3, 1.2),
     color 150ms ease;
@@ -141,13 +164,13 @@ h3,
   @apply hover:border-secondary hover:bg-secondary/5;
   min-height: 56px;
   padding: 12px 16px;
-  box-shadow: 0 3px 0 0 #e5e5e5;
+  box-shadow: 0 3px 0 0 var(--shadow-card-color);
   transition: transform 140ms cubic-bezier(0.2, 0.9, 0.3, 1.2), border-color 140ms ease,
     box-shadow 140ms ease, background-color 140ms ease;
 }
 .option-card:active {
   transform: translateY(2px);
-  box-shadow: 0 1px 0 0 #e5e5e5;
+  box-shadow: 0 1px 0 0 var(--shadow-card-color);
 }
 
 .option-card-selected {
@@ -176,13 +199,13 @@ h3,
   animation: ripple 0.55s ease-out forwards;
 }
 
-/* 当前路径节点的金色光晕 */
+/* 当前路径节点的光晕 —— 颜色随单元色（--node-glow-color 由节点内联覆盖） */
 .path-node-current::before {
   content: "";
   position: absolute;
   inset: -8px;
   border-radius: 9999px;
-  background: radial-gradient(circle, rgba(88, 204, 2, 0.35), transparent 70%);
+  background: radial-gradient(circle, var(--node-glow-color), transparent 70%);
   animation: glowPulse 2s ease-in-out infinite;
   z-index: -1;
 }
@@ -241,60 +264,55 @@ button:focus-visible,
 }
 
 /* ============================================================
- * 暗色主题：通过 .theme-dark 选择器重映射常用 Tailwind 工具类
- * 仅覆盖最常用的背景 / 边框 / 文本 token，保持设计语言一致
- * 主色（primary / secondary / danger）依然使用 Duolingo 原色，避免品牌漂移
+ * 暗色主题：.theme-dark 挂在 <html> 上（首屏内联脚本预挂，防白闪），
+ * 通过选择器重映射常用 Tailwind 工具类。
+ * 仅覆盖最常用的背景 / 边框 / 文本 token，保持设计语言一致；
+ * 主色（primary / secondary / danger）依然使用 Duolingo 原色，避免品牌漂移。
  * ============================================================ */
-body.theme-dark {
+.theme-dark body {
   background-color: var(--app-bg) !important;
   color: var(--app-ink);
 }
-body.theme-dark .bg-white,
-body.theme-dark .bg-bg {
+.theme-dark .bg-white,
+.theme-dark .bg-bg {
   background-color: var(--app-card) !important;
 }
-body.theme-dark .bg-bg-soft {
+.theme-dark .bg-white\/90 {
+  background-color: color-mix(in srgb, var(--app-card) 90%, transparent) !important;
+}
+.theme-dark .bg-bg-soft {
   background-color: var(--app-bg-soft) !important;
 }
-body.theme-dark .bg-bg-softer {
+.theme-dark .bg-bg-softer {
   background-color: var(--app-bg-softer) !important;
 }
-body.theme-dark .border-bg-softer {
+.theme-dark .border-bg-softer {
   border-color: var(--app-border) !important;
 }
-body.theme-dark .border-bg {
+.theme-dark .border-bg {
   border-color: var(--app-border) !important;
 }
-body.theme-dark .text-ink {
+.theme-dark .text-ink {
   color: var(--app-ink) !important;
 }
-body.theme-dark .text-ink-light {
+.theme-dark .text-ink-light {
   color: var(--app-ink-light) !important;
 }
-body.theme-dark .text-ink-softer {
+.theme-dark .text-ink-softer {
   color: var(--app-ink-softer) !important;
 }
-/* 卡片厚阴影在暗色下用更深的阴影替代灰色 */
-body.theme-dark [style*="0 4px 0 0 #e5e5e5"],
-body.theme-dark [style*="0 3px 0 0 #e5e5e5"],
-body.theme-dark [style*="0 2px 0 0 #e5e5e5"],
-body.theme-dark [style*="0 5px 0 0 #e5e5e5"] {
-  box-shadow: 0 4px 0 0 rgba(0, 0, 0, 0.4) !important;
-}
-/* option-card 默认底色阴影 */
-body.theme-dark .option-card {
+/* option-card 默认底色阴影（厚阴影颜色统一走 --shadow-card-color 变量） */
+.theme-dark .option-card {
   background-color: var(--app-card);
   border-color: var(--app-border);
   color: var(--app-ink);
-  box-shadow: 0 3px 0 0 rgba(0, 0, 0, 0.4);
 }
-body.theme-dark .btn-chunky-ghost {
+.theme-dark .btn-chunky-ghost {
   background-color: var(--app-card);
   color: var(--app-ink-light);
   border-color: var(--app-border);
-  box-shadow: 0 4px 0 0 rgba(0, 0, 0, 0.4);
 }
-body.theme-dark .btn-chunky-disabled {
+.theme-dark .btn-chunky-disabled {
   background-color: var(--app-bg-softer);
   color: var(--app-ink-softer);
 }

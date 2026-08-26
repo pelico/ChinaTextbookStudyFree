@@ -219,7 +219,7 @@ export function FeedbackPanel({
                       type="button"
                       onClick={() => submitReport(opt.kind)}
                       className="w-full flex items-center gap-3 rounded-2xl border-2 border-bg-softer bg-white px-4 py-3.5 text-left font-extrabold text-ink hover:border-primary/50 transition-colors"
-                      style={{ boxShadow: "0 3px 0 0 #e5e5e5" }}
+                      style={{ boxShadow: "0 3px 0 0 var(--shadow-card-color)" }}
                     >
                       <span className="text-xl" aria-hidden>
                         {opt.emoji}

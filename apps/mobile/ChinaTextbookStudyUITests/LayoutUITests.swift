@@ -92,6 +92,11 @@ final class LayoutUITests: XCTestCase {
         let settings = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "设置")).firstMatch
         XCTAssertTrue(settings.waitForExistence(timeout: 4))
         revealAndTap(app, settings)
+        // Wave F transitions can shift frames mid-tap; retry once if the push
+        // didn't land.
+        if !app.navigationBars["设置"].waitForExistence(timeout: 4), settings.isHittable {
+            settings.tap()
+        }
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 4),
                       "profile did not navigate to 设置")
     }

@@ -26,6 +26,10 @@ struct LessonResultView: View {
     /// 挑战正确率 ≥ 0.8 = 单元征服（金色奖杯幕）。
     private var conqueredUnit: Bool { isExamLesson && result.accuracy >= 0.8 }
 
+    /// Reduce Motion (Wave F): skip confetti entirely when the user asked the
+    /// system to calm animations down.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     @State private var acts: [Act] = []
     @State private var actIndex = 0
     @State private var showConfetti = false
@@ -88,10 +92,10 @@ struct LessonResultView: View {
             }
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: actIndex)
-        .navigationTitle("结算")
-        .navigationBarTitleDisplayMode(.inline)
+        // ios-lesson-22: the celebration owns the whole screen — no system
+        // 「结算」 title bar poking through any act.
         .navigationBarBackButtonHidden(true)
-        .toolbar(isDarkAct ? .hidden : .visible, for: .navigationBar)
+        .toolbar(.hidden, for: .navigationBar)
         .onAppear { setUp() }
     }
 
@@ -114,7 +118,9 @@ struct LessonResultView: View {
 
         SFXEngine.shared.play(.complete)
         HapticEngine.shared.success()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { showConfetti = true }
+        if !reduceMotion {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { showConfetti = true }
+        }
 
         // Chest cadence: only when this lesson fills an unclaimed
         // every-5th-lesson slot (same rule as the path + web).
@@ -146,6 +152,12 @@ struct LessonResultView: View {
     /// Advance to the next act, with per-act entry SFX (错峰).
     private func advanceAct() {
         guard actIndex + 1 < acts.count else { return }
+        // critic-8: closing the 7-day streak milestone celebration is a真正的
+        // 高光时刻 — the one moment worth (rarely) asking for a rating.
+        if acts.indices.contains(actIndex), acts[actIndex] == .milestone,
+           result.outcome.streakAfter == 7 {
+            ReviewPrompter.requestAtHighlight()
+        }
         HapticEngine.shared.tap()
         actIndex += 1
         switch acts[actIndex] {
@@ -156,6 +168,13 @@ struct LessonResultView: View {
         case .stats:
             SFXEngine.shared.play(.progressTick)
             withAnimation(.easeOut(duration: 1.0).delay(0.4)) { displayedXp = awardedXp }
+            // ios-lesson-22: 连胜/成就 banner 入场时补一记轻快的领奖双音，
+            // 与 progressTick 错峰 0.15s。
+            if result.outcome.dailyGoalReachedNow || !result.outcome.newAchievements.isEmpty {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    SFXEngine.shared.play(.questClaim)
+                }
+            }
             if chestSlotId != nil {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
                     withAnimation { showChest = true }
@@ -173,10 +192,25 @@ struct LessonResultView: View {
 
     /// Pop back to the path (or book detail) — shared by the final act.
     private func exitToPath() {
+        // critic-8: the FIRST three-star lesson ever is a proud moment — worth
+        // (rarely) asking for a rating on the way out. Never on a weak result.
+        if result.stars == 3 && progressStore.perfectedLessonCount == 1 {
+            ReviewPrompter.requestAtHighlight()
+        }
         while path.count > 1 { path.removeLast() }
         if path.last.map({ if case .bookDetail = $0 { return false } else { return true } }) ?? true {
             path.removeAll()
         }
+    }
+
+    /// 本课答错的题数（非满分时结算页提供「复习本课错题」直达入口）。
+    private var wrongCount: Int { max(0, result.questionCount - result.correctCount) }
+
+    /// 直达错题复习 — 本课的错题刚入错题本、当天即到期，复习队列里一定有它们。
+    private func jumpToMistakeReview() {
+        HapticEngine.shared.tap()
+        path.removeAll()
+        path.append(.reviewRunner)
     }
 
     private func continueButton(_ title: String = "继续", action: @escaping () -> Void) -> some View {
@@ -201,10 +235,10 @@ struct LessonResultView: View {
 
             VStack(spacing: 8) {
                 Text("完成！")
-                    .font(.system(size: 32, weight: .heavy))
+                    .duoFont(.display)
                     .foregroundStyle(DuoColors.ink)
                 Text(result.lessonTitle)
-                    .font(.subheadline)
+                    .duoFont(.body)
                     .foregroundStyle(DuoColors.inkLight)
             }
 
@@ -213,7 +247,7 @@ struct LessonResultView: View {
                     Image(systemName: "sparkles")
                     Text("完美通关！")
                 }
-                .font(.caption.weight(.heavy))
+                .duoFont(.caption, weight: .heavy)
                 .foregroundStyle(.white)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
@@ -268,18 +302,18 @@ struct LessonResultView: View {
                 .shadow(color: DuoColors.bee.opacity(0.6), radius: 26)
 
             Text("单元征服！")
-                .font(.system(size: 30, weight: .black))
+                .duoFont(.title, weight: .black)
                 .foregroundStyle(.white)
 
             Text("正确率 \(Int(round(result.accuracy * 100)))%，这个单元被你拿下啦")
-                .font(.system(size: 15, weight: .bold))
+                .duoFont(.body, weight: .bold)
                 .foregroundStyle(.white.opacity(0.85))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
 
             Text("路径上的奖杯换上金色，快去看看吧")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.white.opacity(0.65))
+                .duoFont(.caption)
+                .foregroundStyle(.white.opacity(0.75))
 
             Spacer()
 
@@ -300,7 +334,7 @@ struct LessonResultView: View {
                 .shadow(color: DuoColors.secondary.opacity(0.5), radius: 20)
 
             Text("❄️ 护盾保住了你 \(result.outcome.streakAfter) 天连胜")
-                .font(.system(size: 22, weight: .black))
+                .duoFont(.heading, weight: .black)
                 .foregroundStyle(DuoColors.ink)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
@@ -315,7 +349,7 @@ struct LessonResultView: View {
                 Image(systemName: "snowflake")
                     .font(.system(size: 14, weight: .heavy))
                 Text("剩余护盾 \(progressStore.streakFreezes)/\(Economy.maxFreezes)")
-                    .font(.system(size: 14, weight: .heavy))
+                    .duoFont(.caption, weight: .heavy)
             }
             .foregroundStyle(DuoColors.secondary)
             .padding(.horizontal, 14)
@@ -331,7 +365,7 @@ struct LessonResultView: View {
                 Button {
                     if progressStore.buyStreakFreeze(cost: Economy.freezeCost) {
                         HapticEngine.shared.success()
-                        SFXEngine.shared.play(.unlock)
+                        SFXEngine.shared.play(.purchase)
                     } else {
                         HapticEngine.shared.wrong()
                     }
@@ -371,7 +405,7 @@ struct LessonResultView: View {
                 .monospacedDigit()
 
             Text("天连胜！")
-                .font(.system(size: 24, weight: .heavy))
+                .duoFont(.heading)
                 .foregroundStyle(.white)
 
             // 本周 7 格日历（数据 = recentXP，今天必已点亮）。
@@ -385,7 +419,7 @@ struct LessonResultView: View {
             .padding(.horizontal, 24)
 
             Text("每天学一点，火焰不熄灭")
-                .font(.system(size: 14, weight: .bold))
+                .duoFont(.caption)
                 .foregroundStyle(.white.opacity(0.75))
 
             // 连胜分享卡（Wave E2）。
@@ -423,15 +457,14 @@ struct LessonResultView: View {
                 .monospacedDigit()
 
             Text("天连胜里程碑！")
-                .font(.system(size: 22, weight: .heavy))
+                .duoFont(.heading)
                 .foregroundStyle(.white)
 
             HStack(spacing: 6) {
                 Image(systemName: "diamond.fill")
                     .font(.system(size: 18, weight: .heavy))
                 Text("+\(result.outcome.milestoneGems)")
-                    .font(.system(size: 22, weight: .black))
-                    .monospacedDigit()
+                    .duoNumeral(.heading, weight: .black)
             }
             .foregroundStyle(DuoColors.beetle)
             .padding(.horizontal, 18)
@@ -472,7 +505,7 @@ struct LessonResultView: View {
                 Spacer(minLength: 16)
 
                 Text("本节成绩")
-                    .font(.system(size: 26, weight: .heavy))
+                    .duoFont(.title)
                     .foregroundStyle(DuoColors.ink)
 
                 if result.outcome.dailyGoalReachedNow {
@@ -548,7 +581,7 @@ struct LessonResultView: View {
                 .foregroundStyle(DuoColors.bee)
 
             Text("今日任务")
-                .font(.system(size: 26, weight: .heavy))
+                .duoFont(.title)
                 .foregroundStyle(DuoColors.ink)
 
             VStack(spacing: 12) {
@@ -576,6 +609,21 @@ struct LessonResultView: View {
                     .buttonStyle(ChunkyButtonStyle(.secondary))
                     .padding(.horizontal, 24)
                     .accessibilityIdentifier("quests-claim-jump")
+                }
+
+                // ios-lesson-22: 非满分时给一条「趁热复习」直达通道。
+                if wrongCount > 0 {
+                    Button {
+                        jumpToMistakeReview()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.counterclockwise").font(.system(size: 14, weight: .heavy))
+                            Text("复习本课错题 (\(wrongCount))")
+                        }
+                    }
+                    .buttonStyle(ChunkyButtonStyle(.secondary))
+                    .padding(.horizontal, 24)
+                    .accessibilityIdentifier("result-review-mistakes")
                 }
 
                 Button {
@@ -680,12 +728,11 @@ struct LessonResultView: View {
                 .font(.title2)
                 .foregroundStyle(tint)
             Text(value)
-                .font(.title2.weight(.heavy))
+                .duoNumeral(.heading)
                 .foregroundStyle(DuoColors.ink)
-                .monospacedDigit()
                 .contentTransition(.numericText())
             Text(label)
-                .font(.caption)
+                .duoFont(.caption)
                 .foregroundStyle(DuoColors.inkLight)
         }
         .frame(maxWidth: .infinity)

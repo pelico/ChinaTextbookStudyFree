@@ -40,7 +40,7 @@ export const MASCOT_SKINS: CosmeticItem[] = [
     id: "skin_default",
     type: "mascot_skin",
     name: "原版聪聪",
-    description: "我们最熟悉的小猫头鹰",
+    description: "我们最熟悉的熊猫聪聪",
     cost: 0,
     rarity: "common",
     starter: true,

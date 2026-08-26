@@ -43,7 +43,7 @@ import type { Quest } from "@cstf/core/quests";
 import { playSfx } from "@/lib/sfx";
 import { haptic } from "@/lib/haptic";
 import { useProgressTicker, formatMsCountdown } from "@/lib/useProgressTicker";
-import { rollChestReward, type ChestSlot } from "@/lib/chestLogic";
+import { rollChestReward, type ChestSlot, type ChestRewardTier } from "@/lib/chestLogic";
 import { HeartsBar } from "./HeartsBar";
 import { HeartTimer } from "./HeartTimer";
 import { QuestionRenderer, type QuestionPhase } from "./question/QuestionRenderer";
@@ -235,14 +235,14 @@ interface SessionStats {
   conquered: boolean;
   maxCombo: number;
   durationSec: number;
-  chestReward: { slot: ChestSlot; gems: number } | null;
+  chestReward: { slot: ChestSlot; gems: number; tier: ChestRewardTier } | null;
   /** 今天三条任务的 before/after 进度（任务进度幕用） */
   quests: QuestSnapshot[];
 }
 
 export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
   useSyncMute();
-  useProgressTicker(); // 心数实时恢复
+  useProgressTicker(); // 红心实时恢复
   const router = useRouter();
   const recordComplete = useProgressStore(s => s.recordLessonComplete);
   const addMistake = useProgressStore(s => s.addMistake);
@@ -717,7 +717,7 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
     // 通关宝箱命中：有 chestSlot 且尚未领取
     const chestReward =
       chestSlot && !chestAlreadyClaimed
-        ? { slot: chestSlot, gems: rollChestReward().gems }
+        ? { slot: chestSlot, ...rollChestReward() }
         : null;
 
     // 🗓️ 任务进度快照（记账前），任务进度幕用 before → after 做推进动画
@@ -1042,7 +1042,7 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
           <p className="text-ink-light mt-2">
             补满红心继续闯关，或者去复习错题回心～
           </p>
-          <div className="mt-3 inline-flex items-center gap-1.5 text-sm font-extrabold text-purple-600">
+          <div className="mt-3 inline-flex items-center gap-1.5 text-sm font-extrabold text-secondary-dark">
             <Gem className="w-4 h-4" />
             <span className="tabular-nums">当前宝石 {gems}</span>
           </div>
@@ -1159,9 +1159,9 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
                 className="absolute -top-2 -right-2 text-[9px] leading-none font-extrabold text-white rounded-full px-1.5 py-0.5"
                 style={{
                   background: isExam
-                    ? "linear-gradient(135deg, #CE82FF, #7c3aed)"
-                    : "linear-gradient(135deg, #a855f7, #7c3aed)",
-                  boxShadow: "0 2px 0 0 #6b21a8",
+                    ? "linear-gradient(135deg, #CE82FF, #7C3AED)"
+                    : "linear-gradient(135deg, #1CB0F6, #1899D6)",
+                  boxShadow: isExam ? "0 2px 0 0 #6b21a8" : "0 2px 0 0 #0d7aa8",
                 }}
                 aria-label={
                   isExam && weekend
@@ -1176,7 +1176,7 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
             )}
           </motion.div>
 
-          {/* 桌面端（lg+）：完整心数条 + 回心倒计时 + 朗读/音效开关 */}
+          {/* 桌面端（lg+）：完整红心条 + 回心倒计时 + 朗读/音效开关 */}
           <div className="hidden lg:flex items-center gap-2">
             <HeartsBar total={MAX_HEARTS} remaining={hearts} />
             <HeartTimer />
@@ -1257,8 +1257,8 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
                 ⚔️ 单元挑战
               </span>
             )}
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-purple-100 text-purple-600 text-[11px] font-extrabold uppercase tracking-wider">
-              <span className="w-1.5 h-1.5 rounded-full bg-purple-500" />
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-secondary/10 text-secondary-dark text-[11px] font-extrabold uppercase tracking-wider">
+              <span className="w-1.5 h-1.5 rounded-full bg-secondary" />
               {questionTagLabel(current.type)}
             </span>
             {/* 错题重答提示：这题之前答错过，重排回来了 */}
@@ -1542,9 +1542,9 @@ function StarsAct({
             transition={{ delay: 1.4, type: "spring", damping: 14, stiffness: 240 }}
             className="inline-flex items-center gap-2 px-5 py-3 mb-3 rounded-full text-white font-extrabold text-base"
             style={{
-              background: "linear-gradient(135deg, #FFC800, #FF6B6B, #A855F7)",
+              background: "linear-gradient(135deg, #FFC800, #FF6B6B, #CE82FF)",
               backgroundSize: "200% 100%",
-              boxShadow: "0 5px 0 0 #6b21a8, 0 0 30px rgba(255, 200, 0, 0.6)",
+              boxShadow: "0 5px 0 0 #A560E8, 0 0 30px rgba(255, 200, 0, 0.6)",
             }}
           >
             <Confetti className="w-5 h-5" />
@@ -1597,8 +1597,8 @@ function StarsAct({
               transition={{ delay: 0.7, type: "spring", damping: 12 }}
               className="inline-flex items-center gap-1.5 h-7 px-3 mt-2 ml-2 rounded-full font-extrabold text-sm text-white"
               style={{
-                background: "linear-gradient(135deg, #a855f7, #7c3aed)",
-                boxShadow: "0 4px 0 0 #6b21a8",
+                background: "linear-gradient(135deg, #1CB0F6, #1899D6)",
+                boxShadow: "0 4px 0 0 #0d7aa8",
               }}
             >
               <Sparkle className="w-3.5 h-3.5" />
@@ -1636,7 +1636,7 @@ function StarsAct({
               transition={{ delay: 0.85, type: "spring", damping: 12 }}
               className="inline-flex items-center gap-1.5 h-7 px-3 mt-2 ml-2 rounded-full font-extrabold text-sm text-white"
               style={{
-                background: "linear-gradient(135deg, #1CB0F6, #7c3aed)",
+                background: "linear-gradient(135deg, #1CB0F6, #1899D6)",
                 boxShadow: "0 4px 0 0 #0d7aa8",
               }}
             >
@@ -1681,7 +1681,7 @@ function StarsAct({
               })
             }
             filename={`sanxing-${lesson.id}.png`}
-            shareText={`我在小猫头鹰课堂三星通关了「${lesson.title}」！`}
+            shareText={`我在聪聪学堂三星通关了「${lesson.title}」！`}
             className="btn-chunky-secondary px-10 mx-auto block mt-6"
           />
         )}
@@ -1825,7 +1825,7 @@ function StreakAct({
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.4 }}
         className="mt-6 bg-white rounded-2xl border-2 border-bg-softer p-4"
-        style={{ boxShadow: "0 4px 0 0 #e5e5e5" }}
+        style={{ boxShadow: "0 4px 0 0 var(--shadow-card-color)" }}
       >
         <div className="grid grid-cols-7 gap-2">
           {week.map((d, i) => (
@@ -1883,7 +1883,7 @@ function StreakAct({
           })
         }
         filename={`liansheng-${outcome.streakAfter}tian.png`}
-        shareText={`我已经在小猫头鹰课堂连续学习 ${outcome.streakAfter} 天啦！`}
+        shareText={`我已经在聪聪学堂连续学习 ${outcome.streakAfter} 天啦！`}
         className="btn-chunky-secondary px-10 mx-auto block mt-6"
       />
 
@@ -1924,8 +1924,8 @@ function GoalAct({ onContinue }: { onContinue: () => void }) {
         transition={{ delay: 0.45, type: "spring", damping: 11 }}
         className="mt-4 inline-flex items-center gap-2 px-5 py-3 rounded-2xl font-extrabold text-2xl text-white"
         style={{
-          background: "linear-gradient(135deg, #a855f7, #7c3aed)",
-          boxShadow: "0 5px 0 0 #6b21a8",
+          background: "linear-gradient(135deg, #1CB0F6, #1899D6)",
+          boxShadow: "0 5px 0 0 #0d7aa8",
         }}
       >
         <Gem className="w-7 h-7" />
@@ -1972,7 +1972,7 @@ function StatsAct({
         <StatCard
           label="宝石"
           value={`+${Math.round(gemsDisplay)}`}
-          color="text-purple-600"
+          color="text-secondary-dark"
           icon="gem"
         />
         <StatCard label="准确率" value={`${Math.round(accDisplay)}%`} color="text-primary" />
@@ -1993,6 +1993,7 @@ function StatsAct({
         <ChestModal
           open={chestOpen}
           gems={chestReward.gems}
+          tier={chestReward.tier}
           onClose={() => setChestOpen(false)}
         />
       )}
@@ -2048,7 +2049,7 @@ function QuestsAct({
               animate={{ y: 0, opacity: 1 }}
               transition={{ delay: 0.15 + i * 0.12 }}
               className="bg-white rounded-2xl border-2 border-bg-softer p-4 text-left"
-              style={{ boxShadow: "0 4px 0 0 #e5e5e5" }}
+              style={{ boxShadow: "0 4px 0 0 var(--shadow-card-color)" }}
             >
               <div className="flex items-center gap-2">
                 <span className="flex-1 font-extrabold text-ink text-sm">{quest.title}</span>
@@ -2062,7 +2063,7 @@ function QuestsAct({
                     <CheckCircle className="w-6 h-6" />
                   </motion.span>
                 ) : (
-                  <span className="inline-flex items-center gap-1 text-purple-600 font-extrabold text-xs">
+                  <span className="inline-flex items-center gap-1 text-secondary-dark font-extrabold text-xs">
                     <Gem className="w-3.5 h-3.5" />+{quest.reward}
                   </span>
                 )}
@@ -2116,10 +2117,10 @@ function StatCard({
   return (
     <div
       className="bg-white rounded-2xl p-3 border-2 border-bg-softer text-center"
-      style={{ boxShadow: "0 4px 0 0 #e5e5e5" }}
+      style={{ boxShadow: "0 4px 0 0 var(--shadow-card-color)" }}
     >
       <div className="text-[10px] uppercase tracking-wider text-ink-softer font-extrabold flex items-center justify-center gap-1">
-        {icon === "gem" && <Gem className="w-3 h-3 text-purple-500" />}
+        {icon === "gem" && <Gem className="w-3 h-3 text-secondary" />}
         {label}
       </div>
       <div className={`text-xl font-extrabold tabular-nums mt-1 ${color}`}>
@@ -2583,7 +2584,7 @@ function FailScreen({
       >
         <Mascot mood="sad" size={140} />
         <h1 className="text-3xl font-extrabold text-danger mt-4">
-          {canRetry ? "没关系，再来一次！" : "心数用完啦"}
+          {canRetry ? "没关系，再来一次！" : "红心用完啦"}
         </h1>
         <p className="text-ink-light mt-2 mb-4">{lesson.title}</p>
 

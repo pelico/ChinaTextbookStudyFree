@@ -32,6 +32,8 @@ struct SettingsView: View {
                 aboutSection
             }
             .padding(20)
+            // Reserve space for the floating tab bar (see ProfileView note).
+            .padding(.bottom, 84)
         }
         .background(DuoColors.bg.ignoresSafeArea())
         .navigationTitle("设置")
@@ -142,7 +144,7 @@ struct SettingsView: View {
                      ? "系统未授权通知，请到「设置 › 通知 › 课本学习」中开启。"
                      : "每天 \(settings.reminderTimeLabel) 提醒你保住连胜；当天已学习则自动跳过。")
                     .duoFont(.micro)
-                    .foregroundStyle(deniedHint ? DuoColors.danger : DuoColors.inkSofter)
+                    .foregroundStyle(deniedHint ? DuoColors.danger : DuoColors.inkMuted)
                     .padding(.horizontal, 2)
                     .padding(.bottom, 10)
             }
@@ -293,7 +295,7 @@ struct SettingsView: View {
                 .frame(width: 26)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).duoFont(.body).foregroundStyle(titleColor)
-                Text(subtitle).duoFont(.micro).foregroundStyle(DuoColors.inkSofter)
+                Text(subtitle).duoFont(.micro).foregroundStyle(DuoColors.inkMuted)
             }
             Spacer()
             Image(systemName: "chevron.right")
@@ -344,7 +346,7 @@ struct SettingsView: View {
                 }
                 Text("教材内容版权归原出版方所有，客户端代码 MIT 开源。")
                     .duoFont(.micro)
-                    .foregroundStyle(DuoColors.inkSofter)
+                    .foregroundStyle(DuoColors.inkMuted)
             }
             .padding(16)
             .background(DuoColors.surface, in: .rect(cornerRadius: Radius.card))
@@ -432,7 +434,7 @@ struct ReportsListSheet: View {
 
             Text("这些反馈只保存在这台设备上，不会上传。")
                 .duoFont(.micro)
-                .foregroundStyle(DuoColors.inkSofter)
+                .foregroundStyle(DuoColors.inkMuted)
 
             if progressStore.reports.isEmpty {
                 VStack(spacing: 10) {
@@ -465,7 +467,7 @@ struct ReportsListSheet: View {
                                     }
                                     Text("\(report.lessonId) · 第 \(report.questionId) 题 · \(dateLabel(report.createdAt))")
                                         .duoFont(.micro)
-                                        .foregroundStyle(DuoColors.inkSofter)
+                                        .foregroundStyle(DuoColors.inkMuted)
                                 }
                                 Spacer(minLength: 0)
                             }

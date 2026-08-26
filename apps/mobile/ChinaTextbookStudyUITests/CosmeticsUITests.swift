@@ -23,6 +23,16 @@ final class CosmeticsUITests: XCTestCase {
         add(att)
     }
 
+    /// Wave F: tapping an unowned cosmetic opens the preview/confirm sheet —
+    /// confirm the purchase there.
+    @MainActor
+    private func confirmPurchase(_ app: XCUIApplication) {
+        let confirm = app.buttons["cosmetic-confirm-buy"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3),
+                      "tapping an unowned cosmetic should open the preview sheet")
+        confirm.tap()
+    }
+
     @MainActor
     func testBuyingCosmeticEquipsItAndPersists() throws {
         try skipIfIPad()
@@ -42,8 +52,10 @@ final class CosmeticsUITests: XCTestCase {
         XCTAssertTrue(cap.waitForExistence(timeout: 3))
         XCTAssertFalse(cap.label.contains("使用中"), "graduation cap should not start equipped")
         cap.tap()
+        confirmPurchase(app)
 
         // Buying equips it immediately.
+        XCTAssertTrue(cap.waitForExistence(timeout: 3))
         XCTAssertTrue(cap.label.contains("使用中"),
                       "buying a skin should equip it — label was: \(cap.label)")
         XCTAssertFalse(stock.label.contains("使用中"),
@@ -66,6 +78,8 @@ final class CosmeticsUITests: XCTestCase {
         }
         XCTAssertTrue(theme.waitForExistence(timeout: 3))
         theme.tap()
+        confirmPurchase(app)
+        XCTAssertTrue(theme.waitForExistence(timeout: 3))
         XCTAssertTrue(theme.label.contains("使用中"), "buying a theme should equip it")
         attach(name: "03-shop-theme-equipped")
 
@@ -92,10 +106,20 @@ final class CosmeticsUITests: XCTestCase {
 
         // 宇航员头盔 costs 500; buy 学士帽 (80) first so the balance drops below it.
         app.buttons["cosmetic-skin_graduate"].tap()
+        confirmPurchase(app)
 
         let helmet = app.buttons["cosmetic-skin_astronaut"]
         XCTAssertTrue(helmet.waitForExistence(timeout: 3))
         helmet.tap()
+
+        // Wave F: the preview sheet still opens, but the confirm button is
+        // disabled when gems are short — cancel out and nothing was granted.
+        let confirm = app.buttons["cosmetic-confirm-buy"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+        XCTAssertFalse(confirm.isEnabled, "confirm must be disabled when unaffordable")
+        app.buttons["cosmetic-cancel-buy"].tap()
+
+        XCTAssertTrue(helmet.waitForExistence(timeout: 3))
         XCTAssertFalse(helmet.label.contains("使用中"),
                        "an unaffordable cosmetic must not be equipped")
     }

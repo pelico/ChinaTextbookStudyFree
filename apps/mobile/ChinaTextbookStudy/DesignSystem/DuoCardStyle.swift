@@ -18,7 +18,9 @@ enum OptionCardState: Equatable {
 struct OptionCardModifier: ViewModifier {
     let state: OptionCardState
 
-    private let cornerRadius: CGFloat = 18
+    // ios-feel-19: 与 OptionCardButtonStyle 的底座圆角(Radius.card)统一，
+    // 卡片面和 3D 底座才能严丝合缝。
+    private let cornerRadius: CGFloat = Radius.card
 
     func body(content: Content) -> some View {
         content
@@ -116,6 +118,35 @@ struct OptionCardButtonStyle: ButtonStyle {
         ZStack {
             RoundedRectangle(cornerRadius: radius)
                 .fill(state.ledgeColor)
+                .offset(y: depth)
+            configuration.label
+                .offset(y: pressed ? depth : 0)
+        }
+        .padding(.bottom, depth)
+        .animation(Motion.press, value: pressed)
+    }
+}
+
+/// 3pt 小底座按压样式 — 给词块（capsule）和配对方块（rounded rect）一个
+/// 和大按钮同款的「按下去」手感（Wave F ios-feel-9/10）。
+///
+/// 用法：label 自己画面（背景 + 边框），本样式在下面垫一层 `ledgeColor`
+/// 底座；按下时面片下沉到底座上，底座不动。
+struct ChunkyChipStyle: ButtonStyle {
+    var ledgeColor: Color = DuoColors.border
+    /// true = capsule 词块；false = Radius.card 圆角方块。
+    var isCapsule: Bool = true
+    var depth: CGFloat = 3
+
+    private var ledgeShape: AnyShape {
+        isCapsule ? AnyShape(Capsule()) : AnyShape(RoundedRectangle(cornerRadius: Radius.card))
+    }
+
+    func makeBody(configuration: Configuration) -> some View {
+        let pressed = configuration.isPressed
+        ZStack {
+            ledgeShape
+                .fill(ledgeColor)
                 .offset(y: depth)
             configuration.label
                 .offset(y: pressed ? depth : 0)

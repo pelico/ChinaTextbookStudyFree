@@ -196,20 +196,28 @@ struct MainShell: View {
 
     private var sidebar: some View {
         List(selection: $selectedSidebar) {
-            Section("主菜单") {
+            Section {
                 row(.home, label: "学习", icon: "house.fill", tint: DuoColors.primary)
                 row(.league, label: "排行", icon: "trophy.fill", tint: DuoColors.bee)
                 row(.review, label: "错题本", icon: "book.fill", tint: DuoColors.fox)
                 row(.shop, label: "商店", icon: "bag.fill", tint: DuoColors.beetle)
                 row(.profile, label: "我的", icon: "person.crop.circle.fill", tint: DuoColors.secondary)
-                row(.achievements, label: "成就墙", icon: "rosette", tint: .purple)
+                row(.achievements, label: "成就墙", icon: "rosette", tint: DuoColors.beetle)
+            } header: {
+                sectionHeader("主菜单")
             }
-            Section("按年级") {
+            Section {
                 ForEach(1...6, id: \.self) { grade in
-                    row(.grade(grade), label: "\(grade) 年级", icon: "books.vertical.fill", tint: .green)
+                    row(.grade(grade), label: "\(grade) 年级", icon: "books.vertical.fill", tint: DuoColors.primary)
                 }
+            } header: {
+                sectionHeader("按年级")
             }
         }
+        // De-stock the iPad sidebar (ios-feel-14): brand surfaces instead of
+        // the system grouped-gray, heavy rounded labels instead of SF default.
+        .scrollContentBackground(.hidden)
+        .background(DuoColors.bg.ignoresSafeArea())
         .navigationTitle("课本学习")
         .onChange(of: selectedSidebar) { _, _ in
             // Reset the detail-column stack when the sidebar pick changes
@@ -218,13 +226,30 @@ struct MainShell: View {
         }
     }
 
+    private func sectionHeader(_ text: String) -> some View {
+        Text(text)
+            .duoFont(.caption)
+            .tracking(1)
+            .foregroundStyle(DuoColors.inkMuted)
+    }
+
     private func row(_ item: SidebarItem, label: String, icon: String, tint: Color) -> some View {
         Label {
             Text(label)
+                .duoFont(.subhead)
+                .foregroundStyle(DuoColors.ink)
         } icon: {
-            Image(systemName: icon).foregroundStyle(tint)
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .heavy))
+                .foregroundStyle(tint)
         }
+        .padding(.vertical, 2)
         .tag(item)
+        .listRowBackground(
+            RoundedRectangle(cornerRadius: Radius.control)
+                .fill(selectedSidebar == item ? DuoColors.surfaceAlt : DuoColors.bg)
+                .padding(.vertical, 2)
+        )
         .accessibilityIdentifier("sidebar-\(item.id)")
     }
 

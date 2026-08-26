@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * HeartTimer —— 心数不满时显示 mm:ss 到下一颗心。
+ * HeartTimer —— 红心不满时显示 mm:ss 到下一颗心。
  *
  * 放在课程页顶栏（LessonRunner），小胶囊贴在 HeartsBar 旁边。
  * hearts === MAX 或 nextHeartAt 为 null 时返回 null（不渲染）。

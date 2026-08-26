@@ -145,7 +145,7 @@ export function WordOrderQuestion({
             onClick={() => pick(i)}
             disabled={disabled}
             className="h-10 px-4 inline-flex items-center rounded-xl bg-white border-2 border-bg-softer text-ink font-extrabold text-base hover:border-secondary transition-colors"
-            style={{ boxShadow: "0 3px 0 0 #e5e5e5" }}
+            style={{ boxShadow: "0 3px 0 0 var(--shadow-card-color)" }}
           >
             {options[i]}
           </motion.button>

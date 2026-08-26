@@ -20,7 +20,7 @@ const FLAME_ORANGE = "#FF9600";
 const GOLD = "#FFC800";
 const EEL = "#4B4B4B";
 
-export const SHARE_SLOGAN = "小猫头鹰课堂 · 和聪聪一起天天进步";
+export const SHARE_SLOGAN = "聪聪学堂 · 和聪聪一起天天进步";
 
 /** 连胜卡的一格（周一到周日） */
 export interface ShareWeekCell {
@@ -100,55 +100,67 @@ function paintBrandBackground(ctx: CanvasRenderingContext2D) {
   }
 }
 
-/** 聪聪简笔（小猫头鹰）：白肚绿身 + 大眼睛 + 橙嘴 */
-function paintOwl(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number) {
+/** 聪聪简笔（熊猫）：白团子 + 黑耳黑眼圈 + 小黑鼻（几何对齐 Mascot.tsx） */
+function paintPanda(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number) {
   const s = size / 100; // 以 100 为基准的比例
+  const black = "#2E2E2E";
+  const white = "#FBFBFB";
   ctx.save();
   ctx.translate(cx, cy);
 
-  // 身体
-  ctx.fillStyle = "#89E219";
+  // 耳朵
+  ctx.fillStyle = black;
   ctx.beginPath();
-  ctx.ellipse(0, 10 * s, 46 * s, 50 * s, 0, 0, Math.PI * 2);
+  ctx.arc(-24 * s, -34 * s, 13 * s, 0, Math.PI * 2);
+  ctx.arc(24 * s, -34 * s, 13 * s, 0, Math.PI * 2);
   ctx.fill();
-  // 翅膀
-  ctx.fillStyle = "#6FCF0A";
+  // 头（白团子）
+  ctx.fillStyle = white;
   ctx.beginPath();
-  ctx.ellipse(-44 * s, 18 * s, 14 * s, 26 * s, -0.35, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, 40 * s, 37 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // 黑眼圈
+  ctx.fillStyle = black;
+  ctx.beginPath();
+  ctx.ellipse(-16 * s, -2 * s, 12 * s, 15 * s, -0.15, 0, Math.PI * 2);
   ctx.fill();
   ctx.beginPath();
-  ctx.ellipse(44 * s, 18 * s, 14 * s, 26 * s, 0.35, 0, Math.PI * 2);
+  ctx.ellipse(16 * s, -2 * s, 12 * s, 15 * s, 0.15, 0, Math.PI * 2);
   ctx.fill();
-  // 白肚
-  ctx.fillStyle = "#FFFFFF";
+  // 白眼窝
+  ctx.fillStyle = white;
   ctx.beginPath();
-  ctx.ellipse(0, 26 * s, 30 * s, 30 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-  // 眼白
-  ctx.beginPath();
-  ctx.ellipse(-17 * s, -10 * s, 17 * s, 19 * s, 0, 0, Math.PI * 2);
-  ctx.ellipse(17 * s, -10 * s, 17 * s, 19 * s, 0, 0, Math.PI * 2);
+  ctx.arc(-15 * s, -4 * s, 8.5 * s, 0, Math.PI * 2);
+  ctx.arc(15 * s, -4 * s, 8.5 * s, 0, Math.PI * 2);
   ctx.fill();
   // 眼珠
-  ctx.fillStyle = EEL;
+  ctx.fillStyle = "#3A3A3A";
   ctx.beginPath();
-  ctx.arc(-14 * s, -8 * s, 7 * s, 0, Math.PI * 2);
-  ctx.arc(20 * s, -8 * s, 7 * s, 0, Math.PI * 2);
+  ctx.arc(-15 * s, -4 * s, 5 * s, 0, Math.PI * 2);
+  ctx.arc(15 * s, -4 * s, 5 * s, 0, Math.PI * 2);
   ctx.fill();
   // 高光
   ctx.fillStyle = "#FFFFFF";
   ctx.beginPath();
-  ctx.arc(-16 * s, -10 * s, 2.4 * s, 0, Math.PI * 2);
-  ctx.arc(18 * s, -10 * s, 2.4 * s, 0, Math.PI * 2);
+  ctx.arc(-13.5 * s, -5.5 * s, 1.6 * s, 0, Math.PI * 2);
+  ctx.arc(16.5 * s, -5.5 * s, 1.6 * s, 0, Math.PI * 2);
   ctx.fill();
-  // 嘴
-  ctx.fillStyle = FLAME_ORANGE;
+  // 鼻子
+  ctx.fillStyle = black;
   ctx.beginPath();
-  ctx.moveTo(-8 * s, 4 * s);
-  ctx.lineTo(8 * s, 4 * s);
-  ctx.lineTo(0, 16 * s);
-  ctx.closePath();
+  ctx.ellipse(0, 12 * s, 6 * s, 4.5 * s, 0, 0, Math.PI * 2);
   ctx.fill();
+  // 嘴（微笑两瓣）
+  ctx.strokeStyle = black;
+  ctx.lineWidth = 2 * s;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(0, 16 * s);
+  ctx.lineTo(0, 20 * s);
+  ctx.quadraticCurveTo(4 * s, 24 * s, 8 * s, 22 * s);
+  ctx.moveTo(0, 20 * s);
+  ctx.quadraticCurveTo(-4 * s, 24 * s, -8 * s, 22 * s);
+  ctx.stroke();
 
   ctx.restore();
 }
@@ -268,7 +280,7 @@ export async function renderStreakCard(input: StreakCardInput): Promise<Blob> {
   paintBrandBackground(ctx);
 
   // 聪聪
-  paintOwl(ctx, W / 2, 240, 200);
+  paintPanda(ctx, W / 2, 240, 200);
 
   // 大火焰 + 连胜数字
   paintFlame(ctx, W / 2, 560, 260);
@@ -326,7 +338,7 @@ export async function renderBadgeCard(input: BadgeCardInput): Promise<Blob> {
   paintBrandBackground(ctx);
 
   // 聪聪
-  paintOwl(ctx, W / 2, 230, 190);
+  paintPanda(ctx, W / 2, 230, 190);
 
   // 顶部小标题胶囊
   ctx.font = `800 40px ${FONT}`;

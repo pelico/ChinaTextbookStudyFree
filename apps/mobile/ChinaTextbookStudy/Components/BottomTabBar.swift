@@ -50,7 +50,7 @@ struct BottomTabBar: View {
 
                 if let count = badge?.count, count > 0 {
                     Text(count > 99 ? "99+" : "\(count)")
-                        .font(.system(size: 10, weight: .heavy, design: .rounded))
+                        .duoFont(.micro, weight: .heavy)
                         .foregroundStyle(.white)
                         .padding(.horizontal, 5)
                         .frame(minWidth: 18, minHeight: 18)
@@ -69,8 +69,23 @@ struct BottomTabBar: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(tab.label)
+        .accessibilityLabel(accessibilityLabel(for: tab, badge: badge))
         .accessibilityIdentifier("tab-\(tab.rawValue)")
+    }
+
+    /// VoiceOver reads the badge, not just the tab name — "我的，3 个奖励可领取".
+    private func accessibilityLabel(for tab: AppTab, badge: BadgeInfo?) -> String {
+        if let count = badge?.count, count > 0 {
+            switch tab {
+            case .review:  return "\(tab.label)，\(count) 道错题待复习"
+            case .profile: return "\(tab.label)，\(count) 个奖励可领取"
+            default:       return "\(tab.label)，\(count) 条新提醒"
+            }
+        }
+        if badge?.dot == true {
+            return "\(tab.label)，有新内容"
+        }
+        return tab.label
     }
 
     private struct BadgeInfo { var count: Int?; var dot: Bool? }

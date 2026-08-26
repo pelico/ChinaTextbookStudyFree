@@ -4,6 +4,7 @@ import SwiftUI
 /// Ported from `apps/web/src/components/ComboOverlay.tsx`.
 struct ComboOverlayView: View {
     let combo: Int
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var scale: CGFloat = 0.2
     @State private var opacity: Double = 1
 
@@ -32,13 +33,18 @@ struct ComboOverlayView: View {
         .onAppear {
             SFXEngine.shared.play(.combo)
             HapticEngine.shared.success()
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) {
+            if reduceMotion {
+                // Reduce Motion:不弹跳,直接以原尺寸出现,只保留淡出。
                 scale = 1.0
+            } else {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) {
+                    scale = 1.0
+                }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 withAnimation(.easeOut(duration: 0.4)) {
                     opacity = 0
-                    scale = 0.8
+                    if !reduceMotion { scale = 0.8 }
                 }
             }
         }

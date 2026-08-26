@@ -117,7 +117,7 @@ function LockedCard({ completedCount }: { completedCount: number }) {
   return (
     <div
       className="bg-white rounded-3xl border-2 border-bg-softer p-6 text-center"
-      style={{ boxShadow: "0 4px 0 0 #e5e5e5" }}
+      style={{ boxShadow: "0 4px 0 0 var(--shadow-card-color)" }}
     >
       <div className="w-20 h-20 mx-auto rounded-full bg-bg-soft border-2 border-bg-softer flex items-center justify-center relative">
         <Trophy className="w-10 h-10 text-ink-softer" />
@@ -188,7 +188,7 @@ function LeagueBoard({
       {/* === 段位横幅：6 段位进度 + 倒计时 === */}
       <div
         className="rounded-3xl border-2 border-bg-softer bg-white p-5"
-        style={{ boxShadow: "0 4px 0 0 #e5e5e5" }}
+        style={{ boxShadow: "0 4px 0 0 var(--shadow-card-color)" }}
       >
         <div className="flex items-end justify-center gap-2 sm:gap-3">
           {LEAGUE_TIERS.map(t => {
@@ -243,7 +243,7 @@ function LeagueBoard({
       {/* === 16 人实时榜 === */}
       <div
         className="rounded-3xl border-2 border-bg-softer bg-white overflow-hidden"
-        style={{ boxShadow: "0 4px 0 0 #e5e5e5" }}
+        style={{ boxShadow: "0 4px 0 0 var(--shadow-card-color)" }}
       >
         {rows.map((row, idx) => {
           const bot = row.botIndex != null ? bots[row.botIndex] : null;
@@ -260,7 +260,7 @@ function LeagueBoard({
               >
                 {/* 名次 */}
                 <RankBadge rank={row.rank} />
-                {/* 头像：用户 = 猫头鹰绿片；bot = 昵称首字圆片 */}
+                {/* 头像：用户 = 聪聪绿片；bot = 昵称首字圆片 */}
                 <div
                   className="w-9 h-9 rounded-full flex items-center justify-center text-white font-extrabold text-sm shrink-0"
                   style={{
@@ -320,7 +320,7 @@ function LeagueBoard({
       {/* === 奖励说明 === */}
       <div
         className="rounded-2xl border-2 border-bg-softer bg-white p-4"
-        style={{ boxShadow: "0 2px 0 0 #e5e5e5" }}
+        style={{ boxShadow: "0 2px 0 0 var(--shadow-card-color)" }}
       >
         <div className="text-xs font-extrabold text-ink-softer uppercase tracking-wider">
           每周一结算奖励
@@ -332,12 +332,12 @@ function LeagueBoard({
               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-bg-soft border border-bg-softer text-xs font-extrabold text-ink-light tabular-nums"
             >
               {r <= 3 ? `第 ${r} 名` : "第 4-5 名"}
-              <Gem className="w-3 h-3 text-purple-500" />+{RANK_GEM_REWARDS[r]}
+              <Gem className="w-3 h-3 text-secondary" />+{RANK_GEM_REWARDS[r]}
             </span>
           ))}
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 border border-primary/30 text-xs font-extrabold text-primary-dark tabular-nums">
             晋级再加
-            <Gem className="w-3 h-3 text-purple-500" />+{PROMOTION_BONUS_GEMS}
+            <Gem className="w-3 h-3 text-secondary" />+{PROMOTION_BONUS_GEMS}
           </span>
         </div>
         <p className="text-[11px] text-ink-softer mt-2">

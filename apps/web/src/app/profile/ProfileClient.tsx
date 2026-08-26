@@ -28,6 +28,7 @@ import {
   Bookmark,
   Gem,
 } from "@/components/icons";
+import { ThemeModeToggle } from "@/components/ThemeModeToggle";
 import { playSfx } from "@/lib/sfx";
 import { haptic } from "@/lib/haptic";
 
@@ -138,16 +139,16 @@ export function ProfileClient() {
         <SoundLink
           href="/shop"
           hapticIntensity="medium"
-          className="group flex items-center gap-4 bg-white rounded-3xl border-2 border-purple-200 p-5 mb-6 lg:mb-0 hover:border-purple-400 transition-colors"
+          className="group flex items-center gap-4 bg-white rounded-3xl border-2 border-secondary/30 p-5 mb-6 lg:mb-0 hover:border-secondary transition-colors"
           style={{ boxShadow: "0 4px 0 0 #d8b4fe" }}
         >
-          <div className="w-12 h-12 rounded-2xl bg-purple-100 text-purple-600 flex items-center justify-center group-hover:bg-purple-500 group-hover:text-white transition-colors">
+          <div className="w-12 h-12 rounded-2xl bg-secondary/10 text-secondary flex items-center justify-center group-hover:bg-secondary group-hover:text-white transition-colors">
             <Gem className="w-6 h-6" />
           </div>
           <div className="flex-1">
             <div className="text-base font-extrabold text-ink">美妆商店</div>
             <div className="text-sm text-ink-light">
-              累计获得 <span className="font-extrabold text-purple-600">{hydrated ? lifetimeGems : 0}</span> 颗宝石 · 去给聪聪换装吧
+              累计获得 <span className="font-extrabold text-secondary-dark">{hydrated ? lifetimeGems : 0}</span> 颗宝石 · 去给聪聪换装吧
             </div>
           </div>
           <div className="text-ink-softer text-xl">›</div>
@@ -161,7 +162,7 @@ export function ProfileClient() {
         {/* 连胜护盾小卡片 */}
         <section
           className="bg-white rounded-3xl border-2 border-bg-softer p-5 mb-6 lg:mb-0"
-          style={{ boxShadow: "0 4px 0 0 #e5e5e5" }}
+          style={{ boxShadow: "0 4px 0 0 var(--shadow-card-color)" }}
         >
           <div className="text-base font-extrabold text-ink mb-3">连胜护盾</div>
           <div className="flex items-center gap-3">
@@ -187,7 +188,7 @@ export function ProfileClient() {
           href="/review"
           hapticIntensity="medium"
           className="group flex items-center gap-4 bg-white rounded-3xl border-2 border-bg-softer p-5 hover:border-primary transition-colors mb-6 lg:mb-0"
-          style={{ boxShadow: "0 4px 0 0 #e5e5e5" }}
+          style={{ boxShadow: "0 4px 0 0 var(--shadow-card-color)" }}
         >
           <div className="w-12 h-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center group-hover:bg-primary group-hover:text-white transition-colors">
             <Bookmark className="w-6 h-6" />
@@ -201,10 +202,24 @@ export function ProfileClient() {
           <div className="text-ink-softer text-xl">›</div>
         </SoundLink>
 
+        {/* 外观：免费深色模式三态开关（跟随系统 / 亮 / 暗） */}
+        <section
+          className="bg-white rounded-3xl border-2 border-bg-softer p-5 mb-6 lg:mb-0"
+          style={{ boxShadow: "0 4px 0 0 var(--shadow-card-color)" }}
+        >
+          <div className="flex items-center justify-between mb-1">
+            <div className="text-base font-extrabold text-ink">外观 · 深色模式</div>
+          </div>
+          <div className="text-xs text-ink-light mb-3">
+            跟随系统自动切换，或手动选择亮色 / 暗色 · 免费使用
+          </div>
+          <ThemeModeToggle />
+        </section>
+
         {/* 家长设置：每日学习时间上限（默认关闭，家长自愿启用） */}
         <section
           className="bg-white rounded-3xl border-2 border-bg-softer p-5"
-          style={{ boxShadow: "0 4px 0 0 #e5e5e5" }}
+          style={{ boxShadow: "0 4px 0 0 var(--shadow-card-color)" }}
         >
           <div className="flex items-center justify-between mb-1">
             <div className="text-base font-extrabold text-ink">家长设置 · 每日时间上限</div>
@@ -237,7 +252,7 @@ export function ProfileClient() {
                   style={
                     active
                       ? { boxShadow: "0 3px 0 0 #58A700" }
-                      : { boxShadow: "0 2px 0 0 #e5e5e5" }
+                      : { boxShadow: "0 2px 0 0 var(--shadow-card-color)" }
                   }
                 >
                   {opt.label}
@@ -343,7 +358,7 @@ function BackupSection() {
   return (
     <section
       className="bg-white rounded-3xl border-2 border-bg-softer p-5 mt-6 lg:mt-0"
-      style={{ boxShadow: "0 4px 0 0 #e5e5e5" }}
+      style={{ boxShadow: "0 4px 0 0 var(--shadow-card-color)" }}
     >
       <div className="flex items-center justify-between mb-1">
         <div className="text-base font-extrabold text-ink">数据 · 存档备份</div>
@@ -371,7 +386,7 @@ function BackupSection() {
             fileInputRef.current?.click();
           }}
           className="h-10 px-4 inline-flex items-center gap-1.5 rounded-2xl text-sm font-extrabold border-2 bg-white text-ink-light border-bg-softer hover:border-primary/40 transition-colors"
-          style={{ boxShadow: "0 2px 0 0 #e5e5e5" }}
+          style={{ boxShadow: "0 2px 0 0 var(--shadow-card-color)" }}
         >
           📥 导入存档
         </button>
@@ -465,7 +480,7 @@ function ReportsSection() {
   return (
     <section
       className="bg-white rounded-3xl border-2 border-bg-softer p-5"
-      style={{ boxShadow: "0 4px 0 0 #e5e5e5" }}
+      style={{ boxShadow: "0 4px 0 0 var(--shadow-card-color)" }}
       aria-label="已报告的问题"
     >
       <div className="flex items-center justify-between mb-1">
@@ -475,7 +490,7 @@ function ReportsSection() {
             type="button"
             onClick={handleExport}
             className="h-8 px-3 inline-flex items-center gap-1 rounded-xl text-xs font-extrabold border-2 bg-white text-ink-light border-bg-softer hover:border-primary/40 transition-colors"
-            style={{ boxShadow: "0 2px 0 0 #e5e5e5" }}
+            style={{ boxShadow: "0 2px 0 0 var(--shadow-card-color)" }}
           >
             📤 导出
           </button>
@@ -540,7 +555,7 @@ function StatCard({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       className="bg-white rounded-2xl border-2 border-bg-softer p-4"
-      style={{ boxShadow: "0 4px 0 0 #e5e5e5" }}
+      style={{ boxShadow: "0 4px 0 0 var(--shadow-card-color)" }}
     >
       <div className={`${color}`}>{icon}</div>
       <div className="text-2xl font-extrabold text-ink mt-2 tabular-nums leading-none">{value}</div>

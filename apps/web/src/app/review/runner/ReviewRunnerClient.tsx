@@ -429,7 +429,7 @@ function ReviewCompletionScreen({
         <div className="mt-8 grid grid-cols-2 gap-3">
           <div
             className="bg-white rounded-2xl p-4 border-2 border-bg-softer text-center"
-            style={{ boxShadow: "0 4px 0 0 #e5e5e5" }}
+            style={{ boxShadow: "0 4px 0 0 var(--shadow-card-color)" }}
           >
             <div className="text-[10px] uppercase tracking-wider text-ink-softer font-extrabold">
               一次就对
@@ -440,7 +440,7 @@ function ReviewCompletionScreen({
           </div>
           <div
             className="bg-white rounded-2xl p-4 border-2 border-bg-softer text-center"
-            style={{ boxShadow: "0 4px 0 0 #e5e5e5" }}
+            style={{ boxShadow: "0 4px 0 0 var(--shadow-card-color)" }}
           >
             <div className="text-[10px] uppercase tracking-wider text-ink-softer font-extrabold">
               经验值

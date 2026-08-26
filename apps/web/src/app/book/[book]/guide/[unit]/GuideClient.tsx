@@ -225,7 +225,7 @@ export function GuideClient({ book, unit, summaries }: GuideClientProps) {
                 setIdx(i => Math.max(0, i - 1));
               }}
               className="shrink-0 h-14 px-5 rounded-2xl bg-white border-2 border-bg-softer text-ink font-extrabold text-sm"
-              style={{ boxShadow: "0 4px 0 0 #e5e5e5" }}
+              style={{ boxShadow: "0 4px 0 0 var(--shadow-card-color)" }}
             >
               上一步
             </button>

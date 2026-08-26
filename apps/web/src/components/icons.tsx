@@ -643,8 +643,8 @@ export function Picture({ size = 24, ...props }: IconProps) {
   );
 }
 
-/** Owl —— 猫头鹰侧脸（用于"聪聪皮肤"商店分类） */
-export function Owl({ size = 24, ...props }: IconProps) {
+/** Panda —— 熊猫聪聪脸（用于"聪聪皮肤"商店分类 / 路径装饰） */
+export function Panda({ size = 24, ...props }: IconProps) {
   return (
     <svg
       {...COMMON}
@@ -654,12 +654,21 @@ export function Owl({ size = 24, ...props }: IconProps) {
       stroke="none"
       {...props}
     >
-      <path d="M12 3c-4.4 0-7.5 3.2-7.5 7.5 0 2.6 1 4.6 2.6 5.9V19a1 1 0 0 0 1.5.85l1.5-.9a8 8 0 0 0 3.8 0l1.5.9A1 1 0 0 0 17 19v-2.6c1.6-1.3 2.5-3.3 2.5-5.9C19.5 6.2 16.4 3 12 3z" />
-      <circle cx="9" cy="10" r="1.7" fill="white" />
-      <circle cx="15" cy="10" r="1.7" fill="white" />
-      <circle cx="9" cy="10" r="0.7" fill="#1a1a1a" />
-      <circle cx="15" cy="10" r="0.7" fill="#1a1a1a" />
-      <path d="M11 12.2L12 13.4L13 12.2L12 12Z" fill="#FFB200" />
+      {/* 耳朵 */}
+      <circle cx="6.2" cy="6" r="2.6" />
+      <circle cx="17.8" cy="6" r="2.6" />
+      {/* 头（白脸走镂空：先画实心头，再用白色画脸） */}
+      <circle cx="12" cy="12.5" r="8.5" />
+      <circle cx="12" cy="12.5" r="6.9" fill="white" />
+      {/* 眼圈 */}
+      <ellipse cx="9" cy="11.6" rx="2.2" ry="2.8" fill="currentColor" transform="rotate(-12 9 11.6)" />
+      <ellipse cx="15" cy="11.6" rx="2.2" ry="2.8" fill="currentColor" transform="rotate(12 15 11.6)" />
+      {/* 眼珠高光 */}
+      <circle cx="9.3" cy="11.2" r="0.8" fill="white" />
+      <circle cx="14.7" cy="11.2" r="0.8" fill="white" />
+      {/* 鼻子 + 嘴 */}
+      <ellipse cx="12" cy="15" rx="1.3" ry="1" fill="currentColor" />
+      <path d="M12 16v1.1M12 17.1q1 1 2 .5M12 17.1q-1 1-2 .5" stroke="currentColor" strokeWidth="0.9" fill="none" />
     </svg>
   );
 }
@@ -774,6 +783,58 @@ export function Moon({ size = 24, ...props }: IconProps) {
   return (
     <svg {...COMMON} width={size} height={size} fill="none" stroke="currentColor" strokeWidth={1.75} {...props}>
       <path d="M21 12.5A9 9 0 1 1 11.5 3a7 7 0 0 0 9.5 9.5z" />
+    </svg>
+  );
+}
+
+/** 屏幕/自动 —— 三态主题「跟随系统」档 */
+export function MonitorIcon({ size = 24, ...props }: IconProps) {
+  return (
+    <svg {...COMMON} width={size} height={size} fill="none" stroke="currentColor" strokeWidth={1.75} {...props}>
+      <rect x="3" y="4.5" width="18" height="13" rx="2.5" />
+      <path d="M9 21h6M12 17.5V21" />
+    </svg>
+  );
+}
+
+// ============================================================
+// 粗填充变体（web-shell-19）—— 导航/HUD 激活态使用，
+// 视觉重量对齐 iOS 的 SF Symbols .fill 图标
+// ============================================================
+
+/** Home 填充版 —— 导航「学习」激活态 */
+export function HomeFill({ size = 24, ...props }: IconProps) {
+  return (
+    <svg {...COMMON} width={size} height={size} fill="currentColor" stroke="none" {...props}>
+      <path d="M12 3.2c.35 0 .7.12.98.35l7.5 6.25c.33.28.52.69.52 1.12V19.5A1.5 1.5 0 0 1 19.5 21H15a1 1 0 0 1-1-1v-4.5h-4V20a1 1 0 0 1-1 1H4.5A1.5 1.5 0 0 1 3 19.5v-8.58c0-.43.19-.84.52-1.12l7.5-6.25c.28-.23.63-.35.98-.35z" />
+    </svg>
+  );
+}
+
+/** Trophy 填充版 —— 导航「排行榜」激活态 */
+export function TrophyFill({ size = 24, ...props }: IconProps) {
+  return (
+    <svg {...COMMON} width={size} height={size} fill="currentColor" stroke="none" {...props}>
+      <path d="M7 3.5h10a1 1 0 0 1 1 1v.75h2.1a1 1 0 0 1 1 1.05c-.12 2.4-1.4 4.35-3.6 4.95A5.6 5.6 0 0 1 13.5 14.3v2.2H15a1 1 0 0 1 1 1v1.3h1.25a1 1 0 0 1 1 1v.2a1 1 0 0 1-1 1H6.75a1 1 0 0 1-1-1v-.2a1 1 0 0 1 1-1H8v-1.3a1 1 0 0 1 1-1h1.5v-2.2A5.6 5.6 0 0 1 6.5 11.25c-2.2-.6-3.48-2.55-3.6-4.95a1 1 0 0 1 1-1.05H6V4.5a1 1 0 0 1 1-1zM6 6.75H4.95c.2 1.35.85 2.35 1.85 2.85A9.7 9.7 0 0 1 6 6.75zm12 0c0 1.05-.3 2-.8 2.85 1-.5 1.65-1.5 1.85-2.85H18z" />
+    </svg>
+  );
+}
+
+/** Bookmark 填充版 —— 导航「错题本」激活态 */
+export function BookmarkFill({ size = 24, ...props }: IconProps) {
+  return (
+    <svg {...COMMON} width={size} height={size} fill="currentColor" stroke="none" {...props}>
+      <path d="M6.5 2.75h11a1 1 0 0 1 1 1V20.6a1 1 0 0 1-1.55.83L12 18.1l-4.95 3.33a1 1 0 0 1-1.55-.83V3.75a1 1 0 0 1 1-1z" />
+    </svg>
+  );
+}
+
+/** User 填充版 —— 导航「我的」激活态 */
+export function UserFill({ size = 24, ...props }: IconProps) {
+  return (
+    <svg {...COMMON} width={size} height={size} fill="currentColor" stroke="none" {...props}>
+      <circle cx="12" cy="7.75" r="4.5" />
+      <path d="M12 13.75c4 0 7.6 2.6 8.7 6.55.17.6-.3 1.2-.93 1.2H4.23c-.63 0-1.1-.6-.93-1.2 1.1-3.95 4.7-6.55 8.7-6.55z" />
     </svg>
   );
 }

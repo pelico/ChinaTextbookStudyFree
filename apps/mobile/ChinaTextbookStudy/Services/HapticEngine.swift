@@ -12,9 +12,12 @@ final class HapticEngine {
     private let notificationFeedback = UINotificationFeedbackGenerator()
 
     private init() {
-        // Pre-warm generators for lower latency.
+        // Pre-warm generators for lower latency. heavy 也要预热 ——
+        // 掉红心的重触感被延迟 0.4s 与心数 bounce 对齐(ios-lesson-15),
+        // 预热保证它真正同帧落地而不是再晚半拍。
         lightImpact.prepare()
         mediumImpact.prepare()
+        heavyImpact.prepare()
     }
 
     /// Light tap — option selection, button press.

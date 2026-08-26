@@ -1,11 +1,16 @@
 import SwiftUI
 import Combine
+import StoreKit
 
 /// App entry — delegates to `MainShell` once the site index is loaded.
 ///
 /// Everything route-related moved into [MainShell.swift](MainShell.swift) so
 /// the split-view / stack-view fork lives in one place.
 struct RootView: View {
+    /// One-time global UIKit appearance (nav bar titles in heavy SF Rounded).
+    init() {
+        Self.configureNavigationBarAppearance()
+    }
     @StateObject private var progressStore = ProgressStore.shared
     @StateObject private var downloader = AssetDownloader.shared
     @ObservedObject private var settings = SettingsStore.shared
@@ -96,6 +101,82 @@ struct RootView: View {
             progressStore.refreshForNow()
         }
     }
+
+    // MARK: - Global navigation bar look (ios-feel-6)
+
+    /// Titles & large titles in heavy SF Rounded — configured once here so
+    /// every `navigationTitle` in the app reads "Duolingo" without per-screen
+    /// styling. Uses font descriptors, so Dynamic Type keeps working.
+    private static var didConfigureNavBar = false
+    static func configureNavigationBarAppearance() {
+        guard !didConfigureNavBar else { return }
+        didConfigureNavBar = true
+
+        func roundedHeavy(size: CGFloat) -> UIFont {
+            let base = UIFont.systemFont(ofSize: size, weight: .heavy)
+            guard let descriptor = base.fontDescriptor.withDesign(.rounded) else { return base }
+            return UIFont(descriptor: descriptor, size: size)
+        }
+
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithDefaultBackground()
+        appearance.titleTextAttributes = [
+            .font: UIFontMetrics(forTextStyle: .headline).scaledFont(for: roundedHeavy(size: 17))
+        ]
+        appearance.largeTitleTextAttributes = [
+            .font: roundedHeavy(size: 34)
+        ]
+
+        let bar = UINavigationBar.appearance()
+        bar.standardAppearance = appearance
+        bar.compactAppearance = appearance
+        bar.scrollEdgeAppearance = appearance
+    }
+}
+
+// MARK: - App Store review prompt (critic-8)
+
+/// Asks for a rating only at真正的高光时刻 (7-day streak milestone celebration
+/// closed / first three-star result exit) — never on a negative path. A local
+/// ledger caps requests at 2 per app version so learners aren't nagged.
+enum ReviewPrompter {
+    static let maxRequestsPerVersion = 2
+    static let versionKey = "review.requestedVersion"
+    static let countKey = "review.requestCount"
+
+    static var currentVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+    }
+
+    /// Pure gate — unit-testable with an injected defaults suite.
+    static func shouldRequest(version: String, defaults: UserDefaults = .standard) -> Bool {
+        let recordedVersion = defaults.string(forKey: versionKey)
+        let count = recordedVersion == version ? defaults.integer(forKey: countKey) : 0
+        return count < maxRequestsPerVersion
+    }
+
+    /// Book-keeping — a new version resets the counter.
+    static func recordRequest(version: String, defaults: UserDefaults = .standard) {
+        let recordedVersion = defaults.string(forKey: versionKey)
+        let count = recordedVersion == version ? defaults.integer(forKey: countKey) : 0
+        defaults.set(version, forKey: versionKey)
+        defaults.set(count + 1, forKey: countKey)
+    }
+
+    /// Call from a highlight moment. Debounced by the per-version ledger; the
+    /// small delay lets the celebration dismissal animation settle first, so
+    /// the system sheet never stomps on the confetti.
+    static func requestAtHighlight() {
+        let version = currentVersion
+        guard shouldRequest(version: version) else { return }
+        recordRequest(version: version)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            guard let scene = UIApplication.shared.connectedScenes
+                .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene
+            else { return }
+            SKStoreReviewController.requestReview(in: scene)
+        }
+    }
 }
 
 /// Wave E2：发现 iCloud 备份的恢复提示卡（新装设备启动时）。
@@ -165,20 +246,66 @@ struct BookListView: View {
     @Binding var path: [AppRoute]
 
     var body: some View {
-        List(siteIndex.books.filter { $0.grade == grade }, id: \.id) { book in
-            Button {
-                path.append(.bookDetail(bookId: book.id))
-            } label: {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(book.fullName).font(.headline)
-                    Text("\(book.unitsCount) 单元 · \(book.lessonsCount) 节小课")
-                        .font(.caption).foregroundStyle(.secondary)
+        ScrollView {
+            VStack(spacing: 12) {
+                ForEach(siteIndex.books.filter { $0.grade == grade }, id: \.id) { book in
+                    Button {
+                        HapticEngine.shared.tap()
+                        path.append(.bookDetail(bookId: book.id))
+                    } label: {
+                        bookCard(book)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
-            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 16)
         }
+        .background(DuoColors.bg.ignoresSafeArea())
         .navigationTitle("\(grade) 年级")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// Brand card — same chunky sticker language as the home book picker.
+    private func bookCard(_ book: Book) -> some View {
+        let cfg = Subjects.resolve(book: book)
+        return HStack(spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: Radius.control)
+                    .fill(cfg.accent)
+                    .frame(width: 52, height: 52)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: Radius.control)
+                            .stroke(Color.black.opacity(0.25), lineWidth: 2)
+                    }
+                Text(cfg.label)
+                    .duoFont(.subhead, weight: .black)
+                    .minimumScaleFactor(0.6)   // XXL 档在固定贴纸里自动收缩
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 2)
+            }
+            .frame(width: 52, height: 52)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(book.fullName)
+                    .duoFont(.subhead)
+                    .foregroundStyle(DuoColors.ink)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                Text("\(book.unitsCount) 单元 · \(book.lessonsCount) 节小课")
+                    .duoFont(.caption)
+                    .foregroundStyle(DuoColors.inkMuted)
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 15, weight: .heavy))
+                .foregroundStyle(DuoColors.inkSofter)
+        }
+        .padding(14)
+        .background(DuoColors.surface, in: .rect(cornerRadius: Radius.card))
+        .overlay {
+            RoundedRectangle(cornerRadius: Radius.card)
+                .strokeBorder(DuoColors.border, lineWidth: 2)
+        }
     }
 }
 

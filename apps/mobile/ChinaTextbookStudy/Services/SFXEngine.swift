@@ -6,12 +6,27 @@ import Foundation
 ///
 /// Architecture: AVAudioSourceNode (real-time sample generation) → mixer → output
 /// Each `play()` call schedules a short-lived source node that auto-disconnects.
+///
+/// Wave F additions:
+/// - `play(_:pitchStep:)` — 连对升调(ios-lesson-12):每级约 +1 半音,封顶 8 级;
+/// - 新事件 `.pairMatch` / `.purchase` / `.questClaim` / `.chestOpen`(ios-feel-10/12);
+/// - correct / complete / star 增厚:白噪 click 瞬态 + 轻微 detune 双振荡器(ios-feel-11);
+/// - 音频会话统一交给 `AudioSessionCoordinator`(critic-4),SFX 走 `.ambient`。
 final class SFXEngine {
     static let shared = SFXEngine()
 
-    enum Sound: String, CaseIterable {
+    /// 跨分区约定的事件名(Wave F):其他分区按 `play(_ sfx: SFX, pitchStep:)` 调用。
+    enum SFX: String, CaseIterable {
         case correct, wrong, tap, complete, star, heartLoss, combo, unlock, progressTick
+        // Wave F(ios-feel-10/12)
+        case pairMatch      // 配对成功:上行双音(支持 pitchStep 连对升调)
+        case purchase       // 商店购买:收银双音
+        case questClaim     // 任务领奖:短双音
+        case chestOpen      // 开宝箱:上行琶音 + shimmer
     }
+
+    /// 兼容旧名 —— 早期代码以 `Sound` 引用该枚举。
+    typealias Sound = SFX
 
     private let engine = AVAudioEngine()
     private let mixer = AVAudioMixerNode()
@@ -25,23 +40,38 @@ final class SFXEngine {
         engine.connect(mixer, to: engine.mainMixerNode, format: format)
     }
 
+    /// 播放一个音效。
+    ///
+    /// `pitchStep`(ios-lesson-12):整组事件的频率乘 `2^(min(step, 8)/12)`,
+    /// 即每级抬高约 1 个半音、封顶 8 级 —— 连对越长音越亮,和多邻国一致。
+    /// 主要供 `.correct` / `.pairMatch` 使用,其他事件传 0(默认值)即可。
     @MainActor
-    func play(_ sound: Sound) {
+    func play(_ sfx: SFX, pitchStep: Int = 0) {
         guard !SettingsStore.shared.isMuted else { return }
         ensureRunning()
-        let events = buildEvents(for: sound)
+        var events = buildEvents(for: sfx)
+        let step = max(0, min(pitchStep, 8))
+        if step > 0 {
+            let ratio = pow(2.0, Double(step) / 12.0)
+            for i in events.indices {
+                events[i].frequency *= ratio
+                if let end = events[i].endFrequency {
+                    events[i].endFrequency = end * ratio
+                }
+            }
+        }
         scheduleEvents(events)
     }
 
     // MARK: - Engine lifecycle
 
+    @MainActor
     private func ensureRunning() {
+        // 会话类别统一交给协调器(critic-4):SFX 走 .ambient,
+        // 尊重静音拨片、与用户音乐混音;不再自己 setCategory。
+        AudioSessionCoordinator.shared.ensureAmbient()
         guard !engine.isRunning else { return }
         do {
-            // Configure session for playback alongside TTS.
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-            try session.setActive(true)
             try engine.start()
         } catch {
             print("[SFXEngine] start failed: \(error)")
@@ -64,16 +94,38 @@ final class SFXEngine {
     }
 
     private enum Waveform {
-        case sine, triangle
+        case sine, triangle, noise
+    }
+
+    // MARK: - Thickening helpers (ios-feel-11)
+
+    /// 3–8ms 白噪 click 瞬态:给关键音一个「敲击感」的起振,类似打击乐的 attack。
+    private func click(at start: Double = 0, volume: Float = 0.11) -> SynthEvent {
+        SynthEvent(startTime: start, duration: 0.005, frequency: 1000,
+                   volume: volume, attack: 0.0004, waveform: .noise)
+    }
+
+    /// 轻微 detune 双振荡器:把整组事件抬高几音分、压低音量后叠回原事件,
+    /// 两组振荡器间的缓慢拍频让音色更「厚」—— 纯代码,无音频资源。
+    private func detuned(_ events: [SynthEvent], cents: Double = 7, gain: Float = 0.32) -> [SynthEvent] {
+        let ratio = pow(2.0, cents / 1200.0)
+        return events.map { e in
+            var d = e
+            d.frequency *= ratio
+            if let end = d.endFrequency { d.endFrequency = end * ratio }
+            d.volume *= gain
+            return d
+        }
     }
 
     // MARK: - Sound definitions (ported from sfx.ts)
 
-    private func buildEvents(for sound: Sound) -> [SynthEvent] {
+    private func buildEvents(for sound: SFX) -> [SynthEvent] {
         switch sound {
         case .correct:
-            // Two FM bells (F#5 → A#5) + shimmer overtone
-            return [
+            // Two FM bells (F#5 → A#5) + shimmer overtone,
+            // 增厚:白噪 click + detune 副本(ios-feel-11)。
+            let bells = [
                 SynthEvent(startTime: 0, duration: 0.42, frequency: 739.99,
                            volume: 0.30, modRatio: 3.01, modDepth: 180),
                 SynthEvent(startTime: 0.11, duration: 0.55, frequency: 932.33,
@@ -81,6 +133,7 @@ final class SFXEngine {
                 SynthEvent(startTime: 0.11, duration: 0.35, frequency: 1864.66,
                            volume: 0.08, modRatio: 4.5, modDepth: 60),
             ]
+            return bells + detuned(bells) + [click(volume: 0.12)]
 
         case .wrong:
             // Gentle descending E4→D4 triangle + low sine pad
@@ -100,24 +153,27 @@ final class SFXEngine {
             ]
 
         case .complete:
-            // Victory: C5-E5-G5-C6 arpeggio
+            // Victory: C5-E5-G5-C6 arpeggio,增厚同 correct(ios-feel-11)。
             let notes: [(Double, Double)] = [(523.25, 0), (659.25, 0.12), (783.99, 0.24), (1046.5, 0.36)]
-            return notes.map { freq, t in
+            let arp = notes.map { freq, t in
                 SynthEvent(startTime: t, duration: 0.6, frequency: freq,
                            volume: 0.28, modRatio: 3.01, modDepth: 160)
-            } + [
+            }
+            let shimmer = [
                 SynthEvent(startTime: 0.36, duration: 0.8, frequency: 2093,
                            volume: 0.14, modRatio: 4.2, modDepth: 80)
             ]
+            return arp + detuned(arp, gain: 0.28) + shimmer + [click(volume: 0.10)]
 
         case .star:
-            // Two bright bells A6 → E7
-            return [
+            // Two bright bells A6 → E7,增厚(ios-feel-11)。
+            let bells = [
                 SynthEvent(startTime: 0, duration: 0.28, frequency: 1760,
                            volume: 0.28, modRatio: 3.5, modDepth: 100),
                 SynthEvent(startTime: 0.08, duration: 0.32, frequency: 2637,
                            volume: 0.22, modRatio: 3.5, modDepth: 90),
             ]
+            return bells + detuned(bells, cents: 6, gain: 0.30) + [click(volume: 0.09)]
 
         case .heartLoss:
             // Descending bell + triangle glide
@@ -156,6 +212,52 @@ final class SFXEngine {
                 SynthEvent(startTime: 0, duration: 0.08, frequency: 1760,
                            volume: 0.12, modRatio: 3.01, modDepth: 60),
             ]
+
+        case .pairMatch:
+            // 配对成功(ios-feel-10):E5→A5 上行双音,比 correct 轻快短促,
+            // 供连连看 / 配对题连击时叠 pitchStep 升调。
+            return [
+                SynthEvent(startTime: 0, duration: 0.20, frequency: 659.25,
+                           volume: 0.22, modRatio: 3.01, modDepth: 110),
+                SynthEvent(startTime: 0.07, duration: 0.30, frequency: 880.0,
+                           volume: 0.26, modRatio: 3.01, modDepth: 130),
+            ]
+
+        case .purchase:
+            // 商店购买(ios-feel-12):收银「叮-叮」双音,B5→E6,
+            // 开头一点白噪 click,像硬币落进存钱罐。
+            return [
+                click(volume: 0.10),
+                SynthEvent(startTime: 0, duration: 0.18, frequency: 987.77,
+                           volume: 0.24, modRatio: 4.0, modDepth: 90),
+                SynthEvent(startTime: 0.09, duration: 0.34, frequency: 1318.51,
+                           volume: 0.26, modRatio: 4.0, modDepth: 110),
+            ]
+
+        case .questClaim:
+            // 任务领奖(ios-feel-12):G5→C6 短双音 —— 比 complete 轻,
+            // 天天听也不腻。
+            return [
+                SynthEvent(startTime: 0, duration: 0.20, frequency: 783.99,
+                           volume: 0.26, modRatio: 3.01, modDepth: 140),
+                SynthEvent(startTime: 0.08, duration: 0.32, frequency: 1046.5,
+                           volume: 0.28, modRatio: 3.01, modDepth: 150),
+            ]
+
+        case .chestOpen:
+            // 开宝箱(ios-feel-12):C5-E5-G5-C6 快速上行琶音 + 双层高频 shimmer。
+            let notes: [(Double, Double)] = [(523.25, 0), (659.25, 0.08), (783.99, 0.16), (1046.5, 0.24)]
+            let arp = notes.map { freq, t in
+                SynthEvent(startTime: t, duration: 0.5, frequency: freq,
+                           volume: 0.26, modRatio: 3.01, modDepth: 150)
+            }
+            let shimmer = [
+                SynthEvent(startTime: 0.24, duration: 0.7, frequency: 2093,
+                           volume: 0.12, modRatio: 4.5, modDepth: 70),
+                SynthEvent(startTime: 0.32, duration: 0.6, frequency: 3135.96,
+                           volume: 0.07, modRatio: 5.0, modDepth: 50),
+            ]
+            return arp + shimmer
         }
     }
 
@@ -167,6 +269,8 @@ final class SFXEngine {
             var phase: Double = 0
             var modPhase: Double = 0
             var sampleIndex: Int = 0
+            // 白噪声用 xorshift32 —— 渲染线程上零分配、零锁。
+            var noiseState: UInt32 = 0x9E3779B9
             let sr = sampleRate
             let totalSamples = Int(event.duration * sr)
             let attackSamples = Int(event.attack * sr)
@@ -229,6 +333,12 @@ final class SFXEngine {
                         case .triangle:
                             let p = phase.truncatingRemainder(dividingBy: 1.0)
                             sample = env * Float(2.0 * abs(2.0 * p - 1.0) - 1.0)
+                        case .noise:
+                            // White-noise click transient (ios-feel-11)
+                            noiseState ^= noiseState << 13
+                            noiseState ^= noiseState >> 17
+                            noiseState ^= noiseState << 5
+                            sample = env * (Float(noiseState) / Float(UInt32.max) * 2.0 - 1.0)
                         }
                         phase += freq / sr
                     }

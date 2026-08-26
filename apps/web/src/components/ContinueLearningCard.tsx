@@ -197,7 +197,7 @@ export function CurrentBookBadge({
         aria-haspopup="dialog"
         aria-label={`当前教材：${book.subjectName ?? ""}${book.textbookName}，点击切换`}
         className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full bg-white border-2 border-bg-softer hover:border-primary/50 transition-colors select-none min-w-0"
-        style={{ boxShadow: "0 2px 0 0 #e5e5e5" }}
+        style={{ boxShadow: "0 2px 0 0 var(--shadow-card-color)" }}
       >
         <span
           aria-hidden

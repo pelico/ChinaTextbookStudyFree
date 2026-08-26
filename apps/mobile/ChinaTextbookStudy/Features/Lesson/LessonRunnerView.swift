@@ -60,6 +60,12 @@ struct LessonRunnerView: View {
     /// 报错弹层里已提交的类型（打勾反馈）。
     @State private var reportedKind: QuestionReport.Kind?
 
+    /// 掉心延迟(ios-lesson-15):答错后 heartLoss 音/触感与 `loseHeart()` 一起
+    /// 延迟 0.4s。期间用户就点了「知道了」的话,`proceed` 用它把还没落账的
+    /// 那颗红心算进去,避免 0 心还能继续。
+    @State private var pendingHeartLoss = false
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var settings = SettingsStore.shared
     @ObservedObject private var audioPlayer = AudioPlayer.shared
 
@@ -201,7 +207,8 @@ struct LessonRunnerView: View {
                 Image(systemName: "heart.fill")
                     .font(.system(size: 16, weight: .heavy))
                     .foregroundStyle(progressStore.hearts > 0 ? DuoColors.danger : DuoColors.inkSofter)
-                    .symbolEffect(.bounce, value: progressStore.hearts)
+                    // Reduce Motion:value 恒定 → 永不触发 bounce。
+                    .symbolEffect(.bounce, value: reduceMotion ? 0 : progressStore.hearts)
                 Text("\(progressStore.hearts)")
                     .duoNumeral(.body)
                     .foregroundStyle(progressStore.hearts > 0 ? DuoColors.danger : DuoColors.inkSofter)
@@ -538,7 +545,7 @@ struct LessonRunnerView: View {
             onRefill: {
                 if progressStore.buyHeartRefill(cost: Economy.heartRefillCost) {
                     HapticEngine.shared.success()
-                    SFXEngine.shared.play(.unlock)
+                    SFXEngine.shared.play(.purchase)   // 宝石消费统一走收银双音(ios-feel-12)
                     showOutOfHearts = false
                     advance()
                 } else {
@@ -679,7 +686,10 @@ struct LessonRunnerView: View {
         if ok {
             solvedIDs.insert(question.id)
             combo += 1; maxCombo = max(maxCombo, combo)
-            SFXEngine.shared.play(.correct); HapticEngine.shared.correct()
+            // 连对升调(ios-lesson-12):第 1 连对是基准音,之后每级约 +1 半音,
+            // 引擎内封顶 8 级 —— 连对越长音越亮。correct 即刻播,不错峰。
+            SFXEngine.shared.play(.correct, pitchStep: combo - 1)
+            HapticEngine.shared.correct()
             // Per-correct XP floater — mirrors the real per-question rate,
             // doubled on weekends / in unit challenges so the promise matches
             // the payout (both stack, same as the settlement formula).
@@ -688,24 +698,43 @@ struct LessonRunnerView: View {
                 * (Economy.isWeekend() ? Economy.weekendXpMultiplier : 1)
             sessionXp += floatXp
             xpFloaters.append(XPFloatItem(amount: floatXp))
-            if [3, 5, 10].contains(combo) { comboDisplayValue = combo; showCombo = true }
+            if [3, 5, 10].contains(combo) {
+                // 反馈错峰(ios-feel-17):让 correct 音先落定,0.32s 后连击横幅
+                // 带着自己的音效(ComboOverlayView.onAppear 播 .combo)再登场。
+                let milestone = combo
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) {
+                    comboDisplayValue = milestone
+                    showCombo = true
+                }
+            }
         } else {
             attemptedThisQuestion = true
             missedIDs.insert(question.id)
             combo = 0
             queue.append(question)                       // re-practice later
+            // 反馈错峰(ios-lesson-15):wrong 音 + error 触感即刻;
+            // heartLoss 音 + heavy 触感延迟 0.4s,并把 loseHeart() 一起挪过去 ——
+            // 红心图标的 symbolEffect(.bounce) 由 hearts 变化触发,这样掉心音、
+            // 重触感、心数 bounce 三者同帧落地,而不是和 wrong 糊成一团。
             SFXEngine.shared.play(.wrong); HapticEngine.shared.wrong()
-            SFXEngine.shared.play(.heartLoss); HapticEngine.shared.heartLoss()
-            wrongFlash += 1
-            progressStore.loseHeart()
+            if !reduceMotion { wrongFlash += 1 }         // 全屏闪红属强动效,Reduce Motion 下跳过
+            pendingHeartLoss = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                progressStore.loseHeart()
+                SFXEngine.shared.play(.heartLoss)
+                HapticEngine.shared.heartLoss()
+                pendingHeartLoss = false
+            }
             progressStore.recordMistake(lessonId: lessonId, lessonTitle: lesson?.title, question: question)
         }
 
+        // loseHeart() 被延迟了 0.4s,吉祥物的心数要按「即将掉完账」的值算。
+        let remainingHearts = ok ? progressStore.hearts : max(0, progressStore.hearts - 1)
         let ctx = MascotTriggerContext(
             isCorrect: ok,
             isPerfectSession: missedIDs.isEmpty,
             attemptCount: attemptedThisQuestion ? 2 : 1,
-            remainingHearts: progressStore.hearts, combo: combo, maxCombo: maxCombo,
+            remainingHearts: remainingHearts, combo: combo, maxCombo: maxCombo,
             index: solvedIDs.count, total: originalTotal, totalCorrectInSession: solvedIDs.count
         )
         mascotMood = MascotTriggers.decideMood(ctx)
@@ -764,7 +793,10 @@ struct LessonRunnerView: View {
 
     /// Called by the feedback panel's continue button. Gates on hearts.
     private func proceed(question: Question) {
-        if !isCorrectValue && progressStore.hearts == 0 {
+        // 掉心账可能还悬在 0.4s 的延迟里(见 check),这里手动把它算进去,
+        // 防止最后一颗红心「还没扣到界面上」时溜过断心闸门。
+        let effectiveHearts = progressStore.hearts - (pendingHeartLoss ? 1 : 0)
+        if !isCorrectValue && effectiveHearts <= 0 {
             withAnimation(.easeOut(duration: 0.2)) { showOutOfHearts = true }
             return
         }
@@ -774,7 +806,10 @@ struct LessonRunnerView: View {
     private var isCorrectValue: Bool { isCorrect ?? false }
 
     private func advance() {
-        SFXEngine.shared.play(.progressTick); HapticEngine.shared.tap()
+        // progressTick 只在进度条真正前进(答对后的「继续」)时播(ios-lesson-20);
+        // 答错后的「知道了」进度没动,只给轻触感。
+        if isCorrectValue { SFXEngine.shared.play(.progressTick) }
+        HapticEngine.shared.tap()
         guard let lesson else { return }
         if solvedIDs.count >= originalTotal || index + 1 >= queue.count {
             finish(lesson: lesson)
@@ -857,13 +892,13 @@ private struct OutOfHeartsGate: View {
                     .font(.system(size: 60, weight: .heavy))
                     .foregroundStyle(DuoColors.danger)
 
-                Text("心心用完了")
+                Text("红心用完了")
                     .duoFont(.title)
                     .foregroundStyle(DuoColors.ink)
 
                 if let next = progressStore.nextHeartAt {
                     VStack(spacing: 2) {
-                        Text("下一颗心还需")
+                        Text("下一颗红心还需")
                             .duoFont(.caption)
                             .foregroundStyle(DuoColors.inkMuted)
                         Text(countdown(to: next))
@@ -884,7 +919,7 @@ private struct OutOfHeartsGate: View {
 
                     if hasDueMistakes {
                         Button(action: onReview) {
-                            Text("做一组复习回 1 颗心 ❤️")
+                            Text("做一组复习回 1 颗红心 ❤️")
                         }
                         .buttonStyle(ChunkyButtonStyle(.primary))
                         .accessibilityIdentifier("hearts-review-earnback")

@@ -126,7 +126,7 @@ export function FillBlankQuestion({ question, answer, phase, isCorrect, onChange
               k === "⌫" && "text-danger",
               (k === "-" || k === "/") && "text-secondary-dark",
             )}
-            style={{ boxShadow: "0 3px 0 0 #e5e5e5" }}
+            style={{ boxShadow: "0 3px 0 0 var(--shadow-card-color)" }}
           >
             {k}
           </motion.button>

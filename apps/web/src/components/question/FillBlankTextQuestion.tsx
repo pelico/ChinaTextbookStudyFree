@@ -168,7 +168,7 @@ export function FillBlankTextQuestion({
               "h-14 rounded-2xl text-2xl font-extrabold bg-white border-2 border-bg-softer text-ink",
               "hover:border-secondary/60 active:translate-y-[2px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed transition-colors",
             )}
-            style={{ boxShadow: "0 3px 0 0 #e5e5e5" }}
+            style={{ boxShadow: "0 3px 0 0 var(--shadow-card-color)" }}
           >
             {ch}
           </motion.button>
@@ -183,7 +183,7 @@ export function FillBlankTextQuestion({
             "h-14 rounded-2xl text-2xl font-extrabold bg-white border-2 border-bg-softer text-danger",
             "hover:border-danger/40 active:translate-y-[2px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed transition-colors",
           )}
-          style={{ boxShadow: "0 3px 0 0 #e5e5e5" }}
+          style={{ boxShadow: "0 3px 0 0 var(--shadow-card-color)" }}
         >
           ⌫
         </motion.button>

@@ -41,7 +41,7 @@ import {
   ArrowLeft,
   Check,
   Lock,
-  Owl,
+  Panda,
   Palette,
   Picture,
   Snowflake,
@@ -59,7 +59,7 @@ const TABS: Array<{
   label: string;
   Icon: React.ComponentType<{ className?: string }>;
 }> = [
-  { id: "mascot_skin", label: "聪聪皮肤", Icon: Owl },
+  { id: "mascot_skin", label: "聪聪皮肤", Icon: Panda },
   { id: "ui_theme", label: "界面主题", Icon: Palette },
   { id: "lesson_backdrop", label: "课堂背景", Icon: Picture },
 ];
@@ -156,7 +156,7 @@ export default function ShopPage() {
       </div>
 
       <div className="max-w-3xl mx-auto px-4 py-4 lg:py-2 lg:px-0">
-        {/* ⚡ 能量道具 —— 功能性道具（护盾 / 补心），与纯美妆分区 */}
+        {/* ⚡ 红心 & 连胜 —— 功能性道具（护盾 / 补心），与纯美妆分区 */}
         <PowerUpsSection />
 
         {/* Tab 切换 —— 移动端 3 列等宽不溢出 / 桌面端横向 chip */}
@@ -186,7 +186,7 @@ export default function ShopPage() {
                 style={
                   active
                     ? { boxShadow: "0 4px 0 0 #58A700" }
-                    : { boxShadow: "0 2px 0 0 #e5e5e5" }
+                    : { boxShadow: "0 2px 0 0 var(--shadow-card-color)" }
                 }
               >
                 <Icon className="w-4 h-4 lg:w-5 lg:h-5 shrink-0" />
@@ -216,6 +216,7 @@ export default function ShopPage() {
               owned={previewItem ? !!ownedCosmetics[previewItem.id] : false}
               equipped={previewItem ? isEquipped(previewItem) : false}
               canAfford={previewItem ? gems >= previewItem.cost : false}
+              gems={gems}
             />
             <UnlockBurst active={!!previewItem && unlockBurstId === previewItem.id} />
           </div>
@@ -245,10 +246,11 @@ export default function ShopPage() {
 
             {/* 底部说明 */}
             <p className="text-center text-xs text-ink-softer mt-8 max-w-md mx-auto inline-flex items-start gap-1.5">
-              <Gem className="w-3 h-3 text-purple-500 mt-0.5 shrink-0" />
+              <Gem className="w-3 h-3 text-secondary mt-0.5 shrink-0" />
               <span>
                 宝石全部通过学习获得：通关 +3 / 二星 +5 / 三星 +10 / 首次完美 +15 / 每日目标 +20 /
-                连胜里程碑 +30~800。无任何充值。
+                连胜里程碑 +30~800 / 路径宝箱 +10~50 / 每日登录签到 / 解锁成就 / 联赛周榜名次与晋级奖励。
+                无任何充值。
               </span>
             </p>
           </div>
@@ -261,7 +263,7 @@ export default function ShopPage() {
 }
 
 // ============================================================
-// ⚡ 能量道具区 —— 连胜护盾 / 补满红心（功能性，非美妆）
+// ⚡ 红心 & 连胜 —— 连胜护盾 / 补满红心（功能性，非美妆）
 // ============================================================
 function PowerUpsSection() {
   const toast = useToast();
@@ -303,15 +305,15 @@ function PowerUpsSection() {
   }
 
   return (
-    <section aria-label="能量道具" className="mb-5">
-      <div className="text-sm font-extrabold text-ink mb-2">能量道具</div>
+    <section aria-label="红心 & 连胜" className="mb-5">
+      <div className="text-sm font-extrabold text-ink mb-2">红心 &amp; 连胜</div>
       <div className="grid grid-cols-2 gap-3">
         {/* 连胜护盾 */}
         <PowerUpCard
           icon={<Snowflake className="w-8 h-8" />}
           iconColor="#1CB0F6"
           title="连胜护盾"
-          desc={`漏学一天自动抵挡，保住连胜（持有 ${Math.min(freezes, MAX_FREEZES)}/${MAX_FREEZES}）`}
+          desc={`漏学一天自动抵挡，保住连胜；每周一学习即可补 1 个（上限 ${MAX_FREEZES}）· 持有 ${Math.min(freezes, MAX_FREEZES)}/${MAX_FREEZES}`}
           cost={FREEZE_COST}
           disabled={freezesFull}
           disabledLabel="已满 2/2"
@@ -326,7 +328,7 @@ function PowerUpsSection() {
           desc={`立刻回满 ${MAX_HEARTS} 颗红心，继续闯关`}
           cost={HEART_REFILL_COST}
           disabled={heartsFull}
-          disabledLabel="心数已满"
+          disabledLabel="红心已满"
           canAfford={gems >= HEART_REFILL_COST}
           onBuy={handleBuyRefill}
         />
@@ -359,7 +361,7 @@ function PowerUpCard({
   return (
     <div
       className="bg-white rounded-2xl border-2 border-bg-softer p-4 flex flex-col"
-      style={{ boxShadow: "0 4px 0 0 #e5e5e5" }}
+      style={{ boxShadow: "0 4px 0 0 var(--shadow-card-color)" }}
     >
       <div className="flex items-center gap-2.5">
         <div
@@ -389,8 +391,8 @@ function PowerUpCard({
           style={
             canAfford
               ? {
-                  background: "linear-gradient(135deg, #a855f7, #7c3aed)",
-                  boxShadow: "0 4px 0 0 #6b21a8",
+                  background: "linear-gradient(135deg, #1CB0F6, #1899D6)",
+                  boxShadow: "0 4px 0 0 #0d7aa8",
                 }
               : undefined
           }
@@ -413,6 +415,7 @@ function PreviewPane({
   owned,
   equipped,
   canAfford,
+  gems,
   onTryEquip,
 }: {
   item: CosmeticItem | undefined;
@@ -420,6 +423,8 @@ function PreviewPane({
   owned: boolean;
   equipped: boolean;
   canAfford: boolean;
+  /** 当前宝石数（响应式订阅自父组件，「还差 N」随之实时更新） */
+  gems: number;
   onTryEquip: () => void;
 }) {
   if (!item) return null;
@@ -429,7 +434,7 @@ function PreviewPane({
     <motion.div
       layout
       className="bg-white rounded-3xl border-2 border-bg-softer overflow-hidden"
-      style={{ boxShadow: "0 5px 0 0 #e5e5e5" }}
+      style={{ boxShadow: "0 5px 0 0 var(--shadow-card-color)" }}
     >
       {/* 预览舞台 */}
       <PreviewStage item={item} />
@@ -471,8 +476,8 @@ function PreviewPane({
               onClick={onTryEquip}
               className="btn-chunky w-full text-white"
               style={{
-                background: "linear-gradient(135deg, #a855f7, #7c3aed)",
-                boxShadow: "0 5px 0 0 #6b21a8",
+                background: "linear-gradient(135deg, #1CB0F6, #1899D6)",
+                boxShadow: "0 5px 0 0 #0d7aa8",
               }}
             >
               <Gem className="w-4 h-4 mr-1.5" />
@@ -483,7 +488,7 @@ function PreviewPane({
             <div className="btn-chunky bg-bg-softer text-ink-softer cursor-not-allowed w-full">
               <Lock className="w-4 h-4 mr-1.5" />
               <span className="tabular-nums">{item.cost}</span>
-              <span className="ml-1.5">还差 {item.cost - useProgressStore.getState().gems}</span>
+              <span className="ml-1.5">还差 {item.cost - gems}</span>
             </div>
           )}
           {isHoverPreview && (
@@ -607,7 +612,7 @@ function UnlockBurst({ active }: { active: boolean }) {
             className="absolute w-20 h-20 rounded-full"
             style={{
               background:
-                "radial-gradient(circle, rgba(168,85,247,0.55), transparent 70%)",
+                "radial-gradient(circle, rgba(28,176,246,0.55), transparent 70%)",
             }}
           />
           {/* 8 颗散开的星星 */}
@@ -626,7 +631,7 @@ function UnlockBurst({ active }: { active: boolean }) {
                   rotate: 360,
                 }}
                 transition={{ duration: 0.95, ease: "easeOut" }}
-                className="absolute text-purple-500"
+                className="absolute text-secondary"
               >
                 <Sparkle className="w-5 h-5" />
               </motion.div>
@@ -694,7 +699,7 @@ function ItemCard({
           ? "0 4px 0 0 #58A700"
           : isHovered
             ? `0 4px 0 0 ${rarityColor}`
-            : "0 3px 0 0 #e5e5e5",
+            : "0 3px 0 0 var(--shadow-card-color)",
       }}
     >
       {/* 缩略预览 */}
@@ -741,7 +746,7 @@ function ItemCard({
           ) : (
             <span
               className={`inline-flex items-center gap-0.5 text-[10px] font-extrabold tabular-nums ${
-                canAfford ? "text-purple-600" : "text-ink-softer"
+                canAfford ? "text-secondary-dark" : "text-ink-softer"
               }`}
             >
               <Gem className="w-3 h-3" />
