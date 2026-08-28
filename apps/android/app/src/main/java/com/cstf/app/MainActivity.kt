@@ -2,19 +2,14 @@ package com.cstf.app
 
 import android.annotation.SuppressLint
 import android.graphics.Color
-import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
-import android.view.View
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.activity.ComponentActivity
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import androidx.webkit.WebViewAssetLoader
 
 class MainActivity : AppCompatActivity() {
@@ -87,7 +82,8 @@ class MainActivity : AppCompatActivity() {
             view: WebView?,
             request: WebResourceRequest?,
         ): WebResourceResponse? {
-            return assetLoader.shouldInterceptRequest(view, request)
+            val uri = request?.url ?: return null
+            return assetLoader.shouldInterceptRequest(uri)
         }
 
         override fun onReceivedError(
