@@ -1,0 +1,101 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/web/**'
+      - 'apps/android/**'
+      - '.github/workflows/android-build.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ---- Build web frontend ----
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        working-directory: apps/web
+        run: npm ci --no-audit --no-fund
+
+      - name: Download data.zip
+        working-directory: apps/web
+        run: |
+          mkdir -p public/data
+          curl -sL "https://github.com/${{ github.repository }}/releases/latest/download/data.zip" -o /tmp/data.zip
+          python3 -c "
+          import zipfile, os
+          with zipfile.ZipFile('/tmp/data.zip') as z:
+              for name in z.namelist():
+                  fixed = name.replace(chr(92), '/')
+                  target = os.path.join('public/data', fixed)
+                  if fixed.endswith('/'):
+                      os.makedirs(target, exist_ok=True)
+                      continue
+                  os.makedirs(os.path.dirname(target), exist_ok=True)
+                  with z.open(name) as sf, open(target, 'wb') as df:
+                      df.write(sf.read())
+          "
+
+      - name: Build web frontend
+        working-directory: apps/web
+        run: npx next build
+
+      # ---- Copy web assets to Android ----
+      - name: Copy web assets to Android
+        run: |
+          mkdir -p apps/android/app/src/main/assets
+          cp -r apps/web/out/* apps/android/app/src/main/assets/
+          echo "Web assets copied:"
+          ls apps/android/app/src/main/assets/ | head -10
+
+      # ---- Build Android APK ----
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-34 build-tools;34.0.0 platform-tools'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.5'
+
+      - name: Build Debug APK
+        working-directory: apps/android
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: china-study-free-android
+          path: apps/android/app/build/outputs/apk/debug/*.apk
+          retention-days: 30
+
+      - name: Upload to Release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: Android APK (auto build)
+          body: |
+            自动构建的 Android APK，基于最新 main 分支。
+
+            下载后安装到手机即可使用（需开启"安装未知来源应用"）。
+          files: apps/android/app/build/outputs/apk/debug/*.apk
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

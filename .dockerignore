@@ -27,6 +27,9 @@ release-assets/
 # ---- iOS 端（Docker 只部署 Web）----
 apps/mobile/
 
+# ---- Android 端（Docker 只部署 Web）----
+apps/android/
+
 # ---- Git / IDE / OS ----
 .git/
 .gitignore

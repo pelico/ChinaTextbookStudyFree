@@ -1,0 +1,34 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 书本 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,35 L30,73 C30,73 38,68 54,68 C70,68 78,73 78,73 L78,35 C78,35 70,30 54,30 C38,30 30,35 30,35 Z" />
+
+    <!-- 书脊 -->
+    <path
+        android:fillColor="#58CC02"
+        android:pathData="M54,30 L54,68" />
+
+    <!-- 书本文字线 -->
+    <path
+        android:fillColor="#58CC02"
+        android:pathData="M36,42 L48,42 L48,44 L36,44 Z M36,48 L48,48 L48,50 L36,50 Z M36,54 L48,54 L48,56 L36,56 Z" />
+
+    <path
+        android:fillColor="#58CC02"
+        android:pathData="M60,42 L72,42 L72,44 L60,44 Z M60,48 L72,48 L72,50 L60,50 Z M60,54 L72,54 L72,56 L60,56 Z" />
+
+    <!-- 对勾 -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M48,80 L52,84 L60,76" />
+</vector>
