@@ -1179,7 +1179,7 @@ export const useProgressStore = create<ProgressState>()(
           const filtered = state.mistakesBank.filter(
             m => !(m.lessonId === lessonId && m.question.id === question.id),
           );
-          const newEntry = {
+          const newEntry: MistakeEntry = {
             lessonId,
             lessonTitle,
             question,
