@@ -27,6 +27,8 @@ import {
   Snowflake,
   Bookmark,
   Gem,
+  Book,
+  Sparkle,
 } from "@/components/icons";
 import { ThemeModeToggle } from "@/components/ThemeModeToggle";
 import { playSfx } from "@/lib/sfx";
@@ -198,6 +200,26 @@ export function ProfileClient() {
             <div className="text-sm text-ink-light">
               {mistakesCount > 0 ? `${mistakesCount} 道题待复习` : "暂无错题"}
             </div>
+          </div>
+          <div className="text-ink-softer text-xl">›</div>
+        </SoundLink>
+
+        {/* 打印试卷入口（AI 生成 · 可打印 A4） */}
+        <SoundLink
+          href="/worksheet/"
+          hapticIntensity="medium"
+          className="group flex items-center gap-4 bg-white rounded-3xl border-2 border-primary/30 p-5 hover:border-primary transition-colors mb-6 lg:mb-0"
+          style={{ boxShadow: "0 4px 0 0 #58A700" }}
+        >
+          <div className="w-12 h-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center group-hover:bg-primary group-hover:text-white transition-colors">
+            <Book className="w-6 h-6" />
+          </div>
+          <div className="flex-1">
+            <div className="text-base font-extrabold text-ink flex items-center gap-1.5">
+              打印试卷
+              <Sparkle className="w-4 h-4 text-gold" />
+            </div>
+            <div className="text-sm text-ink-light">AI 根据知识点生成练习卷，A4 打印</div>
           </div>
           <div className="text-ink-softer text-xl">›</div>
         </SoundLink>
