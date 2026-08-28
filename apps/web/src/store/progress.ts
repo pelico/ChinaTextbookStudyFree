@@ -1175,23 +1175,29 @@ export const useProgressStore = create<ProgressState>()(
 
       addMistake: (lessonId, lessonTitle, question) => {
         const today = todayStr();
-        set(state => ({
-          mistakesBank: [
-            ...state.mistakesBank.filter(
-              m => !(m.lessonId === lessonId && m.question.id === question.id),
-            ),
-            {
-              lessonId,
-              lessonTitle,
-              question,
-              addedAt: new Date().toISOString(),
-              // SRS 初值：box 1，今天就该复习
-              box: 1,
-              correctCount: 0,
-              nextReviewDate: today,
-            },
-          ],
-        }));
+        set(state => {
+          const filtered = state.mistakesBank.filter(
+            m => !(m.lessonId === lessonId && m.question.id === question.id),
+          );
+          const newEntry = {
+            lessonId,
+            lessonTitle,
+            question,
+            addedAt: new Date().toISOString(),
+            // SRS 初值：box 1，今天就该复习
+            box: 1,
+            correctCount: 0,
+            nextReviewDate: today,
+          };
+          const next = [...filtered, newEntry];
+          // 限制错题本最多 500 条，避免 localStorage 无限增长
+          // 超出时保留最近添加的（新错题优先）
+          const MAX_MISTAKES = 500;
+          if (next.length > MAX_MISTAKES) {
+            return { mistakesBank: next.slice(next.length - MAX_MISTAKES) };
+          }
+          return { mistakesBank: next };
+        });
       },
 
       removeMistake: (lessonId, questionId) => {

@@ -6,11 +6,15 @@ import android.os.Bundle
 import android.view.KeyEvent
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
+import androidx.webkit.ServiceWorkerClientCompat
+import androidx.webkit.ServiceWorkerControllerCompat
 import androidx.webkit.WebViewAssetLoader
+import androidx.webkit.WebViewFeature
 
 class MainActivity : AppCompatActivity() {
 
@@ -22,10 +26,26 @@ class MainActivity : AppCompatActivity() {
 
         WindowCompat.setDecorFitsSystemWindows(window, true)
 
+        // WebView 调试（仅 debug 构建开启）
+        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
+
         val assetLoader = WebViewAssetLoader.Builder()
             .setDomain("appassets.androidplatform.net")
             .addPathHandler("/", WebViewAssetLoader.AssetsPathHandler(this))
             .build()
+
+        // Service Worker 也走 AssetLoader（离线缓存支持）
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.SERVICE_WORKER_BASIC_USAGE)) {
+            val swController = ServiceWorkerControllerCompat.getInstance()
+            swController.serviceWorkerClient = object : ServiceWorkerClientCompat() {
+                override fun shouldInterceptRequest(request: WebResourceRequest): WebResourceResponse? {
+                    return assetLoader.shouldInterceptRequest(request.url)
+                }
+            }
+            val swSettings = swController.serviceWorkerWebSettings
+            swSettings.allowContentAccess = true
+            swSettings.allowFileAccess = true
+        }
 
         webView = WebView(this).apply {
             setBackgroundColor(Color.TRANSPARENT)
@@ -37,10 +57,17 @@ class MainActivity : AppCompatActivity() {
                 allowFileAccess = true
                 allowContentAccess = true
                 mediaPlaybackRequiresUserGesture = false
-                cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
+                // 优先用缓存，离线时也能访问（资源都打包在 assets 里）
+                cacheMode = WebSettings.LOAD_DEFAULT
+                // Service Worker 支持
+                setSupportMultipleWindows(false)
+                javaScriptCanOpenWindowsAutomatically = false
+                mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
                 userAgentString = userAgentString + " ChinaStudyFree/1.0"
                 useWideViewPort = true
                 loadWithOverviewMode = true
+                // 文本缩放默认 100%
+                textZoom = 100
             }
 
             webViewClient = AppWebViewClient(assetLoader)
@@ -84,14 +111,6 @@ class MainActivity : AppCompatActivity() {
         ): WebResourceResponse? {
             val uri = request?.url ?: return null
             return assetLoader.shouldInterceptRequest(uri)
-        }
-
-        override fun onReceivedError(
-            view: WebView?,
-            request: WebResourceRequest?,
-            error: android.webkit.WebResourceError?,
-        ) {
-            // 加载本地错误页或忽略
         }
     }
 }
