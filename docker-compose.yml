@@ -1,0 +1,60 @@
+# ================================================================
+# ChinaStudyFree · Docker Compose
+#
+# 默认从 ghcr.io 拉取多架构镜像（amd64/arm64/armv7l 自动匹配）。
+# 首次启动自动下载 ~1.4GB 音频/图片资源，通过 volume 持久化。
+#
+# 快速启动：
+#   docker compose up -d
+#
+# 国内加速：
+#   HTTP_PROXY=http://192.168.2.88:10809 docker compose up -d
+#
+# 本地构建（不用 ghcr.io）：
+#   docker compose -f docker-compose.yml up -d --build
+# ================================================================
+
+services:
+  web:
+    # ghcr.io 多架构镜像，自动匹配宿主机架构
+    image: ghcr.io/pelico/chinatextbookstudyfree:latest
+    container_name: china-study-free
+    ports:
+      - "${PORT:-3000}:80"
+    restart: unless-stopped
+
+    environment:
+      # 容器内下载资源用的代理（国内推荐 http://192.168.2.88:10809）
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      # Release 下载地址（可用镜像替换）
+      RELEASE_URL: ${RELEASE_URL:-https://github.com/wuwangzhang1216/ChinaTextbookStudyFree/releases/latest/download}
+      # 设为 true 则跳过资源下载（纯前端体验，无音频/图片）
+      SKIP_DOWNLOAD: ${SKIP_DOWNLOAD:-false}
+
+    # 持久化资源（首次下载后，重启不重复下载）
+    volumes:
+      - assets-audio:/usr/share/nginx/html/audio
+      - assets-pages:/usr/share/nginx/html/textbook-pages
+      - assets-stories:/usr/share/nginx/html/story-images
+
+    # 健康检查（首次启动需下载资源，给足宽限期）
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10m
+
+    # ---- 本地构建模式（取消注释以替代 ghcr.io 拉取）----
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    #   args:
+    #     SKIP_ASSETS: "true"
+    #     HTTP_PROXY: ${HTTP_PROXY:-}
+
+volumes:
+  assets-audio:
+  assets-pages:
+  assets-stories:
