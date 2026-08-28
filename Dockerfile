@@ -54,7 +54,7 @@ COPY . .
 # SKIP_ASSETS=false（默认）：下载全部资源 ~1.4GB，镜像自包含
 # SKIP_ASSETS=true：仅下载预构建 data.zip (~4MB)，音频/图片用 volume 挂载
 ARG SKIP_ASSETS=false
-ARG RELEASE_URL="https://github.com/wuwangzhang1216/ChinaTextbookStudyFree/releases/latest/download"
+ARG RELEASE_URL="https://github.com/pelico/ChinaTextbookStudyFree/releases/latest/download"
 RUN if [ "$SKIP_ASSETS" = "false" ]; then \
       bash scripts/download-assets.sh; \
     else \

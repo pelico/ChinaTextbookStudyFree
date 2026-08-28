@@ -28,7 +28,7 @@ services:
       HTTP_PROXY: ${HTTP_PROXY:-}
       HTTPS_PROXY: ${HTTPS_PROXY:-}
       # Release 下载地址（可用镜像替换）
-      RELEASE_URL: ${RELEASE_URL:-https://github.com/wuwangzhang1216/ChinaTextbookStudyFree/releases/latest/download}
+      RELEASE_URL: ${RELEASE_URL:-https://github.com/pelico/ChinaTextbookStudyFree/releases/latest/download}
       # 设为 true 则跳过资源下载（纯前端体验，无音频/图片）
       SKIP_DOWNLOAD: ${SKIP_DOWNLOAD:-false}
 
