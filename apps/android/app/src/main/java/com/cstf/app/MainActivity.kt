@@ -26,8 +26,8 @@ class MainActivity : AppCompatActivity() {
 
         WindowCompat.setDecorFitsSystemWindows(window, true)
 
-        // WebView 调试（仅 debug 构建开启）
-        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
+        // WebView 调试（debug 构建开启）
+        WebView.setWebContentsDebuggingEnabled(true)
 
         val assetLoader = WebViewAssetLoader.Builder()
             .setDomain("appassets.androidplatform.net")
@@ -37,11 +37,11 @@ class MainActivity : AppCompatActivity() {
         // Service Worker 也走 AssetLoader（离线缓存支持）
         if (WebViewFeature.isFeatureSupported(WebViewFeature.SERVICE_WORKER_BASIC_USAGE)) {
             val swController = ServiceWorkerControllerCompat.getInstance()
-            swController.serviceWorkerClient = object : ServiceWorkerClientCompat() {
+            swController.setServiceWorkerClient(object : ServiceWorkerClientCompat() {
                 override fun shouldInterceptRequest(request: WebResourceRequest): WebResourceResponse? {
                     return assetLoader.shouldInterceptRequest(request.url)
                 }
-            }
+            })
             val swSettings = swController.serviceWorkerWebSettings
             swSettings.allowContentAccess = true
             swSettings.allowFileAccess = true
