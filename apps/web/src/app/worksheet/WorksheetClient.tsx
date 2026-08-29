@@ -499,7 +499,7 @@ function PrintPreview({
       </div>
 
       {/* 试卷内容 */}
-      <div className="worksheet-page max-w-[210mm] mx-auto bg-white px-8 py-6 md:px-12 md:py-8 min-h-screen">
+      <div className="worksheet-page max-w-[210mm] mx-auto bg-white px-6 py-6 md:px-12 md:py-8">
         {/* 试卷头 */}
         <div className="text-center mb-6">
           <h1 className="text-2xl font-bold text-black tracking-wide">
@@ -609,47 +609,50 @@ function renderQuestionText(q: WorksheetQuestion): string {
 const PRINT_CSS = `
 @media print {
   /* 基于 html.worksheet-print-mode 隐藏所有非试卷内容 */
-  html.worksheet-print-mode body,
-  html.worksheet-print-mode {
+  html.worksheet-print-mode,
+  html.worksheet-print-mode body {
     background: white !important;
     margin: 0 !important;
     padding: 0 !important;
     min-height: auto !important;
     height: auto !important;
+    overflow: visible !important;
   }
-  /* 隐藏底部导航 */
-  html.worksheet-print-mode nav[aria-label="主导航"],
-  html.worksheet-print-mode .fixed.bottom-0 {
+  /* 隐藏底部导航栏 */
+  html.worksheet-print-mode nav[aria-label="主导航"] {
     display: none !important;
   }
-  /* 隐藏试卷预览页的顶栏操作条（返回/打印按钮） */
+  /* 隐藏 sticky 操作栏 */
   html.worksheet-print-mode .no-print {
     display: none !important;
   }
-  /* 隐藏所有 sticky 元素 */
-  html.worksheet-print-mode header.sticky {
-    display: none !important;
-  }
-  /* 试卷页面占满打印区域 */
+  /* 试卷容器：打印时占满可打印区域，不加额外高度 */
   html.worksheet-print-mode .worksheet-page {
     max-width: none !important;
     width: 100% !important;
     padding: 0 !important;
     margin: 0 !important;
-    min-height: auto !important;
+    min-height: 0 !important;
+    height: auto !important;
     box-shadow: none !important;
     border: none !important;
     background: white !important;
   }
-  /* 试卷外层容器去边距和背景 */
+  /* 移除所有外层容器的边距和最小高度 */
   html.worksheet-print-mode main,
   html.worksheet-print-mode .min-h-screen,
   html.worksheet-print-mode .bg-bg-soft,
   html.worksheet-print-mode .pb-20 {
-    min-height: auto !important;
+    min-height: 0 !important;
+    height: auto !important;
     padding: 0 !important;
     margin: 0 !important;
     background: white !important;
+  }
+  /* 避免 section 底部 margin 造成空白页 */
+  html.worksheet-print-mode section:last-child {
+    margin-bottom: 0 !important;
+    padding-bottom: 0 !important;
   }
   @page {
     size: A4;
@@ -658,7 +661,6 @@ const PRINT_CSS = `
   .break-inside-avoid {
     break-inside: avoid;
   }
-  .break-before-page,
   .answer-key {
     break-before: page;
   }
