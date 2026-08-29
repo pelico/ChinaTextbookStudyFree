@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, type ReactNode } from "react";
+import { useState, useMemo, useCallback, useEffect, type ReactNode } from "react";
 import Link from "next/link";
 import {
   type BookInfo,
@@ -447,6 +447,14 @@ function PrintPreview({
   config: WorksheetConfig;
   onBack: () => void;
 }) {
+  // 打印模式：给 html 加类，便于全局 CSS 隐藏导航等元素
+  useEffect(() => {
+    document.documentElement.classList.add("worksheet-print-mode");
+    return () => {
+      document.documentElement.classList.remove("worksheet-print-mode");
+    };
+  }, []);
+
   const subjectLabel = SUBJECT_LABELS[config.subject] || config.subject;
   const unitText = config.unitNumbers.length === 0
     ? "全册"
@@ -600,13 +608,48 @@ function renderQuestionText(q: WorksheetQuestion): string {
 
 const PRINT_CSS = `
 @media print {
-  .no-print { display: none !important; }
-  body { background: white !important; }
-  .worksheet-page {
+  /* 基于 html.worksheet-print-mode 隐藏所有非试卷内容 */
+  html.worksheet-print-mode body,
+  html.worksheet-print-mode {
+    background: white !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    min-height: auto !important;
+    height: auto !important;
+  }
+  /* 隐藏底部导航 */
+  html.worksheet-print-mode nav[aria-label="主导航"],
+  html.worksheet-print-mode .fixed.bottom-0 {
+    display: none !important;
+  }
+  /* 隐藏试卷预览页的顶栏操作条（返回/打印按钮） */
+  html.worksheet-print-mode .no-print {
+    display: none !important;
+  }
+  /* 隐藏所有 sticky 元素 */
+  html.worksheet-print-mode header.sticky {
+    display: none !important;
+  }
+  /* 试卷页面占满打印区域 */
+  html.worksheet-print-mode .worksheet-page {
     max-width: none !important;
+    width: 100% !important;
     padding: 0 !important;
     margin: 0 !important;
     min-height: auto !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: white !important;
+  }
+  /* 试卷外层容器去边距和背景 */
+  html.worksheet-print-mode main,
+  html.worksheet-print-mode .min-h-screen,
+  html.worksheet-print-mode .bg-bg-soft,
+  html.worksheet-print-mode .pb-20 {
+    min-height: auto !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: white !important;
   }
   @page {
     size: A4;
@@ -615,7 +658,8 @@ const PRINT_CSS = `
   .break-inside-avoid {
     break-inside: avoid;
   }
-  .break-before-page {
+  .break-before-page,
+  .answer-key {
     break-before: page;
   }
 }
