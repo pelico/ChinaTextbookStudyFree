@@ -11,9 +11,9 @@ export const dynamic = "force-static";
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "聪聪学堂 · 小学全科免费学习",
-    short_name: "聪聪学堂",
-    description: "全科免费，人人可学的小学AI学习平台，和熊猫聪聪一起天天进步",
+    name: "悠悠学堂 · 小学全科免费学习",
+    short_name: "悠悠学堂",
+    description: "全科免费，人人可学的小学AI学习平台，和熊猫悠悠一起天天进步",
     id: "/",
     start_url: "/",
     scope: "/",

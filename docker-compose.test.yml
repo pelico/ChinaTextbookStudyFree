@@ -1,0 +1,24 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SKIP_ASSETS: "true"
+        HTTP_PROXY: "http://192.168.2.88:10809"
+    container_name: china-study-free-test
+    ports:
+      - "5230:80"
+    restart: unless-stopped
+    environment:
+      HTTP_PROXY: "http://192.168.2.88:10809"
+      RELEASE_URL: "https://github.com/pelico/ChinaTextbookStudyFree/releases/latest/download"
+    volumes:
+      - assets-audio-test:/usr/share/nginx/html/audio
+      - assets-pages-test:/usr/share/nginx/html/textbook-pages
+      - assets-stories-test:/usr/share/nginx/html/story-images
+
+volumes:
+  assets-audio-test:
+  assets-pages-test:
+  assets-stories-test:

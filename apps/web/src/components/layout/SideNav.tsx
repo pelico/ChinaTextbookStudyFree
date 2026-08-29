@@ -80,10 +80,10 @@ export function SideNav() {
           haptic("light");
         }}
         className="block px-3 py-3 mb-2"
-        aria-label="聪聪学堂 · 回到首页"
+        aria-label="悠悠学堂 · 回到首页"
       >
         <span className="hidden lg:inline text-2xl font-extrabold text-primary tracking-tightest">
-          聪聪学堂
+          悠悠学堂
         </span>
         <span className="lg:hidden inline-flex items-center justify-center w-10 h-10 rounded-2xl bg-primary/10 text-primary font-extrabold text-lg">
           聪

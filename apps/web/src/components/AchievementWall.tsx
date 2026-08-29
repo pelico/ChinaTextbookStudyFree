@@ -160,7 +160,7 @@ function AchievementBadge({
             })
           }
           filename={`chengjiu-${ach.id}.png`}
-          shareText={`我在聪聪学堂解锁了成就「${ach.name}」！`}
+          shareText={`我在悠悠学堂解锁了成就「${ach.name}」！`}
           className="mt-1.5 inline-flex items-center gap-0.5 text-[9px] font-extrabold rounded-full px-2 py-0.5 border transition-colors hover:bg-bg-soft"
         >
           <span style={{ color: ach.color }}>分享 📤</span>

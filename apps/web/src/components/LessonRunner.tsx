@@ -1740,7 +1740,7 @@ function StarsAct({
               })
             }
             filename={`sanxing-${lesson.id}.png`}
-            shareText={`我在聪聪学堂三星通关了「${lesson.title}」！`}
+            shareText={`我在悠悠学堂三星通关了「${lesson.title}」！`}
             className="btn-chunky-secondary px-10 mx-auto block mt-6"
           />
         )}
@@ -1942,7 +1942,7 @@ function StreakAct({
           })
         }
         filename={`liansheng-${outcome.streakAfter}tian.png`}
-        shareText={`我已经在聪聪学堂连续学习 ${outcome.streakAfter} 天啦！`}
+        shareText={`我已经在悠悠学堂连续学习 ${outcome.streakAfter} 天啦！`}
         className="btn-chunky-secondary px-10 mx-auto block mt-6"
       />
 

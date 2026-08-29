@@ -1,5 +1,5 @@
 /**
- * 聪聪学堂 Service Worker（critic-7）
+ * 悠悠学堂 Service Worker（critic-7）
  *
  * 策略：
  *   - 壳层（导航请求 / manifest / 图标）：网络优先，失败回缓存 —— 离线也能进入上次访问过的页面

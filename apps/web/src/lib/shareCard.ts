@@ -20,7 +20,7 @@ const FLAME_ORANGE = "#FF9600";
 const GOLD = "#FFC800";
 const EEL = "#4B4B4B";
 
-export const SHARE_SLOGAN = "聪聪学堂 · 和聪聪一起天天进步";
+export const SHARE_SLOGAN = "悠悠学堂 · 和悠悠一起天天进步";
 
 /** 连胜卡的一格（周一到周日） */
 export interface ShareWeekCell {

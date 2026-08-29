@@ -16,12 +16,12 @@ const nunito = Nunito({
 });
 
 export const metadata: Metadata = {
-  title: "聪聪学堂",
+  title: "悠悠学堂",
   description: "全科免费，人人可学的小学AI学习平台",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
-    title: "聪聪学堂",
+    title: "悠悠学堂",
     statusBarStyle: "default",
   },
   icons: {
