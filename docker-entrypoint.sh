@@ -26,11 +26,11 @@ STATUS_FILE="$HTML_ROOT/assets-status.json"
 write_status() {
     cat > "$STATUS_FILE" << EOF
 {
-  "audio": ${AUDIO_STATUS:-"pending"},
+  "audio": "${AUDIO_STATUS:-pending}",
   "audioFiles": ${AUDIO_COUNT:-0},
-  "textbookPages": ${PAGES_STATUS:-"pending"},
+  "textbookPages": "${PAGES_STATUS:-pending}",
   "pageFiles": ${PAGES_COUNT:-0},
-  "storyImages": ${STORIES_STATUS:-"pending"},
+  "storyImages": "${STORIES_STATUS:-pending}",
   "storyFiles": ${STORIES_COUNT:-0},
   "updatedAt": "$(date -Iseconds)"
 }
