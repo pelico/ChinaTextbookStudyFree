@@ -44,10 +44,22 @@ import { haptic } from "@/lib/haptic";
 interface AssetsStatus {
   audio: "pending" | "downloading" | "ready" | "error" | "skipped";
   audioFiles: number;
+  audioPercent: number;
+  audioDownloaded: string;
+  audioTotal: string;
+  audioError: string;
   textbookPages: "pending" | "downloading" | "ready" | "error" | "skipped";
   pageFiles: number;
+  pagesPercent: number;
+  pagesDownloaded: string;
+  pagesTotal: string;
+  pagesError: string;
   storyImages: "pending" | "downloading" | "ready" | "error" | "skipped";
   storyFiles: number;
+  storiesPercent: number;
+  storiesDownloaded: string;
+  storiesTotal: string;
+  storiesError: string;
   proxy: string;
   updatedAt: string;
 }
@@ -125,27 +137,57 @@ export function ProfileClient() {
     label,
     status,
     count,
+    percent,
+    downloaded,
+    total,
+    errorMsg,
   }: {
     icon: typeof CheckCircle;
     label: string;
     status: keyof typeof STATUS_LABEL;
     count: number;
+    percent?: number;
+    downloaded?: string;
+    total?: string;
+    errorMsg?: string;
   }) {
     const s = STATUS_LABEL[status] || STATUS_LABEL.pending;
+    const p = percent ?? 0;
     return (
-      <div className="flex items-center gap-3 py-2">
-        <div className={`w-8 h-8 rounded-xl ${s.bg} ${s.color} inline-flex items-center justify-center shrink-0`}>
-          <Icon className="w-4 h-4" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-bold text-ink">{label}</div>
-          <div className="text-xs text-ink-light">
-            {status === "ready" ? `${count} 个文件` : s.text}
+      <div className="py-2">
+        <div className="flex items-center gap-3">
+          <div className={`w-8 h-8 rounded-xl ${s.bg} ${s.color} inline-flex items-center justify-center shrink-0`}>
+            <Icon className="w-4 h-4" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-bold text-ink">{label}</div>
+            <div className="text-xs text-ink-light">
+              {status === "ready"
+                ? `${count} 个文件`
+                : status === "downloading" && total
+                  ? `${downloaded || "0KB"} / ${total}`
+                  : s.text}
+            </div>
+          </div>
+          <div className={`text-xs font-extrabold px-2 py-0.5 rounded-full ${s.bg} ${s.color}`}>
+            {status === "downloading" && total ? `${p}%` : s.text}
           </div>
         </div>
-        <div className={`text-xs font-extrabold px-2 py-0.5 rounded-full ${s.bg} ${s.color}`}>
-          {s.text}
-        </div>
+        {status === "downloading" && total && (
+          <div className="mt-2 ml-11">
+            <div className="h-1.5 bg-bg-softer rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary rounded-full transition-all duration-500"
+                style={{ width: `${Math.min(p, 100)}%` }}
+              />
+            </div>
+          </div>
+        )}
+        {status === "error" && errorMsg && (
+          <div className="mt-2 ml-11 text-[11px] text-danger break-all">
+            {errorMsg}
+          </div>
+        )}
       </div>
     );
   }
@@ -361,34 +403,35 @@ export function ProfileClient() {
                 label="音频资源"
                 status={assetsStatus.audio}
                 count={assetsStatus.audioFiles}
+                percent={assetsStatus.audioPercent}
+                downloaded={assetsStatus.audioDownloaded}
+                total={assetsStatus.audioTotal}
+                errorMsg={assetsStatus.audioError}
               />
               <StatusRow
                 icon={BookOpen}
                 label="课本原页"
                 status={assetsStatus.textbookPages}
                 count={assetsStatus.pageFiles}
+                percent={assetsStatus.pagesPercent}
+                downloaded={assetsStatus.pagesDownloaded}
+                total={assetsStatus.pagesTotal}
+                errorMsg={assetsStatus.pagesError}
               />
               <StatusRow
                 icon={BookmarkIcon}
                 label="故事配图"
                 status={assetsStatus.storyImages}
                 count={assetsStatus.storyFiles}
+                percent={assetsStatus.storiesPercent}
+                downloaded={assetsStatus.storiesDownloaded}
+                total={assetsStatus.storiesTotal}
+                errorMsg={assetsStatus.storiesError}
               />
             </div>
           ) : (
             <div className="py-4 text-center text-sm text-ink-light animate-pulse">
               加载中...
-            </div>
-          )}
-
-          {assetsStatus?.storyImages === "error" && (
-            <div className="mt-3 p-3 rounded-xl bg-danger/10 text-danger text-xs">
-              故事配图下载失败，请检查网络或代理设置，重启容器重试。
-            </div>
-          )}
-          {assetsStatus?.textbookPages === "error" && (
-            <div className="mt-3 p-3 rounded-xl bg-danger/10 text-danger text-xs">
-              课本原页下载失败，请检查网络或代理设置，重启容器重试。
             </div>
           )}
 

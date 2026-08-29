@@ -1,5 +1,5 @@
 #!/bin/sh
-set -e
+# 注意：不使用 set -e，后台下载失败不应导致 nginx 退出
 
 # ================================================================
 # ChinaStudyFree · 容器入口脚本
@@ -23,7 +23,6 @@ SKIP_DOWNLOAD="${SKIP_DOWNLOAD:-false}"
 STATUS_FILE="$HTML_ROOT/assets-status.json"
 
 # 代理设置（curl 会自动读取 HTTP_PROXY / HTTPS_PROXY 环境变量）
-# 如果只设了 HTTP_PROXY，自动同步到 HTTPS_PROXY
 if [ -n "$HTTP_PROXY" ] && [ -z "$HTTPS_PROXY" ]; then
     export HTTPS_PROXY="$HTTP_PROXY"
 fi
@@ -31,7 +30,7 @@ if [ -n "$http_proxy" ] && [ -z "$https_proxy" ]; then
     export https_proxy="$http_proxy"
 fi
 
-# 脱敏显示代理地址（只显示主机部分）
+# 脱敏显示代理地址
 mask_proxy() {
     if [ -z "$1" ]; then
         echo ""
@@ -53,10 +52,22 @@ write_status() {
 {
   "audio": "${AUDIO_STATUS:-pending}",
   "audioFiles": ${AUDIO_COUNT:-0},
+  "audioPercent": ${AUDIO_PERCENT:-0},
+  "audioDownloaded": "${AUDIO_DOWNLOADED:-}",
+  "audioTotal": "${AUDIO_TOTAL:-}",
+  "audioError": "${AUDIO_ERROR:-}",
   "textbookPages": "${PAGES_STATUS:-pending}",
   "pageFiles": ${PAGES_COUNT:-0},
+  "pagesPercent": ${PAGES_PERCENT:-0},
+  "pagesDownloaded": "${PAGES_DOWNLOADED:-}",
+  "pagesTotal": "${PAGES_TOTAL:-}",
+  "pagesError": "${PAGES_ERROR:-}",
   "storyImages": "${STORIES_STATUS:-pending}",
   "storyFiles": ${STORIES_COUNT:-0},
+  "storiesPercent": ${STORIES_PERCENT:-0},
+  "storiesDownloaded": "${STORIES_DOWNLOADED:-}",
+  "storiesTotal": "${STORIES_TOTAL:-}",
+  "storiesError": "${STORIES_ERROR:-}",
   "proxy": "${PROXY_DISPLAY}",
   "updatedAt": "$(date -Iseconds)"
 }
@@ -72,18 +83,53 @@ count_files() {
     fi
 }
 
+# 格式化字节数为人类可读格式
+human_bytes() {
+    bytes=$1
+    if [ "$bytes" -lt 1024 ]; then
+        echo "${bytes}B"
+    elif [ "$bytes" -lt 1048576 ]; then
+        echo "$((bytes / 1024))KB"
+    elif [ "$bytes" -lt 1073741824 ]; then
+        echo "$((bytes / 1048576))MB"
+    else
+        echo "$((bytes / 1073741824)).$(( (bytes % 1073741824) * 10 / 1073741824 ))GB"
+    fi
+}
+
+# 获取文件大小（字节）
+file_size() {
+    if [ -f "$1" ]; then
+        wc -c < "$1" | tr -d ' '
+    else
+        echo 0
+    fi
+}
+
 # 初始化状态
 AUDIO_STATUS="pending"
 PAGES_STATUS="pending"
 STORIES_STATUS="pending"
+AUDIO_PERCENT=0
+PAGES_PERCENT=0
+STORIES_PERCENT=0
 AUDIO_COUNT=$(count_files "$HTML_ROOT/audio")
 PAGES_COUNT=$(count_files "$HTML_ROOT/textbook-pages")
 STORIES_COUNT=$(count_files "$HTML_ROOT/story-images")
 
 # 如果已有文件，标记为 ready
-[ "$AUDIO_COUNT" -gt 0 ] && AUDIO_STATUS="ready"
-[ "$PAGES_COUNT" -gt 0 ] && PAGES_STATUS="ready"
-[ "$STORIES_COUNT" -gt 0 ] && STORIES_STATUS="ready"
+if [ "$AUDIO_COUNT" -gt 0 ]; then
+    AUDIO_STATUS="ready"
+    AUDIO_PERCENT=100
+fi
+if [ "$PAGES_COUNT" -gt 0 ]; then
+    PAGES_STATUS="ready"
+    PAGES_PERCENT=100
+fi
+if [ "$STORIES_COUNT" -gt 0 ]; then
+    STORIES_STATUS="ready"
+    STORIES_PERCENT=100
+fi
 
 mkdir -p "$HTML_ROOT"
 write_status
@@ -103,22 +149,271 @@ check_disk_space() {
     return 0
 }
 
-# ---- 下载文件（3 次重试）----
-download_file() {
+# ---- 获取远程文件大小 ----
+get_remote_size() {
+    url="$1"
+    # 用 HEAD 请求获取 Content-Length，失败则返回空
+    size=$(curl -sIL --connect-timeout 10 "$url" 2>/dev/null \
+        | grep -i 'content-length' \
+        | tail -1 \
+        | tr -d '\r' \
+        | awk '{print $2}' \
+        | tr -d ' ')
+    if [ -n "$size" ] && [ "$size" -gt 0 ] 2>/dev/null; then
+        echo "$size"
+    else
+        echo ""
+    fi
+}
+
+# ---- 带进度跟踪的下载 ----
+# 参数: url output label total_size_var status_var percent_var downloaded_var total_var error_var
+download_with_progress() {
     url="$1"
     output="$2"
     label="$3"
+    _status_var="$4"
+    _percent_var="$5"
+    _downloaded_var="$6"
+    _total_var="$7"
+    _error_var="$8"
 
+    # 先获取文件总大小
+    total_size=$(get_remote_size "$url")
+    if [ -n "$total_size" ]; then
+        eval "$_total_var=\"$(human_bytes $total_size)\""
+        echo "  [$label] 文件大小：$(human_bytes $total_size)"
+    else
+        eval "$_total_var=\"未知\""
+        echo "  [$label] 无法获取文件大小，将不显示进度百分比"
+    fi
+
+    # 清理旧文件
+    rm -f "$output"
+
+    # 后台启动 curl 下载
+    curl -fL --connect-timeout 30 --max-time 3600 \
+         -o "$output" "$url" > /tmp/curl-${label}.log 2>&1 &
+    curl_pid=$!
+
+    # 进度监控循环
+    last_size=0
+    stall_count=0
+    while kill -0 "$curl_pid" 2>/dev/null; do
+        sleep 3
+
+        current_size=$(file_size "$output")
+        eval "$_downloaded_var=\"$(human_bytes $current_size)\""
+
+        if [ -n "$total_size" ] && [ "$total_size" -gt 0 ]; then
+            percent=$(( current_size * 100 / total_size ))
+            if [ "$percent" -gt 100 ]; then percent=100; fi
+            eval "$_percent_var=\"$percent\""
+        fi
+
+        # 检查是否卡住（30秒内没有增长）
+        if [ "$current_size" -eq "$last_size" ]; then
+            stall_count=$((stall_count + 1))
+        else
+            stall_count=0
+        fi
+        last_size=$current_size
+
+        # 如果卡住超过 60 秒（20次检查 * 3秒），且还没完成，判定为网络问题
+        if [ "$stall_count" -ge 20 ] && [ -n "$total_size" ] && [ "$current_size" -lt "$total_size" ]; then
+            echo "  [$label] 下载卡住超过 60 秒，可能网络或代理有问题"
+            kill "$curl_pid" 2>/dev/null || true
+            wait "$curl_pid" 2>/dev/null || true
+            eval "$_error_var=\"下载卡住 60 秒无响应，请检查网络或代理设置\""
+            return 1
+        fi
+
+        write_status
+    done
+
+    # 等待 curl 真正结束并获取退出码
+    wait "$curl_pid" 2>/dev/null && curl_exit=0 || curl_exit=$?
+
+    if [ "$curl_exit" -eq 0 ] && [ -f "$output" ]; then
+        final_size=$(file_size "$output")
+        eval "$_percent_var=100"
+        eval "$_downloaded_var=\"$(human_bytes $final_size)\""
+        if [ -z "$total_size" ]; then
+            eval "$_total_var=\"$(human_bytes $final_size)\""
+        fi
+        write_status
+        return 0
+    else
+        # 读取 curl 错误日志
+        err_msg=$(cat /tmp/curl-${label}.log 2>/dev/null | tail -3 | tr '\n' ' ' | sed 's/"/\\"/g')
+        if [ -z "$err_msg" ]; then
+            err_msg="下载失败（退出码 $curl_exit），请检查网络或代理设置"
+        fi
+        eval "$_error_var=\"$err_msg\""
+        echo "  [$label] 下载失败：$err_msg"
+        rm -f "$output"
+        return 1
+    fi
+}
+
+# ---- 下载 + 进度 + 重试 + 解压 + reload + 状态更新 ----
+download_and_serve() {
+    url="$1"
+    tmpfile="$2"
+    label="$3"
+    extract_func="$4"
+    status_var="$5"
+    count_var="$6"
+    check_dir="$7"
+    percent_var="$8"
+    downloaded_var="$9"
+    total_var="${10}"
+    error_var="${11}"
+
+    # 更新状态为 downloading
+    eval "$status_var=\"downloading\""
+    eval "$percent_var=0"
+    eval "$error_var=\"\""
+    write_status
+
+    success=0
     for attempt in 1 2 3; do
         echo "  [$label] 尝试 $attempt/3..."
-        if curl -fL --connect-timeout 30 --max-time 3600 -o "$output" "$url" 2>&1; then
-            return 0
+        if download_with_progress "$url" "$tmpfile" "$label" \
+            "$status_var" "$percent_var" "$downloaded_var" "$total_var" "$error_var"; then
+            success=1
+            break
         fi
-        echo "  [$label] 下载失败，${attempt}/3"
-        [ $attempt -lt 3 ] && sleep 5
+        echo "  [$label] 第 $attempt 次失败"
+        if [ $attempt -lt 3 ]; then
+            eval "$status_var=\"downloading\""
+            eval "$percent_var=0"
+            write_status
+            sleep 5
+        fi
     done
-    echo "  [$label] ✗ 下载失败，请检查网络或代理设置"
-    return 1
+
+    if [ "$success" -eq 1 ]; then
+        echo "  [$label] 下载完成，解压中..."
+        "$extract_func" "$tmpfile" "$HTML_ROOT"
+        rm -f "$tmpfile"
+
+        # 解压后验证文件数
+        file_count=$(count_files "$check_dir")
+        if [ "$file_count" -gt 0 ]; then
+            eval "$status_var=\"ready\""
+            eval "$count_var=\"$file_count\""
+            eval "$percent_var=100"
+            eval "$error_var=\"\""
+            nginx -s reload 2>/dev/null || true
+            echo "  [$label] ✓ 已就绪（$file_count 个文件）"
+            write_status
+            return 0
+        else
+            eval "$status_var=\"error\""
+            eval "$error_var=\"解压后目录为空，请检查 zip 文件结构\""
+            echo "  [$label] ✗ 解压后目录为空"
+            write_status
+            return 1
+        fi
+    else
+        eval "$status_var=\"error\""
+        echo "  [$label] ✗ 下载失败（页面仍可访问）"
+        write_status
+        return 1
+    fi
+}
+
+# ================================================================
+# 后台下载资源（nginx 启动后 Web 立即可用，资源在后台逐步就绪）
+# ================================================================
+start_background_download() {
+    if [ "$SKIP_DOWNLOAD" = "true" ]; then
+        echo "=== SKIP_DOWNLOAD=true，跳过资源下载 ==="
+        AUDIO_STATUS="skipped"
+        PAGES_STATUS="skipped"
+        STORIES_STATUS="skipped"
+        AUDIO_PERCENT=100
+        PAGES_PERCENT=100
+        STORIES_PERCENT=100
+        write_status
+        return
+    fi
+
+    echo "=== 后台下载资源（Web 页面已可访问）==="
+
+    (
+        # 磁盘空间检查
+        if ! check_disk_space; then
+            AUDIO_STATUS="skipped"
+            PAGES_STATUS="skipped"
+            STORIES_STATUS="skipped"
+            AUDIO_PERCENT=100
+            PAGES_PERCENT=100
+            STORIES_PERCENT=100
+            write_status
+            exit 0
+        fi
+
+        # 1. 音频 (~870MB)
+        if [ ! -d "$HTML_ROOT/audio" ] || [ -z "$(ls -A "$HTML_ROOT/audio" 2>/dev/null)" ]; then
+            echo "[1/3] 下载音频..."
+            download_and_serve \
+                "$RELEASE_URL/audio.tar.gz" \
+                /tmp/audio.tar.gz \
+                "audio" \
+                extract_tar_gz \
+                AUDIO_STATUS \
+                AUDIO_COUNT \
+                "$HTML_ROOT/audio" \
+                AUDIO_PERCENT \
+                AUDIO_DOWNLOADED \
+                AUDIO_TOTAL \
+                AUDIO_ERROR
+        else
+            echo "[1/3] ✓ 音频已存在，跳过"
+        fi
+
+        # 2. 课本原页 (~192MB)
+        if [ ! -d "$HTML_ROOT/textbook-pages" ] || [ -z "$(ls -A "$HTML_ROOT/textbook-pages" 2>/dev/null)" ]; then
+            echo "[2/3] 下载课本原页..."
+            download_and_serve \
+                "$RELEASE_URL/textbook-pages.zip" \
+                /tmp/textbook-pages.zip \
+                "pages" \
+                extract_zip \
+                PAGES_STATUS \
+                PAGES_COUNT \
+                "$HTML_ROOT/textbook-pages" \
+                PAGES_PERCENT \
+                PAGES_DOWNLOADED \
+                PAGES_TOTAL \
+                PAGES_ERROR
+        else
+            echo "[2/3] ✓ 课本原页已存在，跳过"
+        fi
+
+        # 3. 故事配图 (~368MB)
+        if [ ! -d "$HTML_ROOT/story-images" ] || [ -z "$(ls -A "$HTML_ROOT/story-images" 2>/dev/null)" ]; then
+            echo "[3/3] 下载故事配图..."
+            download_and_serve \
+                "$RELEASE_URL/story-images.zip" \
+                /tmp/story-images.zip \
+                "stories" \
+                extract_zip \
+                STORIES_STATUS \
+                STORIES_COUNT \
+                "$HTML_ROOT/story-images" \
+                STORIES_PERCENT \
+                STORIES_DOWNLOADED \
+                STORIES_TOTAL \
+                STORIES_ERROR
+        else
+            echo "[3/3] ✓ 故事配图已存在，跳过"
+        fi
+
+        echo "=== 资源下载流程结束 ==="
+    ) &
 }
 
 # ---- 解压 tar.gz ----
@@ -141,121 +436,6 @@ extract_zip() {
         done
         find . -name '*\\*' -type d -empty -delete 2>/dev/null || true
     )
-}
-
-# ---- 下载 + 解压 + reload + 状态更新 ----
-download_and_serve() {
-    url="$1"
-    tmpfile="$2"
-    label="$3"
-    extract_func="$4"
-    status_var="$5"
-    count_var="$6"
-    check_dir="$7"
-
-    # 更新状态为 downloading
-    eval "$status_var=\"downloading\""
-    write_status
-
-    if download_file "$url" "$tmpfile" "$label"; then
-        echo "  [$label] 下载完成，解压中..."
-        "$extract_func" "$tmpfile" "$HTML_ROOT"
-        rm -f "$tmpfile"
-
-        # 解压后验证文件数
-        file_count=$(count_files "$check_dir")
-        if [ "$file_count" -gt 0 ]; then
-            eval "$status_var=\"ready\""
-            eval "$count_var=\"$file_count\""
-            nginx -s reload 2>/dev/null || true
-            echo "  [$label] ✓ 已就绪（$file_count 个文件）"
-            write_status
-            return 0
-        else
-            eval "$status_var=\"error\""
-            echo "  [$label] ✗ 解压后目录为空，请检查 zip 文件结构"
-            write_status
-            return 1
-        fi
-    fi
-    eval "$status_var=\"error\""
-    echo "  [$label] ✗ 资源不可用（页面仍可访问）"
-    write_status
-    return 1
-}
-
-# ================================================================
-# 后台下载资源（nginx 启动后 Web 立即可用，资源在后台逐步就绪）
-# ================================================================
-start_background_download() {
-    if [ "$SKIP_DOWNLOAD" = "true" ]; then
-        echo "=== SKIP_DOWNLOAD=true，跳过资源下载 ==="
-        AUDIO_STATUS="skipped"
-        PAGES_STATUS="skipped"
-        STORIES_STATUS="skipped"
-        write_status
-        return
-    fi
-
-    echo "=== 后台下载资源（Web 页面已可访问）==="
-
-    (
-        # 磁盘空间检查
-        if ! check_disk_space; then
-            AUDIO_STATUS="skipped"
-            PAGES_STATUS="skipped"
-            STORIES_STATUS="skipped"
-            write_status
-            exit 0
-        fi
-
-        # 1. 音频 (~870MB)
-        if [ ! -d "$HTML_ROOT/audio" ] || [ -z "$(ls -A "$HTML_ROOT/audio" 2>/dev/null)" ]; then
-            echo "[1/3] 下载音频 (~870MB)..."
-            download_and_serve \
-                "$RELEASE_URL/audio.tar.gz" \
-                /tmp/audio.tar.gz \
-                "audio" \
-                extract_tar_gz \
-                AUDIO_STATUS \
-                AUDIO_COUNT \
-                "$HTML_ROOT/audio"
-        else
-            echo "[1/3] ✓ 音频已存在，跳过"
-        fi
-
-        # 2. 课本原页 (~192MB)
-        if [ ! -d "$HTML_ROOT/textbook-pages" ] || [ -z "$(ls -A "$HTML_ROOT/textbook-pages" 2>/dev/null)" ]; then
-            echo "[2/3] 下载课本原页 (~192MB)..."
-            download_and_serve \
-                "$RELEASE_URL/textbook-pages.zip" \
-                /tmp/textbook-pages.zip \
-                "pages" \
-                extract_zip \
-                PAGES_STATUS \
-                PAGES_COUNT \
-                "$HTML_ROOT/textbook-pages"
-        else
-            echo "[2/3] ✓ 课本原页已存在，跳过"
-        fi
-
-        # 3. 故事配图 (~368MB)
-        if [ ! -d "$HTML_ROOT/story-images" ] || [ -z "$(ls -A "$HTML_ROOT/story-images" 2>/dev/null)" ]; then
-            echo "[3/3] 下载故事配图 (~368MB)..."
-            download_and_serve \
-                "$RELEASE_URL/story-images.zip" \
-                /tmp/story-images.zip \
-                "stories" \
-                extract_zip \
-                STORIES_STATUS \
-                STORIES_COUNT \
-                "$HTML_ROOT/story-images"
-        else
-            echo "[3/3] ✓ 故事配图已存在，跳过"
-        fi
-
-        echo "=== 资源下载流程结束 ==="
-    ) &
 }
 
 # ---- 启动后台下载 ----
