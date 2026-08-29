@@ -34,6 +34,7 @@ import {
   Volume,
   BookOpen,
   Bookmark as BookmarkIcon,
+  Lock,
 } from "@/components/icons";
 import { ThemeModeToggle } from "@/components/ThemeModeToggle";
 import { playSfx } from "@/lib/sfx";
@@ -47,6 +48,7 @@ interface AssetsStatus {
   pageFiles: number;
   storyImages: "pending" | "downloading" | "ready" | "error" | "skipped";
   storyFiles: number;
+  proxy: string;
   updatedAt: string;
 }
 
@@ -66,6 +68,7 @@ export function ProfileClient() {
   // ---- 资源状态轮询 ----
   const [assetsStatus, setAssetsStatus] = useState<AssetsStatus | null>(null);
   const [assetsError, setAssetsError] = useState<string | null>(null);
+  const [showProxyHelp, setShowProxyHelp] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -386,6 +389,57 @@ export function ProfileClient() {
           {assetsStatus?.textbookPages === "error" && (
             <div className="mt-3 p-3 rounded-xl bg-danger/10 text-danger text-xs">
               课本原页下载失败，请检查网络或代理设置，重启容器重试。
+            </div>
+          )}
+
+          {/* 代理设置入口 */}
+          <button
+            type="button"
+            onClick={() => setShowProxyHelp(v => !v)}
+            className="mt-4 w-full flex items-center gap-3 p-3 rounded-xl bg-bg-soft hover:bg-bg-softer transition-colors text-left"
+          >
+            <div className="w-8 h-8 rounded-xl bg-primary/10 text-primary inline-flex items-center justify-center shrink-0">
+              <Lock className="w-4 h-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-bold text-ink">下载代理设置</div>
+              <div className="text-xs text-ink-light">
+                {assetsStatus?.proxy
+                  ? `当前代理：${assetsStatus.proxy}`
+                  : "未配置代理，国内网络建议设置"}
+              </div>
+            </div>
+            <div className="text-ink-softer text-sm">
+              {showProxyHelp ? "收起" : "展开"}
+            </div>
+          </button>
+
+          {showProxyHelp && (
+            <div className="mt-3 p-4 rounded-xl bg-bg-soft text-xs text-ink-light space-y-3">
+              <div>
+                <div className="font-bold text-ink mb-1">配置方法</div>
+                <p>在 docker-compose.yml 的 environment 中添加：</p>
+              </div>
+              <pre className="bg-white rounded-lg p-3 text-[11px] font-mono overflow-x-auto text-ink">
+{`services:
+  cnstudy:
+    image: ghcr.io/pelico/chinatextbookstudyfree:latest
+    environment:
+      - HTTP_PROXY=http://192.168.2.88:10809
+      # HTTPS_PROXY 会自动从 HTTP_PROXY 同步
+      # 也可单独设置 HTTPS_PROXY`}
+              </pre>
+              <div>
+                <div className="font-bold text-ink mb-1">生效步骤</div>
+                <ol className="list-decimal list-inside space-y-1">
+                  <li>修改 docker-compose.yml 添加代理地址</li>
+                  <li>执行 <code className="bg-white px-1.5 py-0.5 rounded">docker-compose up -d</code> 重启容器</li>
+                  <li>资源会重新开始下载，此页面可查看进度</li>
+                </ol>
+              </div>
+              <div className="text-ink-softer">
+                代理地址换成你自己的，比如 http://你的代理IP:端口
+              </div>
             </div>
           )}
         </section>

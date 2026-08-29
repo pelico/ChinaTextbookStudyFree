@@ -22,6 +22,31 @@ HTML_ROOT="/usr/share/nginx/html"
 SKIP_DOWNLOAD="${SKIP_DOWNLOAD:-false}"
 STATUS_FILE="$HTML_ROOT/assets-status.json"
 
+# 代理设置（curl 会自动读取 HTTP_PROXY / HTTPS_PROXY 环境变量）
+# 如果只设了 HTTP_PROXY，自动同步到 HTTPS_PROXY
+if [ -n "$HTTP_PROXY" ] && [ -z "$HTTPS_PROXY" ]; then
+    export HTTPS_PROXY="$HTTP_PROXY"
+fi
+if [ -n "$http_proxy" ] && [ -z "$https_proxy" ]; then
+    export https_proxy="$http_proxy"
+fi
+
+# 脱敏显示代理地址（只显示主机部分）
+mask_proxy() {
+    if [ -z "$1" ]; then
+        echo ""
+    else
+        echo "$1" | sed -E 's|(https?://)([^/:@]+@)?([^/:]+)(:[0-9]+)?/.*|\1\3\4|'
+    fi
+}
+
+PROXY_DISPLAY=""
+if [ -n "$HTTPS_PROXY" ]; then
+    PROXY_DISPLAY=$(mask_proxy "$HTTPS_PROXY")
+elif [ -n "$HTTP_PROXY" ]; then
+    PROXY_DISPLAY=$(mask_proxy "$HTTP_PROXY")
+fi
+
 # ---- 写入状态文件 ----
 write_status() {
     cat > "$STATUS_FILE" << EOF
@@ -32,6 +57,7 @@ write_status() {
   "pageFiles": ${PAGES_COUNT:-0},
   "storyImages": "${STORIES_STATUS:-pending}",
   "storyFiles": ${STORIES_COUNT:-0},
+  "proxy": "${PROXY_DISPLAY}",
   "updatedAt": "$(date -Iseconds)"
 }
 EOF
