@@ -19,6 +19,7 @@ import {
   Gem,
   User,
   UserFill,
+  BookOpen,
   type IconProps,
 } from "@/components/icons";
 import { playSfx } from "@/lib/sfx";
@@ -50,6 +51,15 @@ const NAV_ITEMS: NavItem[] = [
     Icon: HomeIcon,
     IconActive: HomeFill,
     matchPrefix: "/",
+    activeColor: "text-primary",
+    activeBg: "bg-primary/10",
+  },
+  {
+    href: "/reading/",
+    label: "阅读",
+    Icon: BookOpen,
+    IconActive: BookOpen,
+    matchPrefix: "/reading",
     activeColor: "text-primary",
     activeBg: "bg-primary/10",
   },
@@ -92,10 +102,13 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 function isActive(pathname: string, item: NavItem): boolean {
+  if (item.matchPrefix === "/reading") {
+    return /^\/(reading|stories)\//.test(pathname) || pathname === "/reading/";
+  }
   if (item.matchPrefix === "/") {
     return (
       pathname === "/" ||
-      /^\/(grade|book|lesson|stories|reading)\//.test(pathname)
+      /^\/(grade|book|lesson)\//.test(pathname)
     );
   }
   return pathname.startsWith(item.matchPrefix);
@@ -167,7 +180,7 @@ export function BottomNav() {
       }}
       aria-label="主导航"
     >
-      <div className="grid grid-cols-5 max-w-md mx-auto h-14">
+      <div className="grid grid-cols-6 max-w-md mx-auto h-14">
         {NAV_ITEMS.map(item => {
           const active = isActive(pathname, item);
           const Icon = active ? item.IconActive : item.Icon;
