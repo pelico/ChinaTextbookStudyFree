@@ -8,11 +8,12 @@
  */
 
 import { useState } from "react";
+import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { useProgressStore } from "@/store/progress";
 import { Mascot } from "@/components/Mascot";
 import { SpeechBubble } from "@/components/SpeechBubble";
-import { Apple, Sprout, Tree, Butterfly, Rocket, Trophy, type IconProps } from "@/components/icons";
+import { Apple, Sprout, Tree, Butterfly, Rocket, Trophy, Book, Sparkle, type IconProps } from "@/components/icons";
 import { cn } from "@/lib/cn";
 import { playSfx } from "@/lib/sfx";
 import { haptic } from "@/lib/haptic";
@@ -49,6 +50,20 @@ export function GradePicker() {
 
   return (
     <div className="fixed inset-0 z-40 bg-bg flex flex-col">
+      {/* 右上角：打印试卷入口 */}
+      <Link
+        href="/worksheet/"
+        onClick={() => {
+          playSfx("tap");
+          haptic("light");
+        }}
+        className="absolute top-4 right-4 z-50 flex items-center gap-1.5 px-3 py-2 rounded-full bg-white border-2 border-primary/30 text-primary-dark text-xs font-extrabold shadow-sm hover:border-primary transition-colors"
+      >
+        <Book className="w-4 h-4" />
+        <span>打印试卷</span>
+        <Sparkle className="w-3 h-3 text-gold" />
+      </Link>
+
       <div className="flex-1 flex flex-col items-center justify-start pt-12 px-5 overflow-y-auto pb-32">
         {/* 顶部 mascot + 气泡 */}
         <motion.div

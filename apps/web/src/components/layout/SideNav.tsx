@@ -25,6 +25,8 @@ import {
   Gem,
   User,
   UserFill,
+  Book,
+  Sparkle,
   type IconProps,
 } from "@/components/icons";
 import { ThemeModeToggle } from "@/components/ThemeModeToggle";
@@ -125,6 +127,42 @@ export function SideNav() {
           </Link>
         );
       })}
+
+      {/* 工具区：打印试卷 */}
+      <div className="border-t-2 border-bg-softer my-2" />
+      <Link
+        href="/worksheet/"
+        onClick={() => {
+          playSfx("tap");
+          haptic("light");
+        }}
+        className={cn(
+          "group flex items-center justify-center lg:justify-start gap-3 px-3 h-14 rounded-2xl border-2 transition-colors select-none",
+          pathname.startsWith("/worksheet")
+            ? "border-primary/50 bg-primary/10 text-primary-dark"
+            : "border-transparent text-ink-light hover:bg-bg-soft"
+        )}
+        aria-current={pathname.startsWith("/worksheet") ? "page" : undefined}
+        title="打印试卷"
+      >
+        <div className="relative shrink-0">
+          <Book
+            className={cn(
+              "w-7 h-7",
+              pathname.startsWith("/worksheet") ? "text-primary" : "text-ink-softer group-hover:text-ink-light"
+            )}
+          />
+          <Sparkle className="w-3.5 h-3.5 text-gold absolute -top-1 -right-1" />
+        </div>
+        <span
+          className={cn(
+            "hidden lg:inline text-base font-extrabold",
+            pathname.startsWith("/worksheet") ? "text-primary-dark" : "text-ink-light group-hover:text-ink"
+          )}
+        >
+          打印试卷
+        </span>
+      </Link>
 
       {/* 底部：深色模式三态开关（md 窄栏收成纯图标） */}
       <div className="mt-auto pt-4 pb-2 px-1">
