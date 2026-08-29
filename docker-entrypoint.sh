@@ -262,13 +262,14 @@ download_and_serve() {
     tmpfile="$2"
     label="$3"
     extract_func="$4"
-    status_var="$5"
-    count_var="$6"
-    check_dir="$7"
-    percent_var="$8"
-    downloaded_var="$9"
-    total_var="${10}"
-    error_var="${11}"
+    extract_dest="$5"
+    status_var="$6"
+    count_var="$7"
+    check_dir="$8"
+    percent_var="$9"
+    downloaded_var="${10}"
+    total_var="${11}"
+    error_var="${12}"
 
     # 更新状态为 downloading
     eval "$status_var=\"downloading\""
@@ -294,8 +295,11 @@ download_and_serve() {
     done
 
     if [ "$success" -eq 1 ]; then
-        echo "  [$label] 下载完成，解压中..."
-        "$extract_func" "$tmpfile" "$HTML_ROOT"
+        echo "  [$label] 下载完成，解压到 $extract_dest ..."
+        mkdir -p "$extract_dest"
+        # 执行解压，捕获错误输出
+        extract_err=$("$extract_func" "$tmpfile" "$extract_dest" 2>&1)
+        extract_exit=$?
         rm -f "$tmpfile"
 
         # 解压后验证文件数
@@ -310,9 +314,17 @@ download_and_serve() {
             write_status
             return 0
         else
+            # 列出目录结构帮助调试
+            dir_listing=$(ls -la "$check_dir" 2>/dev/null | head -10)
+            parent_listing=$(ls -la "$extract_dest" 2>/dev/null | head -10)
+            debug_info="解压后目录为空（退出码 $extract_exit）。目标目录: $check_dir"
+            if [ -n "$extract_err" ]; then
+                debug_info="$debug_info 错误: $extract_err"
+            fi
             eval "$status_var=\"error\""
-            eval "$error_var=\"解压后目录为空，请检查 zip 文件结构\""
+            eval "$error_var=\"$debug_info\""
             echo "  [$label] ✗ 解压后目录为空"
+            echo "  [$label] 目录列表: $parent_listing"
             write_status
             return 1
         fi
@@ -431,6 +443,7 @@ start_background_download() {
                     /tmp/audio.tar.gz \
                     "audio" \
                     extract_tar_gz \
+                    "$HTML_ROOT" \
                     AUDIO_STATUS \
                     AUDIO_COUNT \
                     "$HTML_ROOT/audio" \
@@ -452,6 +465,7 @@ start_background_download() {
                     /tmp/textbook-pages.zip \
                     "pages" \
                     extract_zip \
+                    "$HTML_ROOT/textbook-pages" \
                     PAGES_STATUS \
                     PAGES_COUNT \
                     "$HTML_ROOT/textbook-pages" \
@@ -473,6 +487,7 @@ start_background_download() {
                     /tmp/story-images.zip \
                     "stories" \
                     extract_zip \
+                    "$HTML_ROOT/story-images" \
                     STORIES_STATUS \
                     STORIES_COUNT \
                     "$HTML_ROOT/story-images" \
