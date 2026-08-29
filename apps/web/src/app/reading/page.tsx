@@ -84,7 +84,7 @@ export default async function ReadingHomePage() {
         </section>
 
         {/* 故事阅读 */}
-        <section className="mt-10">
+        <section id="stories" className="mt-10">
           <div className="flex items-center gap-2 mb-4">
             <div className="w-8 h-8 rounded-xl bg-gold/15 text-gold inline-flex items-center justify-center">
               <Bookmark className="w-4 h-4" />
