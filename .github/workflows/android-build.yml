@@ -4,7 +4,6 @@ on:
   push:
     branches: [main]
     paths:
-      - 'apps/web/**'
       - 'apps/android/**'
       - '.github/workflows/android-build.yml'
   workflow_dispatch:
@@ -17,47 +16,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      # ---- Build web frontend ----
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Install dependencies
-        working-directory: apps/web
-        run: npm ci --no-audit --no-fund
-
-      - name: Download data.zip
-        working-directory: apps/web
-        run: |
-          mkdir -p public/data
-          curl -sL "https://github.com/${{ github.repository }}/releases/latest/download/data.zip" -o /tmp/data.zip
-          python3 -c "
-          import zipfile, os
-          with zipfile.ZipFile('/tmp/data.zip') as z:
-              for name in z.namelist():
-                  fixed = name.replace(chr(92), '/')
-                  target = os.path.join('public/data', fixed)
-                  if fixed.endswith('/'):
-                      os.makedirs(target, exist_ok=True)
-                      continue
-                  os.makedirs(os.path.dirname(target), exist_ok=True)
-                  with z.open(name) as sf, open(target, 'wb') as df:
-                      df.write(sf.read())
-          "
-
-      - name: Build web frontend
-        working-directory: apps/web
-        run: npx next build
-
-      # ---- Copy web assets to Android ----
-      - name: Copy web assets to Android
-        run: |
-          mkdir -p apps/android/app/src/main/assets
-          cp -r apps/web/out/* apps/android/app/src/main/assets/
-          echo "Web assets copied:"
-          ls apps/android/app/src/main/assets/ | head -10
 
       # ---- Build Android APK ----
       - name: Setup JDK
@@ -96,7 +54,12 @@ jobs:
           body: |
             自动构建的 Android APK，基于最新 main 分支。
 
-            下载后安装到手机即可使用（需开启"安装未知来源应用"）。
+            使用方法：
+            1. 下载并安装到手机（需开启"安装未知来源应用"）
+            2. 首次打开填写你部署的容器地址（如 http://192.168.1.100:5230）
+            3. 点击连接即可使用
+
+            小技巧：三击屏幕左上角可重新设置服务器地址
           files: apps/android/app/build/outputs/apk/debug/*.apk
           prerelease: true
         env:
