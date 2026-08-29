@@ -224,8 +224,22 @@ export async function generateWorksheet(
       throw new Error(`AI 接口错误 (${res.status}): ${text.slice(0, 200)}`);
     }
 
+    const contentType = res.headers.get("content-type") || "";
+    if (!contentType.includes("application/json") && !contentType.includes("json")) {
+      const text = await res.text().catch(() => "");
+      const snippet = text.slice(0, 100).replace(/\s+/g, " ").trim();
+      throw new Error(
+        `AI 接口返回的不是 JSON（${contentType || "未知类型"}）。` +
+        `请检查 Base URL 是否正确，应以 /v1 结尾，例如 https://api.openai.com/v1`,
+      );
+    }
+
     const data = await res.json();
     const content = data?.choices?.[0]?.message?.content ?? "";
+
+    if (!content) {
+      throw new Error("AI 未返回任何内容，请检查模型名称或 API Key 是否正确");
+    }
 
     return parseAIResponse(content);
   } catch (e) {
@@ -235,7 +249,14 @@ export async function generateWorksheet(
         throw new Error(
           isRelative
             ? "无法连接 AI 接口，请检查 Base URL 和 API Key"
-            : "请求被浏览器拦截（CORS），请将 Base URL 改为相对路径（如 /api/ai）或在 AI 设置中配置支持跨域的接口",
+            : "请求被浏览器拦截（CORS），请使用支持跨域的接口，或检查 Base URL 是否正确",
+        );
+      }
+      // JSON 解析失败（接口返回 HTML 等非 JSON 内容）
+      if (e.message.includes("Unexpected token") || e.message.includes("JSON")) {
+        throw new Error(
+          "AI 接口返回格式错误（不是 JSON）。请检查 Base URL 是否正确，" +
+          "OpenAI 兼容接口的 Base URL 通常以 /v1 结尾，例如 https://api.openai.com/v1",
         );
       }
       throw e;

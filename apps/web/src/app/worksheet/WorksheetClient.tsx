@@ -377,7 +377,9 @@ export function WorksheetClient({ books }: Props) {
                 />
               </div>
               <p className="text-xs text-ink-light">
-                支持 OpenAI 兼容接口（如 OpenAI、DeepSeek、通义千问等）。配置保存在浏览器本地，不会上传。
+                支持 OpenAI 兼容接口（如 OpenAI、DeepSeek、通义千问等）。
+                Base URL 通常以 <code className="bg-bg-soft px-1 rounded">/v1</code> 结尾。
+                配置保存在浏览器本地，不会上传。
               </p>
             </div>
           )}
