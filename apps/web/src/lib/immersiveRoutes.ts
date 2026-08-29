@@ -13,6 +13,8 @@
 
 /** 沉浸式路径的匹配规则（对 usePathname() 的返回值求值）。 */
 export const IMMERSIVE_PATTERNS: readonly RegExp[] = [
+  /** 首页（首次选年级时是全屏引导 GradePicker，底栏会挡住继续按钮） */
+  /^\/$/,
   /** 课程答题 /lesson/{book}/{lesson}/ */
   /^\/lesson(\/|$)/,
   /** 跳级测试 /jump/ */
