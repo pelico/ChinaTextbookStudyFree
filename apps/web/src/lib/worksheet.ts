@@ -191,33 +191,59 @@ export async function generateWorksheet(
   const system = buildSystemPrompt();
   const user = buildUserPrompt(config, units);
 
-  const url = aiConfig.baseURL.replace(/\/+$/, "") + "/chat/completions";
+  const baseUrl = aiConfig.baseURL.replace(/\/+$/, "");
+  const isRelative = baseUrl.startsWith("/");
+  const url = isRelative
+    ? baseUrl + "/chat/completions"
+    : baseUrl + "/chat/completions";
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${aiConfig.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: aiConfig.model,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      temperature: 0.7,
-    }),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 120000);
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`AI 接口错误 (${res.status}): ${text.slice(0, 200)}`);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${aiConfig.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: aiConfig.model,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        temperature: 0.7,
+        stream: false,
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`AI 接口错误 (${res.status}): ${text.slice(0, 200)}`);
+    }
+
+    const data = await res.json();
+    const content = data?.choices?.[0]?.message?.content ?? "";
+
+    return parseAIResponse(content);
+  } catch (e) {
+    if (e instanceof Error) {
+      if (e.name === "AbortError") throw new Error("请求超时（120秒），请检查网络或更换模型");
+      if (e.message === "Failed to fetch") {
+        throw new Error(
+          isRelative
+            ? "无法连接 AI 接口，请检查 Base URL 和 API Key"
+            : "请求被浏览器拦截（CORS），请将 Base URL 改为相对路径（如 /api/ai）或在 AI 设置中配置支持跨域的接口",
+        );
+      }
+      throw e;
+    }
+    throw new Error("生成失败，请检查 AI 接口配置");
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  const data = await res.json();
-  const content = data?.choices?.[0]?.message?.content ?? "";
-
-  return parseAIResponse(content);
 }
 
 function parseAIResponse(content: string): WorksheetQuestion[] {
