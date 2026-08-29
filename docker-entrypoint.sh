@@ -325,7 +325,75 @@ download_and_serve() {
 }
 
 # ================================================================
+# 迷你 HTTP API 服务（处理重试请求）
+# 监听 127.0.0.1:18080，通过 nginx 反代到 /api/
+# ================================================================
+RETRY_FLAG_DIR="/tmp/cstf-retry"
+mkdir -p "$RETRY_FLAG_DIR"
+
+start_api_server() {
+    (
+        FIFO="/tmp/cstf-api.fifo"
+        rm -f "$FIFO"
+        mkfifo "$FIFO"
+
+        while true; do
+            # 用 fifo 实现请求-响应模式
+            # nc 读取客户端请求写入 fifo，同时从 fifo 读取响应发回客户端
+            (
+                # 先读请求
+                read -r first_line
+                path=$(echo "$first_line" | awk '{print $2}')
+
+                # 处理请求
+                case "$path" in
+                    *retry*resource=audio*)
+                        touch "$RETRY_FLAG_DIR/audio"
+                        echo "[API] 收到音频重试请求"
+                        ;;
+                    *retry*resource=pages*)
+                        touch "$RETRY_FLAG_DIR/pages"
+                        echo "[API] 收到课本原页重试请求"
+                        ;;
+                    *retry*resource=stories*)
+                        touch "$RETRY_FLAG_DIR/stories"
+                        echo "[API] 收到故事配图重试请求"
+                        ;;
+                    *retry*resource=all*)
+                        touch "$RETRY_FLAG_DIR/audio"
+                        touch "$RETRY_FLAG_DIR/pages"
+                        touch "$RETRY_FLAG_DIR/stories"
+                        echo "[API] 收到全部重试请求"
+                        ;;
+                esac
+
+                # 读完剩余请求头
+                while IFS= read -r line; do
+                    line=$(printf '%s' "$line" | tr -d '\r')
+                    [ -z "$line" ] && break
+                done
+
+                # 输出 HTTP 响应
+                printf 'HTTP/1.1 200 OK\r\n'
+                printf 'Content-Type: application/json\r\n'
+                printf 'Content-Length: 11\r\n'
+                printf 'Access-Control-Allow-Origin: *\r\n'
+                printf 'Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n'
+                printf 'Access-Control-Allow-Headers: Content-Type\r\n'
+                printf 'Connection: close\r\n'
+                printf '\r\n'
+                printf '{"ok":true}'
+            ) < "$FIFO" | nc -l 127.0.0.1 18080 > "$FIFO" 2>/dev/null
+
+            sleep 0.1
+        done
+    ) &
+    echo "=== API 服务已启动（127.0.0.1:18080）==="
+}
+
+# ================================================================
 # 后台下载资源（nginx 启动后 Web 立即可用，资源在后台逐步就绪）
+# 支持通过 flag 文件触发重试
 # ================================================================
 start_background_download() {
     if [ "$SKIP_DOWNLOAD" = "true" ]; then
@@ -355,64 +423,119 @@ start_background_download() {
             exit 0
         fi
 
-        # 1. 音频 (~870MB)
-        if [ ! -d "$HTML_ROOT/audio" ] || [ -z "$(ls -A "$HTML_ROOT/audio" 2>/dev/null)" ]; then
-            echo "[1/3] 下载音频..."
-            download_and_serve \
-                "$RELEASE_URL/audio.tar.gz" \
-                /tmp/audio.tar.gz \
-                "audio" \
-                extract_tar_gz \
-                AUDIO_STATUS \
-                AUDIO_COUNT \
-                "$HTML_ROOT/audio" \
-                AUDIO_PERCENT \
-                AUDIO_DOWNLOADED \
-                AUDIO_TOTAL \
-                AUDIO_ERROR
-        else
-            echo "[1/3] ✓ 音频已存在，跳过"
-        fi
+        # ---- 下载单个资源的封装 ----
+        do_download_audio() {
+            if [ ! -d "$HTML_ROOT/audio" ] || [ -z "$(ls -A "$HTML_ROOT/audio" 2>/dev/null)" ]; then
+                download_and_serve \
+                    "$RELEASE_URL/audio.tar.gz" \
+                    /tmp/audio.tar.gz \
+                    "audio" \
+                    extract_tar_gz \
+                    AUDIO_STATUS \
+                    AUDIO_COUNT \
+                    "$HTML_ROOT/audio" \
+                    AUDIO_PERCENT \
+                    AUDIO_DOWNLOADED \
+                    AUDIO_TOTAL \
+                    AUDIO_ERROR
+            else
+                AUDIO_STATUS="ready"
+                AUDIO_PERCENT=100
+                AUDIO_COUNT=$(count_files "$HTML_ROOT/audio")
+            fi
+        }
 
-        # 2. 课本原页 (~192MB)
-        if [ ! -d "$HTML_ROOT/textbook-pages" ] || [ -z "$(ls -A "$HTML_ROOT/textbook-pages" 2>/dev/null)" ]; then
-            echo "[2/3] 下载课本原页..."
-            download_and_serve \
-                "$RELEASE_URL/textbook-pages.zip" \
-                /tmp/textbook-pages.zip \
-                "pages" \
-                extract_zip \
-                PAGES_STATUS \
-                PAGES_COUNT \
-                "$HTML_ROOT/textbook-pages" \
-                PAGES_PERCENT \
-                PAGES_DOWNLOADED \
-                PAGES_TOTAL \
-                PAGES_ERROR
-        else
-            echo "[2/3] ✓ 课本原页已存在，跳过"
-        fi
+        do_download_pages() {
+            if [ ! -d "$HTML_ROOT/textbook-pages" ] || [ -z "$(ls -A "$HTML_ROOT/textbook-pages" 2>/dev/null)" ]; then
+                download_and_serve \
+                    "$RELEASE_URL/textbook-pages.zip" \
+                    /tmp/textbook-pages.zip \
+                    "pages" \
+                    extract_zip \
+                    PAGES_STATUS \
+                    PAGES_COUNT \
+                    "$HTML_ROOT/textbook-pages" \
+                    PAGES_PERCENT \
+                    PAGES_DOWNLOADED \
+                    PAGES_TOTAL \
+                    PAGES_ERROR
+            else
+                PAGES_STATUS="ready"
+                PAGES_PERCENT=100
+                PAGES_COUNT=$(count_files "$HTML_ROOT/textbook-pages")
+            fi
+        }
 
-        # 3. 故事配图 (~368MB)
-        if [ ! -d "$HTML_ROOT/story-images" ] || [ -z "$(ls -A "$HTML_ROOT/story-images" 2>/dev/null)" ]; then
-            echo "[3/3] 下载故事配图..."
-            download_and_serve \
-                "$RELEASE_URL/story-images.zip" \
-                /tmp/story-images.zip \
-                "stories" \
-                extract_zip \
-                STORIES_STATUS \
-                STORIES_COUNT \
-                "$HTML_ROOT/story-images" \
-                STORIES_PERCENT \
-                STORIES_DOWNLOADED \
-                STORIES_TOTAL \
-                STORIES_ERROR
-        else
-            echo "[3/3] ✓ 故事配图已存在，跳过"
-        fi
+        do_download_stories() {
+            if [ ! -d "$HTML_ROOT/story-images" ] || [ -z "$(ls -A "$HTML_ROOT/story-images" 2>/dev/null)" ]; then
+                download_and_serve \
+                    "$RELEASE_URL/story-images.zip" \
+                    /tmp/story-images.zip \
+                    "stories" \
+                    extract_zip \
+                    STORIES_STATUS \
+                    STORIES_COUNT \
+                    "$HTML_ROOT/story-images" \
+                    STORIES_PERCENT \
+                    STORIES_DOWNLOADED \
+                    STORIES_TOTAL \
+                    STORIES_ERROR
+            else
+                STORIES_STATUS="ready"
+                STORIES_PERCENT=100
+                STORIES_COUNT=$(count_files "$HTML_ROOT/story-images")
+            fi
+        }
 
-        echo "=== 资源下载流程结束 ==="
+        # 初始下载
+        echo "[1/3] 下载音频..."
+        do_download_audio
+        echo "[2/3] 下载课本原页..."
+        do_download_pages
+        echo "[3/3] 下载故事配图..."
+        do_download_stories
+        echo "=== 初始下载流程结束，进入监听重试模式 ==="
+
+        # ---- 重试监听循环（每 5 秒检查一次 flag 文件）----
+        while true; do
+            sleep 5
+
+            if [ -f "$RETRY_FLAG_DIR/audio" ] && [ "$AUDIO_STATUS" = "error" ]; then
+                rm -f "$RETRY_FLAG_DIR/audio"
+                echo "[重试] 重新下载音频..."
+                # 清理旧的不完整文件
+                rm -rf "$HTML_ROOT/audio"
+                mkdir -p "$HTML_ROOT/audio"
+                do_download_audio
+                write_status
+                nginx -s reload 2>/dev/null || true
+            fi
+
+            if [ -f "$RETRY_FLAG_DIR/pages" ] && [ "$PAGES_STATUS" = "error" ]; then
+                rm -f "$RETRY_FLAG_DIR/pages"
+                echo "[重试] 重新下载课本原页..."
+                rm -rf "$HTML_ROOT/textbook-pages"
+                mkdir -p "$HTML_ROOT/textbook-pages"
+                do_download_pages
+                write_status
+                nginx -s reload 2>/dev/null || true
+            fi
+
+            if [ -f "$RETRY_FLAG_DIR/stories" ] && [ "$STORIES_STATUS" = "error" ]; then
+                rm -f "$RETRY_FLAG_DIR/stories"
+                echo "[重试] 重新下载故事配图..."
+                rm -rf "$HTML_ROOT/story-images"
+                mkdir -p "$HTML_ROOT/story-images"
+                do_download_stories
+                write_status
+                nginx -s reload 2>/dev/null || true
+            fi
+
+            # 清理过期的 flag（状态不是 error 但有 flag）
+            [ -f "$RETRY_FLAG_DIR/audio" ] && [ "$AUDIO_STATUS" != "error" ] && rm -f "$RETRY_FLAG_DIR/audio"
+            [ -f "$RETRY_FLAG_DIR/pages" ] && [ "$PAGES_STATUS" != "error" ] && rm -f "$RETRY_FLAG_DIR/pages"
+            [ -f "$RETRY_FLAG_DIR/stories" ] && [ "$STORIES_STATUS" != "error" ] && rm -f "$RETRY_FLAG_DIR/stories"
+        done
     ) &
 }
 
@@ -440,6 +563,9 @@ extract_zip() {
 
 # ---- 启动后台下载 ----
 start_background_download
+
+# ---- 启动 API 服务（处理重试请求）----
+start_api_server
 
 # ---- 以前台模式启动 nginx（作为容器 1 号主进程，保持运行）----
 echo "=== 启动 nginx（前台模式，作为容器主进程）==="

@@ -124,6 +124,31 @@ export function ProfileClient() {
     };
   }, [assetsStatus]);
 
+  // ---- 重试下载 ----
+  const [retryingKey, setRetryingKey] = useState<string | null>(null);
+
+  async function handleRetry(resourceKey: string) {
+    setRetryingKey(resourceKey);
+    try {
+      const res = await fetch(`/api/retry?resource=${resourceKey}`, {
+        method: "POST",
+        cache: "no-store",
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // 触发后立即刷新状态并恢复轮询
+      await fetch("/assets-status.json", { cache: "no-store" })
+        .then(r => r.json())
+        .then(data => setAssetsStatus(data))
+        .catch(() => {});
+      // 重新启动轮询
+      setAssetsStatus(prev => prev ? { ...prev } : null);
+    } catch (e) {
+      console.error("重试失败", e);
+    } finally {
+      setRetryingKey(null);
+    }
+  }
+
   const STATUS_LABEL: Record<string, { text: string; color: string; bg: string }> = {
     pending: { text: "等待中", color: "text-ink-softer", bg: "bg-bg-softer" },
     downloading: { text: "下载中", color: "text-primary", bg: "bg-primary/10" },
@@ -141,6 +166,8 @@ export function ProfileClient() {
     downloaded,
     total,
     errorMsg,
+    resourceKey,
+    onRetry,
   }: {
     icon: typeof CheckCircle;
     label: string;
@@ -150,6 +177,8 @@ export function ProfileClient() {
     downloaded?: string;
     total?: string;
     errorMsg?: string;
+    resourceKey: string;
+    onRetry: (key: string) => void;
   }) {
     const s = STATUS_LABEL[status] || STATUS_LABEL.pending;
     const p = percent ?? 0;
@@ -169,9 +198,19 @@ export function ProfileClient() {
                   : s.text}
             </div>
           </div>
-          <div className={`text-xs font-extrabold px-2 py-0.5 rounded-full ${s.bg} ${s.color}`}>
-            {status === "downloading" && total ? `${p}%` : s.text}
-          </div>
+          {status === "error" ? (
+            <button
+              type="button"
+              onClick={() => onRetry(resourceKey)}
+              className="text-xs font-extrabold px-3 py-1.5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 transition-colors shrink-0"
+            >
+              重试
+            </button>
+          ) : (
+            <div className={`text-xs font-extrabold px-2 py-0.5 rounded-full ${s.bg} ${s.color} shrink-0`}>
+              {status === "downloading" && total ? `${p}%` : s.text}
+            </div>
+          )}
         </div>
         {status === "downloading" && total && (
           <div className="mt-2 ml-11">
@@ -407,6 +446,8 @@ export function ProfileClient() {
                 downloaded={assetsStatus.audioDownloaded}
                 total={assetsStatus.audioTotal}
                 errorMsg={assetsStatus.audioError}
+                resourceKey="audio"
+                onRetry={handleRetry}
               />
               <StatusRow
                 icon={BookOpen}
@@ -417,6 +458,8 @@ export function ProfileClient() {
                 downloaded={assetsStatus.pagesDownloaded}
                 total={assetsStatus.pagesTotal}
                 errorMsg={assetsStatus.pagesError}
+                resourceKey="pages"
+                onRetry={handleRetry}
               />
               <StatusRow
                 icon={BookmarkIcon}
@@ -427,6 +470,8 @@ export function ProfileClient() {
                 downloaded={assetsStatus.storiesDownloaded}
                 total={assetsStatus.storiesTotal}
                 errorMsg={assetsStatus.storiesError}
+                resourceKey="stories"
+                onRetry={handleRetry}
               />
             </div>
           ) : (
