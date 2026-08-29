@@ -26,6 +26,7 @@ import {
   User,
   UserFill,
   Book,
+  BookOpen,
   Sparkle,
   type IconProps,
 } from "@/components/icons";
@@ -45,6 +46,7 @@ interface NavItem {
 
 const ITEMS: NavItem[] = [
   { href: "/", label: "学习", Icon: HomeIcon, IconActive: HomeFill, matchPrefix: "/learn-root" },
+  { href: "/reading/", label: "阅读", Icon: BookOpen, IconActive: BookOpen, matchPrefix: "/reading" },
   { href: "/league/", label: "排行榜", Icon: Trophy, IconActive: TrophyFill, matchPrefix: "/league" },
   { href: "/review/", label: "错题本", Icon: Bookmark, IconActive: BookmarkFill, matchPrefix: "/review" },
   { href: "/shop/", label: "商店", Icon: Gem, IconActive: Gem, matchPrefix: "/shop" },
@@ -56,14 +58,15 @@ function isActiveLearn(pathname: string): boolean {
     pathname === "/" ||
     pathname.startsWith("/grade/") ||
     pathname.startsWith("/book/") ||
-    pathname.startsWith("/lesson/") ||
-    pathname.startsWith("/stories/") ||
-    pathname.startsWith("/reading/")
+    pathname.startsWith("/lesson/")
   );
 }
 
 function isActive(pathname: string, item: NavItem): boolean {
   if (item.label === "学习") return isActiveLearn(pathname);
+  if (item.label === "阅读") {
+    return pathname.startsWith("/reading") || pathname.startsWith("/stories");
+  }
   return pathname.startsWith(item.matchPrefix);
 }
 
