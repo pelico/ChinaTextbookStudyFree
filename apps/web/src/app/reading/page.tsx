@@ -45,7 +45,7 @@ export default async function ReadingHomePage() {
   return (
     <AppShell>
       <main className="max-w-3xl mx-auto px-4 md:px-6 py-6">
-        <InnerHeader title="阅读中心" subtitle="课文听读 · 故事阅读" />
+        <InnerHeader title="阅读中心" subtitle="课文听读 · 故事阅读" backHref="/" />
 
         {/* 课文听读 */}
         <section className="mt-8">
