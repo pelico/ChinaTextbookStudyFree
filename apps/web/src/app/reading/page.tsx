@@ -3,9 +3,9 @@ import path from "path";
 import { AppShell } from "@/components/layout/AppShell";
 import { InnerHeader } from "@/components/InnerHeader";
 import { SoundLink } from "@/components/SoundLink";
-import { BookOpen, BookMarked, Volume2 } from "@/components/icons";
+import { BookOpen, Bookmark, Volume } from "@/components/icons";
 import type { SiteIndex, Book } from "@/types";
-import { SUBJECT_LABELS } from "@/lib/subjects";
+import { SUBJECTS } from "@/lib/subjects";
 
 async function getIndex(): Promise<SiteIndex> {
   const p = path.join(process.cwd(), "public", "data", "index.json");
@@ -51,7 +51,7 @@ export default async function ReadingHomePage() {
         <section className="mt-8">
           <div className="flex items-center gap-2 mb-4">
             <div className="w-8 h-8 rounded-xl bg-primary/10 text-primary inline-flex items-center justify-center">
-              <Volume2 className="w-4 h-4" />
+              <Volume className="w-4 h-4" />
             </div>
             <h2 className="text-lg font-extrabold text-ink">课文听读</h2>
             <span className="text-xs text-ink-light ml-1">
@@ -71,9 +71,7 @@ export default async function ReadingHomePage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-extrabold text-ink truncate">
-                      {SUBJECT_LABELS[book.subject] || book.subject}
-                      {GRADE_LABELS[book.grade]}
-                      {SEMESTER_LABELS[book.semester] || ""}
+                      {(SUBJECTS[book.subject]?.label ?? book.subject) + GRADE_LABELS[book.grade] + (SEMESTER_LABELS[book.semester] || "")}
                     </div>
                     <div className="text-xs text-ink-light mt-0.5 truncate">
                       {book.textbookName}
@@ -89,7 +87,7 @@ export default async function ReadingHomePage() {
         <section className="mt-10">
           <div className="flex items-center gap-2 mb-4">
             <div className="w-8 h-8 rounded-xl bg-gold/15 text-gold inline-flex items-center justify-center">
-              <BookMarked className="w-4 h-4" />
+              <Bookmark className="w-4 h-4" />
             </div>
             <h2 className="text-lg font-extrabold text-ink">故事阅读</h2>
             <span className="text-xs text-ink-light ml-1">
@@ -109,9 +107,7 @@ export default async function ReadingHomePage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-extrabold text-ink truncate">
-                      {SUBJECT_LABELS[book.subject] || book.subject}
-                      {GRADE_LABELS[book.grade]}
-                      {SEMESTER_LABELS[book.semester] || ""}
+                      {(SUBJECTS[book.subject]?.label ?? book.subject) + GRADE_LABELS[book.grade] + (SEMESTER_LABELS[book.semester] || "")}
                     </div>
                     <div className="text-xs text-ink-light mt-0.5 truncate">
                       {book.textbookName}
