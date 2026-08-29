@@ -4,7 +4,6 @@ import { StatsBar } from "@/components/StatsBar";
 import { SoundLink } from "@/components/SoundLink";
 import { AppShell } from "@/components/layout/AppShell";
 import { ChangeGradeButton } from "@/components/ChangeGradeButton";
-import { BookOpen, Sparkle, Bookmark, Volume } from "@/components/icons";
 import type { SiteIndex, SubjectId, Book } from "@/types";
 import { SUBJECTS } from "@/lib/subjects";
 
@@ -101,36 +100,6 @@ export default async function GradePage({ params }: { params: Promise<{ grade: s
         </div>
       </div>
       <div className="w-full">
-
-        {/* 快捷入口：课文听读 + 故事绘本 */}
-        <div className="grid grid-cols-2 gap-3 mb-6">
-          <SoundLink
-            href="/reading/"
-            className="block rounded-2xl bg-gradient-to-br from-primary/10 to-primary/5 border-2 border-primary/20 p-4 hover:border-primary/40 transition-colors"
-          >
-            <div className="w-10 h-10 rounded-xl bg-white text-primary inline-flex items-center justify-center shadow-sm mb-3">
-              <Volume className="w-5 h-5" />
-            </div>
-            <div className="text-sm font-extrabold text-ink">课文听读</div>
-            <div className="text-[11px] text-ink-light mt-0.5">
-              听课文 · 跟读练习
-            </div>
-          </SoundLink>
-
-          <SoundLink
-            href="/reading/#stories"
-            className="block rounded-2xl bg-gradient-to-br from-gold/15 to-gold/5 border-2 border-gold/30 p-4 hover:border-gold/50 transition-colors"
-          >
-            <div className="w-10 h-10 rounded-xl bg-white text-gold inline-flex items-center justify-center shadow-sm mb-3">
-              <Bookmark className="w-5 h-5" />
-            </div>
-            <div className="text-sm font-extrabold text-ink">故事绘本</div>
-            <div className="text-[11px] text-ink-light mt-0.5">
-              课外故事 · 配图阅读
-            </div>
-          </SoundLink>
-        </div>
-
         <div className="space-y-6">
           {SUBJECT_ORDER.map(subjectId => {
             const subjectBooks = bySubject.get(subjectId);
