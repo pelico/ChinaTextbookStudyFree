@@ -26,7 +26,6 @@ import {
   REVIEW_XP_PER_CORRECT,
   REVIEW_HEART_MIN_CORRECT,
 } from "@/store/progress";
-import { QuestionRenderer, type QuestionPhase } from "@/components/question/QuestionRenderer";
 import { MathText } from "@/components/MathText";
 import { Mascot } from "@/components/Mascot";
 import { EmptyState } from "@/components/StateMessages";
@@ -40,6 +39,22 @@ const ConfettiCanvas = dynamic(
   () => import("@/components/ConfettiCanvas").then(m => ({ default: m.ConfettiCanvas })),
   { ssr: false },
 );
+
+// 动态导入 QuestionRenderer（含 6 种题型组件 + framer-motion + TTS），
+// 避免进入复习页时一次性加载全部题目代码，减少首屏卡顿。
+const QuestionRenderer = dynamic(
+  () =>
+    import("@/components/question/QuestionRenderer").then(m => ({
+      default: m.QuestionRenderer,
+    })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full h-40 rounded-2xl bg-white border-2 border-bg-softer animate-pulse" />
+    ),
+  },
+);
+import type { QuestionPhase } from "@/components/question/QuestionRenderer";
 
 /** 队列条目：一道待复习的错题 */
 interface ReviewItem {
