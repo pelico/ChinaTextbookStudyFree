@@ -4,12 +4,13 @@ set -e
 # ================================================================
 # ChinaStudyFree · 容器入口脚本
 #
-# 先启动 nginx（立即可访问 Web 页面），后台下载音频/图片资源。
-# 下载完成后自动 reload nginx，资源通过 Docker volume 持久化。
+# 以前台模式启动 nginx（作为容器主进程，保持运行），
+# 后台异步下载音频/图片资源，下载完成后自动 reload nginx。
+# 资源通过 Docker volume 持久化，重启不重复下载。
 #
 # 环境变量：
-#   RELEASE_URL  — Release 下载基地址（可用镜像替换）
-#   HTTP_PROXY   — 代理地址（国内推荐 http://192.168.2.88:10809）
+#   RELEASE_URL   — Release 下载基地址（可用镜像替换）
+#   HTTP_PROXY    — 代理地址（国内推荐 http://192.168.2.88:10809）
 #   SKIP_DOWNLOAD — 设为 true 则跳过资源下载（纯前端体验）
 # ================================================================
 
@@ -17,16 +18,10 @@ RELEASE_URL="${RELEASE_URL:-https://github.com/pelico/ChinaTextbookStudyFree/rel
 HTML_ROOT="/usr/share/nginx/html"
 SKIP_DOWNLOAD="${SKIP_DOWNLOAD:-false}"
 
-# ---- 先启动 nginx（后台模式，Web 立即可用）----
-echo "=== 启动 nginx（Web 立即可用）==="
-nginx
-
 # ---- 磁盘空间检查 ----
 check_disk_space() {
-    # 检查 HTML_ROOT 所在分区的可用空间（单位：KB）
     available_kb=$(df -k "$HTML_ROOT" | awk 'NR==2 {print $4}')
     available_mb=$((available_kb / 1024))
-    # 预估总资源大小 ~1500MB，给 2000MB 缓冲
     min_required_mb=2000
 
     if [ "$available_mb" -lt "$min_required_mb" ]; then
@@ -38,7 +33,7 @@ check_disk_space() {
     return 0
 }
 
-# ---- 资源下载（后台执行，下载完后 reload nginx）----
+# ---- 下载文件（3 次重试）----
 download_file() {
     url="$1"
     output="$2"
@@ -56,29 +51,29 @@ download_file() {
     return 1
 }
 
-# 解压 tar.gz
+# ---- 解压 tar.gz ----
 extract_tar_gz() {
-    tar_path="$1"
-    dest="$2"
-    tar xzf "$tar_path" -C "$dest"
+    tar xzf "$1" -C "$2"
 }
 
-# 解压 zip 并修复 Windows 反斜杠路径
+# ---- 解压 zip（修复 Windows 反斜杠路径）----
 extract_zip() {
     zip_path="$1"
     dest="$2"
     mkdir -p "$dest"
-    cd "$dest"
-    unzip -oq "$zip_path" 2>/dev/null || true
-    find . -name '*\\*' -type f 2>/dev/null | while IFS= read -r f; do
-        newpath=$(printf '%s' "$f" | tr '\\' '/')
-        mkdir -p "$(dirname "$newpath")"
-        mv "$f" "$newpath" 2>/dev/null || true
-    done
-    find . -name '*\\*' -type d -empty -delete 2>/dev/null || true
-    cd /
+    (
+        cd "$dest"
+        unzip -oq "$zip_path" 2>/dev/null || true
+        find . -name '*\\*' -type f 2>/dev/null | while IFS= read -r f; do
+            newpath=$(printf '%s' "$f" | tr '\\' '/')
+            mkdir -p "$(dirname "$newpath")"
+            mv "$f" "$newpath" 2>/dev/null || true
+        done
+        find . -name '*\\*' -type d -empty -delete 2>/dev/null || true
+    )
 }
 
+# ---- 下载 + 解压 + reload ----
 download_and_serve() {
     url="$1"
     tmpfile="$2"
@@ -97,9 +92,15 @@ download_and_serve() {
     return 1
 }
 
-if [ "$SKIP_DOWNLOAD" = "true" ]; then
-    echo "=== SKIP_DOWNLOAD=true，跳过资源下载 ==="
-else
+# ================================================================
+# 后台下载资源（nginx 启动后 Web 立即可用，资源在后台逐步就绪）
+# ================================================================
+start_background_download() {
+    if [ "$SKIP_DOWNLOAD" = "true" ]; then
+        echo "=== SKIP_DOWNLOAD=true，跳过资源下载 ==="
+        return
+    fi
+
     echo "=== 后台下载资源（Web 页面已可访问）==="
 
     (
@@ -146,7 +147,13 @@ else
 
         echo "=== 资源下载流程结束 ==="
     ) &
-fi
+}
 
-# ---- 保持容器运行 ----
-wait
+# ---- 启动后台下载 ----
+start_background_download
+
+# ---- 以前台模式启动 nginx（作为容器 1 号主进程，保持运行）----
+# nginx 启动极快（<1s），启动后 Web 立即可访问
+# exec 替换当前 shell 进程，nginx 成为 PID 1
+echo "=== 启动 nginx（前台模式，作为容器主进程）==="
+exec nginx -g 'daemon off;'
