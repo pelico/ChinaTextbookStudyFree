@@ -22,8 +22,8 @@ const GRADE_LABELS: Record<number, string> = {
 };
 
 const SEMESTER_LABELS: Record<string, string> = {
-  upper: "上册",
-  lower: "下册",
+  up: "上册",
+  down: "下册",
 };
 
 export default async function ReadingHomePage() {
@@ -35,11 +35,11 @@ export default async function ReadingHomePage() {
   // 按年级排序
   const sortedPassage = [...passageBooks].sort((a, b) => {
     if (a.grade !== b.grade) return a.grade - b.grade;
-    return a.semester === "upper" ? -1 : 1;
+    return a.semester === "up" ? -1 : 1;
   });
   const sortedStories = [...storyBooks].sort((a, b) => {
     if (a.grade !== b.grade) return a.grade - b.grade;
-    return a.semester === "upper" ? -1 : 1;
+    return a.semester === "up" ? -1 : 1;
   });
 
   return (
