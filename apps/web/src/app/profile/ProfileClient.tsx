@@ -29,10 +29,26 @@ import {
   Gem,
   Book,
   Sparkle,
+  CheckCircle,
+  XCircle,
+  Volume,
+  BookOpen,
+  Bookmark as BookmarkIcon,
 } from "@/components/icons";
 import { ThemeModeToggle } from "@/components/ThemeModeToggle";
 import { playSfx } from "@/lib/sfx";
 import { haptic } from "@/lib/haptic";
+
+// ---- 资源状态类型 ----
+interface AssetsStatus {
+  audio: "pending" | "downloading" | "ready" | "error" | "skipped";
+  audioFiles: number;
+  textbookPages: "pending" | "downloading" | "ready" | "error" | "skipped";
+  pageFiles: number;
+  storyImages: "pending" | "downloading" | "ready" | "error" | "skipped";
+  storyFiles: number;
+  updatedAt: string;
+}
 
 export function ProfileClient() {
   const xp = useProgressStore(s => s.xp);
@@ -46,6 +62,90 @@ export function ProfileClient() {
 
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => setHydrated(true), []);
+
+  // ---- 资源状态轮询 ----
+  const [assetsStatus, setAssetsStatus] = useState<AssetsStatus | null>(null);
+  const [assetsError, setAssetsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+
+    async function fetchStatus() {
+      try {
+        const res = await fetch(`/assets-status.json?_=${Date.now()}`, {
+          cache: "no-store",
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (!cancelled) {
+          setAssetsStatus(data);
+          setAssetsError(null);
+        }
+      } catch (e) {
+        if (!cancelled) setAssetsError((e as Error).message);
+      }
+    }
+
+    fetchStatus();
+    // 每 10 秒刷新一次，全部就绪后停止
+    function schedule() {
+      timer = setTimeout(async () => {
+        await fetchStatus();
+        if (!cancelled) {
+          // 如果所有资源都就绪/跳过/错误，就停止轮询
+          const allDone = assetsStatus && ["ready", "skipped", "error"].includes(assetsStatus.audio)
+            && ["ready", "skipped", "error"].includes(assetsStatus.textbookPages)
+            && ["ready", "skipped", "error"].includes(assetsStatus.storyImages);
+          if (!allDone) schedule();
+        }
+      }, 10000);
+    }
+    schedule();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [assetsStatus]);
+
+  const STATUS_LABEL: Record<string, { text: string; color: string; bg: string }> = {
+    pending: { text: "等待中", color: "text-ink-softer", bg: "bg-bg-softer" },
+    downloading: { text: "下载中", color: "text-primary", bg: "bg-primary/10" },
+    ready: { text: "已就绪", color: "text-success", bg: "bg-success/10" },
+    error: { text: "失败", color: "text-danger", bg: "bg-danger/10" },
+    skipped: { text: "已跳过", color: "text-ink-softer", bg: "bg-bg-softer" },
+  };
+
+  function StatusRow({
+    icon: Icon,
+    label,
+    status,
+    count,
+  }: {
+    icon: typeof CheckCircle;
+    label: string;
+    status: keyof typeof STATUS_LABEL;
+    count: number;
+  }) {
+    const s = STATUS_LABEL[status] || STATUS_LABEL.pending;
+    return (
+      <div className="flex items-center gap-3 py-2">
+        <div className={`w-8 h-8 rounded-xl ${s.bg} ${s.color} inline-flex items-center justify-center shrink-0`}>
+          <Icon className="w-4 h-4" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-bold text-ink">{label}</div>
+          <div className="text-xs text-ink-light">
+            {status === "ready" ? `${count} 个文件` : s.text}
+          </div>
+        </div>
+        <div className={`text-xs font-extrabold px-2 py-0.5 rounded-full ${s.bg} ${s.color}`}>
+          {s.text}
+        </div>
+      </div>
+    );
+  }
 
   function pickLimit(min: number) {
     playSfx("tap");
@@ -223,6 +323,72 @@ export function ProfileClient() {
           </div>
           <div className="text-ink-softer text-xl">›</div>
         </SoundLink>
+
+        {/* 资源下载状态 */}
+        <section
+          className="bg-white rounded-3xl border-2 border-bg-softer p-5 mb-6 lg:mb-0"
+          style={{ boxShadow: "0 4px 0 0 var(--shadow-card-color)" }}
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-base font-extrabold text-ink">资源状态</div>
+            {assetsStatus?.updatedAt && (
+              <span className="text-[10px] text-ink-softer">
+                {new Date(assetsStatus.updatedAt).toLocaleTimeString("zh-CN", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                })}
+              </span>
+            )}
+          </div>
+          <div className="text-xs text-ink-light mb-2">
+            容器首次启动时自动下载音频和图片资源
+          </div>
+
+          {assetsError ? (
+            <div className="py-4 text-center text-sm text-ink-light">
+              无法获取状态：{assetsError}
+              <br />
+              <span className="text-xs">（本地开发或静态部署无此功能）</span>
+            </div>
+          ) : assetsStatus ? (
+            <div className="divide-y divide-bg-softer -mx-2">
+              <StatusRow
+                icon={Volume}
+                label="音频资源"
+                status={assetsStatus.audio}
+                count={assetsStatus.audioFiles}
+              />
+              <StatusRow
+                icon={BookOpen}
+                label="课本原页"
+                status={assetsStatus.textbookPages}
+                count={assetsStatus.pageFiles}
+              />
+              <StatusRow
+                icon={BookmarkIcon}
+                label="故事配图"
+                status={assetsStatus.storyImages}
+                count={assetsStatus.storyFiles}
+              />
+            </div>
+          ) : (
+            <div className="py-4 text-center text-sm text-ink-light animate-pulse">
+              加载中...
+            </div>
+          )}
+
+          {assetsStatus?.storyImages === "error" && (
+            <div className="mt-3 p-3 rounded-xl bg-danger/10 text-danger text-xs">
+              故事配图下载失败，请检查网络或代理设置，重启容器重试。
+            </div>
+          )}
+          {assetsStatus?.textbookPages === "error" && (
+            <div className="mt-3 p-3 rounded-xl bg-danger/10 text-danger text-xs">
+              课本原页下载失败，请检查网络或代理设置，重启容器重试。
+            </div>
+          )}
+        </section>
 
         {/* 外观：免费深色模式三态开关（跟随系统 / 亮 / 暗） */}
         <section

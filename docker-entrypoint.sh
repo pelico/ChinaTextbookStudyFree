@@ -8,6 +8,9 @@ set -e
 # 后台异步下载音频/图片资源，下载完成后自动 reload nginx。
 # 资源通过 Docker volume 持久化，重启不重复下载。
 #
+# 状态文件：/usr/share/nginx/html/assets-status.json
+#   前端可通过 GET /assets-status.json 查看资源下载状态。
+#
 # 环境变量：
 #   RELEASE_URL   — Release 下载基地址（可用镜像替换）
 #   HTTP_PROXY    — 代理地址（国内推荐 http://192.168.2.88:10809）
@@ -17,6 +20,47 @@ set -e
 RELEASE_URL="${RELEASE_URL:-https://github.com/pelico/ChinaTextbookStudyFree/releases/latest/download}"
 HTML_ROOT="/usr/share/nginx/html"
 SKIP_DOWNLOAD="${SKIP_DOWNLOAD:-false}"
+STATUS_FILE="$HTML_ROOT/assets-status.json"
+
+# ---- 写入状态文件 ----
+write_status() {
+    cat > "$STATUS_FILE" << EOF
+{
+  "audio": ${AUDIO_STATUS:-"pending"},
+  "audioFiles": ${AUDIO_COUNT:-0},
+  "textbookPages": ${PAGES_STATUS:-"pending"},
+  "pageFiles": ${PAGES_COUNT:-0},
+  "storyImages": ${STORIES_STATUS:-"pending"},
+  "storyFiles": ${STORIES_COUNT:-0},
+  "updatedAt": "$(date -Iseconds)"
+}
+EOF
+}
+
+# 统计目录文件数（递归）
+count_files() {
+    if [ -d "$1" ]; then
+        find "$1" -type f 2>/dev/null | wc -l | tr -d ' '
+    else
+        echo 0
+    fi
+}
+
+# 初始化状态
+AUDIO_STATUS="pending"
+PAGES_STATUS="pending"
+STORIES_STATUS="pending"
+AUDIO_COUNT=$(count_files "$HTML_ROOT/audio")
+PAGES_COUNT=$(count_files "$HTML_ROOT/textbook-pages")
+STORIES_COUNT=$(count_files "$HTML_ROOT/story-images")
+
+# 如果已有文件，标记为 ready
+[ "$AUDIO_COUNT" -gt 0 ] && AUDIO_STATUS="ready"
+[ "$PAGES_COUNT" -gt 0 ] && PAGES_STATUS="ready"
+[ "$STORIES_COUNT" -gt 0 ] && STORIES_STATUS="ready"
+
+mkdir -p "$HTML_ROOT"
+write_status
 
 # ---- 磁盘空间检查 ----
 check_disk_space() {
@@ -73,22 +117,44 @@ extract_zip() {
     )
 }
 
-# ---- 下载 + 解压 + reload ----
+# ---- 下载 + 解压 + reload + 状态更新 ----
 download_and_serve() {
     url="$1"
     tmpfile="$2"
     label="$3"
     extract_func="$4"
+    status_var="$5"
+    count_var="$6"
+    check_dir="$7"
+
+    # 更新状态为 downloading
+    eval "$status_var=\"downloading\""
+    write_status
 
     if download_file "$url" "$tmpfile" "$label"; then
         echo "  [$label] 下载完成，解压中..."
         "$extract_func" "$tmpfile" "$HTML_ROOT"
         rm -f "$tmpfile"
-        nginx -s reload 2>/dev/null || true
-        echo "  [$label] ✓ 已就绪"
-        return 0
+
+        # 解压后验证文件数
+        file_count=$(count_files "$check_dir")
+        if [ "$file_count" -gt 0 ]; then
+            eval "$status_var=\"ready\""
+            eval "$count_var=\"$file_count\""
+            nginx -s reload 2>/dev/null || true
+            echo "  [$label] ✓ 已就绪（$file_count 个文件）"
+            write_status
+            return 0
+        else
+            eval "$status_var=\"error\""
+            echo "  [$label] ✗ 解压后目录为空，请检查 zip 文件结构"
+            write_status
+            return 1
+        fi
     fi
+    eval "$status_var=\"error\""
     echo "  [$label] ✗ 资源不可用（页面仍可访问）"
+    write_status
     return 1
 }
 
@@ -98,6 +164,10 @@ download_and_serve() {
 start_background_download() {
     if [ "$SKIP_DOWNLOAD" = "true" ]; then
         echo "=== SKIP_DOWNLOAD=true，跳过资源下载 ==="
+        AUDIO_STATUS="skipped"
+        PAGES_STATUS="skipped"
+        STORIES_STATUS="skipped"
+        write_status
         return
     fi
 
@@ -106,6 +176,10 @@ start_background_download() {
     (
         # 磁盘空间检查
         if ! check_disk_space; then
+            AUDIO_STATUS="skipped"
+            PAGES_STATUS="skipped"
+            STORIES_STATUS="skipped"
+            write_status
             exit 0
         fi
 
@@ -116,7 +190,10 @@ start_background_download() {
                 "$RELEASE_URL/audio.tar.gz" \
                 /tmp/audio.tar.gz \
                 "audio" \
-                extract_tar_gz
+                extract_tar_gz \
+                AUDIO_STATUS \
+                AUDIO_COUNT \
+                "$HTML_ROOT/audio"
         else
             echo "[1/3] ✓ 音频已存在，跳过"
         fi
@@ -128,7 +205,10 @@ start_background_download() {
                 "$RELEASE_URL/textbook-pages.zip" \
                 /tmp/textbook-pages.zip \
                 "pages" \
-                extract_zip
+                extract_zip \
+                PAGES_STATUS \
+                PAGES_COUNT \
+                "$HTML_ROOT/textbook-pages"
         else
             echo "[2/3] ✓ 课本原页已存在，跳过"
         fi
@@ -140,7 +220,10 @@ start_background_download() {
                 "$RELEASE_URL/story-images.zip" \
                 /tmp/story-images.zip \
                 "stories" \
-                extract_zip
+                extract_zip \
+                STORIES_STATUS \
+                STORIES_COUNT \
+                "$HTML_ROOT/story-images"
         else
             echo "[3/3] ✓ 故事配图已存在，跳过"
         fi
@@ -153,7 +236,5 @@ start_background_download() {
 start_background_download
 
 # ---- 以前台模式启动 nginx（作为容器 1 号主进程，保持运行）----
-# nginx 启动极快（<1s），启动后 Web 立即可访问
-# exec 替换当前 shell 进程，nginx 成为 PID 1
 echo "=== 启动 nginx（前台模式，作为容器主进程）==="
 exec nginx -g 'daemon off;'
