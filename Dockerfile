@@ -84,8 +84,8 @@ LABEL org.opencontainers.image.title="ChinaStudyFree"
 LABEL org.opencontainers.image.description="小学全科 AI 学习平台（Web 端）"
 LABEL org.opencontainers.image.licenses="MIT"
 
-# curl + unzip + nc：entrypoint 首次启动时自动下载音频/图片资源 + 重试 API
-RUN apk add --no-cache curl unzip netcat-openbsd
+# curl + unzip + python3 + nc：entrypoint 首次启动时自动下载资源 + 重试 API
+RUN apk add --no-cache curl unzip python3 netcat-openbsd
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY docker-entrypoint.sh /docker-entrypoint.sh

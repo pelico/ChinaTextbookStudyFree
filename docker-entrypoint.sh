@@ -544,21 +544,25 @@ extract_tar_gz() {
     tar xzf "$1" -C "$2"
 }
 
-# ---- 解压 zip（修复 Windows 反斜杠路径）----
+# ---- 解压 zip（用 python3 处理 Windows 反斜杠路径）----
 extract_zip() {
     zip_path="$1"
     dest="$2"
     mkdir -p "$dest"
-    (
-        cd "$dest"
-        unzip -oq "$zip_path" 2>/dev/null || true
-        find . -name '*\\*' -type f 2>/dev/null | while IFS= read -r f; do
-            newpath=$(printf '%s' "$f" | tr '\\' '/')
-            mkdir -p "$(dirname "$newpath")"
-            mv "$f" "$newpath" 2>/dev/null || true
-        done
-        find . -name '*\\*' -type d -empty -delete 2>/dev/null || true
-    )
+    python3 - "$zip_path" "$dest" <<'PY'
+import os, sys, zipfile
+src, dst = sys.argv[1], sys.argv[2]
+with zipfile.ZipFile(src) as z:
+    for name in z.namelist():
+        fixed = name.replace('\\', '/')
+        target = os.path.join(dst, fixed)
+        if fixed.endswith('/'):
+            os.makedirs(target, exist_ok=True)
+            continue
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with z.open(name) as sf, open(target, 'wb') as df:
+            df.write(sf.read())
+PY
 }
 
 # ---- 启动后台下载 ----
