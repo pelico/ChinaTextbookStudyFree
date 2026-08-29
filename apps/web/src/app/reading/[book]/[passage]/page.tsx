@@ -47,10 +47,20 @@ export default async function ReadingPage({
   const { book: bookId, passage: passageId } = await params;
   const doc = await getPassages(bookId);
   if (!doc) notFound();
-  const passage = doc.passages.find(p => p.id === passageId);
-  if (!passage) notFound();
+  const idx = doc.passages.findIndex(p => p.id === passageId);
+  if (idx < 0) notFound();
+  const passage = doc.passages[idx];
+  const prev = idx > 0 ? doc.passages[idx - 1] : null;
+  const next = idx < doc.passages.length - 1 ? doc.passages[idx + 1] : null;
 
   return (
-    <PassageReader passage={passage} backHref={`/reading/${bookId}/`} />
+    <PassageReader
+      passage={passage}
+      backHref={`/reading/${bookId}/`}
+      prevHref={prev ? `/reading/${bookId}/${prev.id}/` : null}
+      prevTitle={prev?.title ?? null}
+      nextHref={next ? `/reading/${bookId}/${next.id}/` : null}
+      nextTitle={next?.title ?? null}
+    />
   );
 }

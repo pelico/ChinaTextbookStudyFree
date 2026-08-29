@@ -47,13 +47,20 @@ export default async function StoryPage({
   const { book: bookId, story: storyId } = await params;
   const doc = await getStories(bookId);
   if (!doc) notFound();
-  const story = doc.stories.find(s => s.id === storyId);
-  if (!story) notFound();
+  const idx = doc.stories.findIndex(s => s.id === storyId);
+  if (idx < 0) notFound();
+  const story = doc.stories[idx];
+  const prev = idx > 0 ? doc.stories[idx - 1] : null;
+  const next = idx < doc.stories.length - 1 ? doc.stories[idx + 1] : null;
 
   return (
     <StoryReaderClient
       story={story}
       backHref={`/stories/${bookId}/`}
+      prevHref={prev ? `/stories/${bookId}/${prev.id}/` : null}
+      prevTitle={prev?.title ?? null}
+      nextHref={next ? `/stories/${bookId}/${next.id}/` : null}
+      nextTitle={next?.title ?? null}
     />
   );
 }

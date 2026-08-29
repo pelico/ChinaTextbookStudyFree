@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Play, Pause } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward } from "lucide-react";
 import { readingId } from "@cstf/core/reading";
 import { Volume, Check, XMark, Star, Lightning } from "@/components/icons";
 import { InnerHeader } from "@/components/InnerHeader";
@@ -40,14 +40,29 @@ function toQuestion(sq: StoryQuestion): Question {
 interface Props {
   story: Story;
   backHref: string;
+  prevHref: string | null;
+  prevTitle: string | null;
+  nextHref: string | null;
+  nextTitle: string | null;
 }
 
-export default function StoryReaderClient({ story, backHref }: Props) {
+export default function StoryReaderClient({ story, backHref, prevHref, prevTitle, nextHref, nextTitle }: Props) {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("reading");
   const [mode, setMode] = useState<PlayMode>("idle");
   const [currentIndex, setCurrentIndex] = useState<number | null>(null);
   const abortRef = useRef(false);
+  const [autoPlay, setAutoPlay] = useState(false); // 自动连播下一个故事
+
+  // 从 localStorage 读取连播偏好 + 保存偏好
+  useEffect(() => {
+    const saved = localStorage.getItem("story_autoplay");
+    if (saved === "1") setAutoPlay(true);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("story_autoplay", autoPlay ? "1" : "0");
+  }, [autoPlay]);
 
   // Quiz state
   const [qIdx, setQIdx] = useState(0);
@@ -96,7 +111,25 @@ export default function StoryReaderClient({ story, backHref }: Props) {
     }
     setCurrentIndex(null);
     setMode("idle");
-  }, [mode, story]);
+
+    // 自动连播：播完后跳到下一个故事
+    if (autoPlay && nextHref) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      const sep = nextHref.includes("?") ? "&" : "?";
+      router.push(`${nextHref}${sep}autoplay=1`);
+    }
+  }, [mode, story, autoPlay, nextHref, router]);
+
+  // 如果 URL 带 autoplay=1，自动开始播放（连播跳转过来时触发）
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("autoplay") === "1" && hasAudio) {
+      const t = setTimeout(() => playAll(), 600);
+      return () => clearTimeout(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasAudio]);
 
   const startQuiz = () => {
     abortRef.current = true;
@@ -397,6 +430,66 @@ export default function StoryReaderClient({ story, backHref }: Props) {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* 上一个 / 下一个 故事导航栏（仅阅读阶段） */}
+      {phase === "reading" && (prevHref || nextHref) && (
+        <div className="max-w-md lg:max-w-6xl mx-auto px-4 pb-3">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => prevHref && router.push(prevHref)}
+              disabled={!prevHref}
+              className={cn(
+                "flex-1 flex items-center gap-2 px-3 py-2 rounded-xl border border-bg-softer bg-white text-left",
+                "disabled:opacity-40 disabled:cursor-not-allowed",
+                "hover:bg-bg-soft active:scale-[0.98] transition-all",
+              )}
+            >
+              <SkipBack className="w-4 h-4 text-ink-light shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="text-[10px] text-ink-light">上一个</div>
+                <div className="text-xs font-bold text-ink truncate">
+                  {prevTitle ?? "—"}
+                </div>
+              </div>
+            </button>
+
+            {/* 自动连播开关 */}
+            <button
+              type="button"
+              onClick={() => setAutoPlay(v => !v)}
+              className={cn(
+                "shrink-0 px-3 py-2 rounded-xl border text-xs font-extrabold transition-all",
+                autoPlay
+                  ? "bg-gold text-white border-gold"
+                  : "bg-white text-ink-light border-bg-softer hover:bg-bg-soft",
+              )}
+              title="自动连播下一个故事"
+            >
+              ⇢ 连播
+            </button>
+
+            <button
+              type="button"
+              onClick={() => nextHref && router.push(nextHref)}
+              disabled={!nextHref}
+              className={cn(
+                "flex-1 flex items-center gap-2 px-3 py-2 rounded-xl border border-bg-softer bg-white text-right",
+                "disabled:opacity-40 disabled:cursor-not-allowed",
+                "hover:bg-bg-soft active:scale-[0.98] transition-all",
+              )}
+            >
+              <div className="flex-1 min-w-0">
+                <div className="text-[10px] text-ink-light">下一个</div>
+                <div className="text-xs font-bold text-ink truncate">
+                  {nextTitle ?? "—"}
+                </div>
+              </div>
+              <SkipForward className="w-4 h-4 text-ink-light shrink-0" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 底部操作栏 — 仅阅读阶段 */}
       {phase === "reading" && (

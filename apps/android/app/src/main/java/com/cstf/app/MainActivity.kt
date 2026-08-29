@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.view.GestureDetector
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -224,10 +225,55 @@ class MainActivity : AppCompatActivity() {
                 builtInZoomControls = false
             }
 
+            // 注入 JS Bridge，让 Web 端可以控制后台播放保活
+            addJavascriptInterface(AudioBridge(), "CSTFAndroid")
+
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
                     hideLoading()
+                    // 页面加载完后注入全局音频监听脚本
+                    view?.evaluateJavascript(
+                        """
+                        (function() {
+                            if (window.__cstfAudioInjected) return;
+                            window.__cstfAudioInjected = true;
+                            var playingCount = 0;
+                            function hookAudio(proto) {
+                                var origPlay = proto.play;
+                                var origPause = proto.pause;
+                                proto.play = function() {
+                                    var result = origPlay.apply(this, arguments);
+                                    if (!this.__cstfHooked) {
+                                        this.__cstfHooked = true;
+                                        this.addEventListener('play', function() {
+                                            playingCount++;
+                                            if (playingCount === 1 && window.CSTFAndroid) {
+                                                window.CSTFAndroid.startPlayback();
+                                            }
+                                        });
+                                        this.addEventListener('pause', function() {
+                                            if (playingCount > 0) playingCount--;
+                                            if (playingCount === 0 && window.CSTFAndroid) {
+                                                window.CSTFAndroid.stopPlayback();
+                                            }
+                                        });
+                                        this.addEventListener('ended', function() {
+                                            if (playingCount > 0) playingCount--;
+                                            if (playingCount === 0 && window.CSTFAndroid) {
+                                                window.CSTFAndroid.stopPlayback();
+                                            }
+                                        });
+                                    }
+                                    return result;
+                                };
+                            }
+                            hookAudio(HTMLAudioElement.prototype);
+                            hookAudio(HTMLMediaElement.prototype);
+                        })();
+                        """.trimIndent(),
+                        null
+                    )
                 }
 
                 override fun onReceivedError(
@@ -384,7 +430,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        AudioPlaybackService.stop(this)
         if (::webView.isInitialized) webView.destroy()
         super.onDestroy()
+    }
+
+    /**
+     * JS Bridge：让 Web 页面可以控制后台播放保活服务
+     */
+    inner class AudioBridge {
+        @JavascriptInterface
+        fun startPlayback() {
+            AudioPlaybackService.start(this@MainActivity, "正在播放")
+        }
+
+        @JavascriptInterface
+        fun stopPlayback() {
+            AudioPlaybackService.stop(this@MainActivity)
+        }
     }
 }

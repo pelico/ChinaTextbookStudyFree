@@ -13,8 +13,9 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronLeft, ChevronRight, Play, Pause, Mic, Square, RotateCcw } from "lucide-react";
+import { ChevronLeft, ChevronRight, Play, Pause, Mic, Square, RotateCcw, SkipBack, SkipForward } from "lucide-react";
 import { readingId, type ReadingKind } from "@cstf/core/reading";
 import { Volume, Lightning } from "@/components/icons";
 import { InnerHeader } from "@/components/InnerHeader";
@@ -38,13 +39,29 @@ const XP_FOLLOWUP = 10;
 interface Props {
   passage: Passage;
   backHref: string;
+  prevHref: string | null;
+  prevTitle: string | null;
+  nextHref: string | null;
+  nextTitle: string | null;
 }
 
 type Mode = "idle" | "playing" | "followup";
 
-export function PassageReader({ passage, backHref }: Props) {
+export function PassageReader({ passage, backHref, prevHref, prevTitle, nextHref, nextTitle }: Props) {
+  const router = useRouter();
   const [mode, setMode] = useState<Mode>("idle");
   const [currentIndex, setCurrentIndex] = useState<number | null>(null);
+  const [autoPlay, setAutoPlay] = useState(false); // 自动连播下一篇
+
+  // 从 localStorage 读取连播偏好 + 保存偏好
+  useEffect(() => {
+    const saved = localStorage.getItem("reading_autoplay");
+    if (saved === "1") setAutoPlay(true);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("reading_autoplay", autoPlay ? "1" : "0");
+  }, [autoPlay]);
   /** 跟读模式下每句的学生录音 blob URL */
   const [recordings, setRecordings] = useState<(string | null)[]>(
     () => passage.sentences.map(() => null),
@@ -145,9 +162,16 @@ export function PassageReader({ passage, backHref }: Props) {
     // 完整听完整篇 → 首次给 XP
     if (completed) {
       grantPassageReward("listen", XP_LISTEN);
+      // 自动连播：播完后跳到下一篇
+      if (autoPlay && nextHref) {
+        await sleep(500);
+        const sep = nextHref.includes("?") ? "&" : "?";
+        router.push(`${nextHref}${sep}autoplay=1`);
+        return;
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, passage]);
+  }, [mode, passage, autoPlay, nextHref, router]);
 
   // 跟读流程：逐句 → 播原音 → 录音 → 下一句
   const runFollowup = useCallback(async () => {
@@ -229,6 +253,17 @@ export function PassageReader({ passage, backHref }: Props) {
     passage.kind === "poem" ||
     passage.kind === "ancient_poem" ||
     passage.kind === "song";
+
+  // 如果 URL 带 autoplay=1，自动开始播放（连播跳转过来时触发）
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("autoplay") === "1" && hasAnyAudio) {
+      const t = setTimeout(() => playAll(), 600);
+      return () => clearTimeout(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasAnyAudio]);
 
   return (
     <main className="min-h-screen bg-bg-soft pb-24">
@@ -406,6 +441,66 @@ export function PassageReader({ passage, backHref }: Props) {
         </AnimatePresence>
       </div>
       </div>
+
+      {/* 上一篇 / 下一篇 导航栏 */}
+      {(prevHref || nextHref) && (
+        <div className="max-w-md lg:max-w-6xl mx-auto px-4 pb-3">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => prevHref && router.push(prevHref)}
+              disabled={!prevHref}
+              className={cn(
+                "flex-1 flex items-center gap-2 px-3 py-2 rounded-xl border border-bg-softer bg-white text-left",
+                "disabled:opacity-40 disabled:cursor-not-allowed",
+                "hover:bg-bg-soft active:scale-[0.98] transition-all",
+              )}
+            >
+              <SkipBack className="w-4 h-4 text-ink-light shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="text-[10px] text-ink-light">上一篇</div>
+                <div className="text-xs font-bold text-ink truncate">
+                  {prevTitle ?? "—"}
+                </div>
+              </div>
+            </button>
+
+            {/* 自动连播开关 */}
+            <button
+              type="button"
+              onClick={() => setAutoPlay(v => !v)}
+              className={cn(
+                "shrink-0 px-3 py-2 rounded-xl border text-xs font-extrabold transition-all",
+                autoPlay
+                  ? "bg-primary text-white border-primary"
+                  : "bg-white text-ink-light border-bg-softer hover:bg-bg-soft",
+              )}
+              title="自动连播下一篇"
+            >
+              ⇢ 连播
+            </button>
+
+            <button
+              type="button"
+              onClick={() => nextHref && router.push(nextHref)}
+              disabled={!nextHref}
+              className={cn(
+                "flex-1 flex items-center gap-2 px-3 py-2 rounded-xl border border-bg-softer bg-white text-right",
+                "disabled:opacity-40 disabled:cursor-not-allowed",
+                "hover:bg-bg-soft active:scale-[0.98] transition-all",
+              )}
+            >
+              <div className="flex-1 min-w-0">
+                <div className="text-[10px] text-ink-light">下一篇</div>
+                <div className="text-xs font-bold text-ink truncate">
+                  {nextTitle ?? "—"}
+                </div>
+              </div>
+              <SkipForward className="w-4 h-4 text-ink-light shrink-0" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 底部操作栏 */}
       {/* z-40：与 BottomNav 同层，任何时候都不会被固定底栏压住（阅读器本就隐藏底栏，
