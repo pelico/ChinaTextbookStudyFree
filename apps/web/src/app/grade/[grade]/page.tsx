@@ -4,6 +4,7 @@ import { StatsBar } from "@/components/StatsBar";
 import { SoundLink } from "@/components/SoundLink";
 import { AppShell } from "@/components/layout/AppShell";
 import { ChangeGradeButton } from "@/components/ChangeGradeButton";
+import { BookOpen, Sparkle } from "@/components/icons";
 import type { SiteIndex, SubjectId, Book } from "@/types";
 import { SUBJECTS } from "@/lib/subjects";
 
@@ -100,6 +101,30 @@ export default async function GradePage({ params }: { params: Promise<{ grade: s
         </div>
       </div>
       <div className="w-full">
+
+        {/* 阅读中心入口 */}
+        <div className="mb-6">
+          <SoundLink
+            href="/reading/"
+            className="block rounded-2xl bg-gradient-to-r from-primary/10 to-gold/10 border-2 border-primary/20 p-4 hover:border-primary/40 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <div className="relative shrink-0">
+                <div className="w-12 h-12 rounded-2xl bg-white text-primary inline-flex items-center justify-center shadow-sm">
+                  <BookOpen className="w-6 h-6" />
+                </div>
+                <Sparkle className="w-4 h-4 text-gold absolute -top-1 -right-1" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-base font-extrabold text-ink">阅读中心</div>
+                <div className="text-xs text-ink-light mt-0.5">
+                  课文听读 · 故事阅读 · 阅读理解
+                </div>
+              </div>
+              <div className="shrink-0 text-sm font-extrabold text-primary">去读 →</div>
+            </div>
+          </SoundLink>
+        </div>
 
         <div className="space-y-6">
           {SUBJECT_ORDER.map(subjectId => {
