@@ -71,7 +71,7 @@ export default async function ReadingHomePage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-extrabold text-ink truncate">
-                      {(SUBJECTS[book.subject]?.label ?? book.subject) + GRADE_LABELS[book.grade] + (SEMESTER_LABELS[book.semester] || "")}
+                      {(book.subject ? (SUBJECTS[book.subject]?.label ?? book.subject) : "") + GRADE_LABELS[book.grade] + (SEMESTER_LABELS[book.semester] || "")}
                     </div>
                     <div className="text-xs text-ink-light mt-0.5 truncate">
                       {book.textbookName}
@@ -103,11 +103,11 @@ export default async function ReadingHomePage() {
               >
                 <div className="flex items-center gap-3">
                   <div className="shrink-0 w-11 h-11 rounded-2xl bg-gold/15 text-gold inline-flex items-center justify-center">
-                    <BookMarked className="w-5 h-5" />
+                    <Bookmark className="w-5 h-5" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-extrabold text-ink truncate">
-                      {(SUBJECTS[book.subject]?.label ?? book.subject) + GRADE_LABELS[book.grade] + (SEMESTER_LABELS[book.semester] || "")}
+                      {(book.subject ? (SUBJECTS[book.subject]?.label ?? book.subject) : "") + GRADE_LABELS[book.grade] + (SEMESTER_LABELS[book.semester] || "")}
                     </div>
                     <div className="text-xs text-ink-light mt-0.5 truncate">
                       {book.textbookName}
