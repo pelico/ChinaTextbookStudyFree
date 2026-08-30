@@ -234,7 +234,7 @@ class MainActivity : AppCompatActivity() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
                     hideLoading()
-                    // 页面加载完后注入全局音频监听脚本
+                    // 注入音频监听脚本：用事件捕获代替原型 hook，更安全
                     view?.evaluateJavascript(
                         """
                         (function() {
@@ -242,44 +242,26 @@ class MainActivity : AppCompatActivity() {
                                 if (window.__cstfAudioInjected) return;
                                 window.__cstfAudioInjected = true;
                                 var playingCount = 0;
-                                function hookAudio(proto) {
-                                    if (!proto || !proto.play) return;
-                                    var origPlay = proto.play;
-                                    var origPause = proto.pause;
-                                    proto.play = function() {
-                                        var result = origPlay.apply(this, arguments);
-                                        if (!this.__cstfHooked) {
-                                            this.__cstfHooked = true;
-                                            this.addEventListener('play', function() {
-                                                playingCount++;
-                                                if (playingCount === 1 && window.CSTFAndroid) {
-                                                    window.CSTFAndroid.startPlayback();
-                                                }
-                                            });
-                                            this.addEventListener('pause', function() {
-                                                if (playingCount > 0) playingCount--;
-                                                if (playingCount === 0 && window.CSTFAndroid) {
-                                                    window.CSTFAndroid.stopPlayback();
-                                                }
-                                            });
-                                            this.addEventListener('ended', function() {
-                                                if (playingCount > 0) playingCount--;
-                                                if (playingCount === 0 && window.CSTFAndroid) {
-                                                    window.CSTFAndroid.stopPlayback();
-                                                }
-                                            });
-                                        }
-                                        return result;
-                                    };
-                                }
-                                if (typeof HTMLAudioElement !== 'undefined') {
-                                    hookAudio(HTMLAudioElement.prototype);
-                                }
-                                if (typeof HTMLMediaElement !== 'undefined') {
-                                    hookAudio(HTMLMediaElement.prototype);
-                                }
+                                document.addEventListener('play', function() {
+                                    playingCount++;
+                                    if (playingCount === 1 && window.CSTFAndroid) {
+                                        window.CSTFAndroid.startPlayback();
+                                    }
+                                }, true);
+                                document.addEventListener('pause', function() {
+                                    if (playingCount > 0) playingCount--;
+                                    if (playingCount === 0 && window.CSTFAndroid) {
+                                        window.CSTFAndroid.stopPlayback();
+                                    }
+                                }, true);
+                                document.addEventListener('ended', function() {
+                                    if (playingCount > 0) playingCount--;
+                                    if (playingCount === 0 && window.CSTFAndroid) {
+                                        window.CSTFAndroid.stopPlayback();
+                                    }
+                                }, true);
                             } catch(e) {
-                                console.warn('CSTF audio hook failed:', e);
+                                console.warn('CSTF audio listener failed:', e);
                             }
                         })();
                         """.trimIndent(),
@@ -301,6 +283,14 @@ class MainActivity : AppCompatActivity() {
                             errorText.text = "连接失败：$description\n请检查地址是否正确，容器是否正常运行"
                         }
                     }
+                }
+            }
+
+            // 添加 WebChromeClient 以支持 JS console 和对话框
+            webChromeClient = object : android.webkit.WebChromeClient() {
+                override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage): Boolean {
+                    android.util.Log.d("CSTF-Web", consoleMessage.message())
+                    return true
                 }
             }
         }
