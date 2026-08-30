@@ -13,8 +13,8 @@ services:
       - /mnt/wanos/sda1-wky/docker/cnstudy/textbook-pages:/usr/share/nginx/html/textbook-pages
       - /mnt/wanos/sda1-wky/docker/cnstudy/story-images:/usr/share/nginx/html/story-images
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost/"]
+      test: ["CMD", "curl", "-sf", "http://localhost/"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
-      start_period: 10m
+      start_period: 30s
