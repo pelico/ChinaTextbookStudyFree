@@ -62,7 +62,7 @@ export function ChoiceQuestion({
     }
   }, [phase, question.id]);
 
-  const { shuffledOptions, shuffledAudioOptions, correctLetter } = useMemo(() => {
+  const { shuffledOptions, shuffledAudioOptions, correctLetter, shuffledIndices } = useMemo(() => {
     const options = question.options ?? [];
     const audioOptions = question.audio?.options ?? [];
     const indices = options.map((_, i) => i);
@@ -73,9 +73,20 @@ export function ChoiceQuestion({
       : [];
     const newCorrectIdx = shuffledIndices.indexOf(correctIdx);
     const correctLetter = String.fromCharCode(65 + newCorrectIdx);
-    return { shuffledOptions, shuffledAudioOptions, correctLetter };
+    return { shuffledOptions, shuffledAudioOptions, correctLetter, shuffledIndices };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [question.id, shuffleSeed]);
+
+  // 把传入的 answer（原始字母）转换成打乱后的显示字母
+  const displayAnswer = useMemo(() => {
+    if (!answer) return "";
+    const ansLetter = answer.trim().toUpperCase().charAt(0);
+    if (!/^[A-D]$/.test(ansLetter)) return answer;
+    const origIdx = ansLetter.charCodeAt(0) - 65;
+    const displayIdx = shuffledIndices.indexOf(origIdx);
+    if (displayIdx < 0) return answer;
+    return String.fromCharCode(65 + displayIdx);
+  }, [answer, shuffledIndices]);
 
   const [ripples, setRipples] = useState<Record<string, Ripple[]>>({});
   const idRef = useRef(0);
@@ -93,7 +104,10 @@ export function ChoiceQuestion({
     if (optAudio) void playTTS(optAudio);
     playSfx("tap");
     haptic("light");
-    onChange(letter);
+    // 转换回原始选项的字母，保证上层判分逻辑正确
+    const origIdx = shuffledIndices[idx];
+    const origLetter = String.fromCharCode(65 + origIdx);
+    onChange(origLetter);
   }
 
   function handleTap(letter: string, e: React.MouseEvent<HTMLButtonElement>) {
@@ -140,7 +154,7 @@ export function ChoiceQuestion({
         {shuffledOptions.map((opt, idx) => {
           const letter = String.fromCharCode(65 + idx); // A B C D
           const display = /^[A-D][.、]/.test(opt) ? opt.replace(/^[A-D][.、]\s*/, "") : opt;
-          const selected = answer === letter;
+          const selected = displayAnswer === letter;
           const isThisCorrect = letter === correctLetter;
 
           let cls = "option-card";
