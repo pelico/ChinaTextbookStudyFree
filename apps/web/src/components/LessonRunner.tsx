@@ -272,21 +272,23 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
     return !!(item && item.type === "ui_theme" && item.data.isDark) || freeDark;
   }, [themeId, mode, systemDark]);
 
-  const backdropStyle = useMemo<React.CSSProperties>(() => {
-    const item = getCosmeticById(backdropId) as LessonBackdrop | undefined;
-    if (!item || item.type !== "lesson_backdrop") {
-      // 默认背景：暗色模式用深色，亮色用浅灰
-      return { background: isDark ? "#131F24" : "#F7F7F7" };
-    }
+  const backdropItem = useMemo(
+    () => getCosmeticById(backdropId) as LessonBackdrop | undefined,
+    [backdropId],
+  );
+  const hasBackdrop = backdropItem && backdropItem.type === "lesson_backdrop";
+
+  const backdropStyle = useMemo<React.CSSProperties | undefined>(() => {
+    if (!hasBackdrop) return undefined;
     // 有皮肤背景时，暗色模式叠加一层暗色遮罩保证可读性
     if (isDark) {
       return {
-        background: item.data.background,
+        background: backdropItem.data.background,
         filter: "brightness(0.5) saturate(0.8)",
       };
     }
-    return { background: item.data.background };
-  }, [backdropId, isDark]);
+    return { background: backdropItem.data.background };
+  }, [hasBackdrop, isDark, backdropItem]);
   const prefersReduced = useReducedMotion();
 
   // 周末双倍 XP（本地时间周六/周日）—— 所见即所得：预览/飘字/结算全部按 ×2 显示
@@ -1024,7 +1026,7 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
   return (
     <motion.main
       animate={shakeControls}
-      className="min-h-screen flex flex-col relative"
+      className={`min-h-screen flex flex-col relative ${hasBackdrop ? "" : "bg-bg-soft"}`}
       style={backdropStyle}
     >
       {/* +XP 飘字层 —— fixed 定位独立于 layout，不影响滚动 */}
