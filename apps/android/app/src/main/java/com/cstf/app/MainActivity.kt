@@ -270,10 +270,34 @@ class MainActivity : AppCompatActivity() {
             addJavascriptInterface(AudioBridge(), "CSTFAndroid")
 
             webViewClient = object : WebViewClient() {
+                override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                    super.onPageStarted(view, url, favicon)
+                    // 页面开始加载时立刻注入：禁用 Service Worker 注册，防止坏缓存导致白屏
+                    view?.evaluateJavascript(
+                        """
+                        (function() {
+                            try {
+                                if (navigator.serviceWorker) {
+                                    // 禁用 register，阻止任何新的 SW 注册
+                                    navigator.serviceWorker.register = function() {
+                                        return Promise.reject(new Error('Service Worker disabled in app'));
+                                    };
+                                    // 注销已有的所有 SW 注册
+                                    navigator.serviceWorker.getRegistrations().then(function(regs) {
+                                        regs.forEach(function(r) { r.unregister(); });
+                                    }).catch(function() {});
+                                }
+                            } catch(e) {}
+                        })();
+                        """.trimIndent(),
+                        null
+                    )
+                }
+
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
                     hideLoading()
-                    // 清除可能残留的 Service Worker 缓存
+                    // 页面加载完成后再注销一次 Service Worker（双重保险）
                     view?.evaluateJavascript(
                         """
                         (function() {
@@ -389,17 +413,28 @@ class MainActivity : AppCompatActivity() {
 
         WebView.setWebContentsDebuggingEnabled(true)
 
-        // Service Worker 支持
+        // 禁用 Service Worker —— APP 是实时加载服务器内容的，不需要离线缓存
+        // Service Worker 缓存坏页面会导致白屏/黑屏且难以清除（按域名隔离）
         if (WebViewFeature.isFeatureSupported(WebViewFeature.SERVICE_WORKER_BASIC_USAGE)) {
-            val swController = ServiceWorkerControllerCompat.getInstance()
-            swController.setServiceWorkerClient(object : ServiceWorkerClientCompat() {
-                override fun shouldInterceptRequest(request: WebResourceRequest): android.webkit.WebResourceResponse? {
-                    return null
-                }
-            })
-            val swSettings = swController.serviceWorkerWebSettings
-            swSettings.allowContentAccess = true
-            swSettings.allowFileAccess = true
+            try {
+                val swController = ServiceWorkerControllerCompat.getInstance()
+                // 拦截所有 Service Worker 脚本请求，返回空，阻止 SW 注册
+                swController.setServiceWorkerClient(object : ServiceWorkerClientCompat() {
+                    override fun shouldInterceptRequest(request: WebResourceRequest): android.webkit.WebResourceResponse? {
+                        val url = request.url.toString()
+                        // 如果请求的是 sw.js 或 service-worker 相关脚本，返回 404 阻止注册
+                        if (url.contains("sw.js") || url.contains("service-worker")) {
+                            return android.webkit.WebResourceResponse("text/plain", "utf-8", null)
+                        }
+                        return null
+                    }
+                })
+                val swSettings = swController.serviceWorkerWebSettings
+                swSettings.allowContentAccess = false
+                swSettings.allowFileAccess = false
+                // 禁止 Service Worker 缓存
+                swSettings.cacheMode = WebSettings.LOAD_NO_CACHE
+            } catch (_: Exception) {}
         }
     }
 
