@@ -1026,7 +1026,7 @@ export function LessonRunner({ lesson, chestSlot = null }: LessonRunnerProps) {
   return (
     <motion.main
       animate={shakeControls}
-      className={`min-h-screen flex flex-col relative ${hasBackdrop ? "" : "bg-bg-soft"}`}
+      className={`min-h-screen flex flex-col relative lesson-runner ${hasBackdrop ? "" : "bg-bg-soft"}`}
       style={backdropStyle}
     >
       {/* +XP 飘字层 —— fixed 定位独立于 layout，不影响滚动 */}

@@ -160,8 +160,9 @@ h3,
  */
 .option-card {
   @apply relative border-2 border-bg-softer rounded-2xl cursor-pointer overflow-hidden;
-  @apply text-base text-ink font-extrabold select-none;
+  @apply text-base font-extrabold select-none;
   @apply hover:border-secondary hover:bg-secondary/5;
+  color: #235390 !important;
   min-height: 56px;
   padding: 12px 16px;
   box-shadow: 0 3px 0 0 var(--shadow-card-color);
@@ -174,17 +175,20 @@ h3,
 }
 
 .option-card-selected {
-  @apply border-secondary bg-secondary/10 text-secondary-dark;
+  @apply border-secondary bg-secondary/10;
+  color: #1899d6 !important;
   box-shadow: 0 3px 0 0 #1899d6;
 }
 
 .option-card-correct {
-  @apply border-primary bg-primary/20 text-primary-dark;
+  @apply border-primary bg-primary/20;
+  color: #58a700 !important;
   box-shadow: 0 3px 0 0 #58a700, 0 0 0 6px rgba(88, 204, 2, 0.2);
 }
 
 .option-card-wrong {
-  @apply border-danger bg-danger/15 text-danger-dark;
+  @apply border-danger bg-danger/15;
+  color: #ea2b2b !important;
   box-shadow: 0 3px 0 0 #ea2b2b, 0 0 0 6px rgba(255, 75, 75, 0.18);
 }
 
@@ -305,7 +309,6 @@ button:focus-visible,
 .theme-dark .option-card {
   background-color: var(--app-card);
   border-color: var(--app-border);
-  color: var(--app-ink);
 }
 .theme-dark .btn-chunky-ghost {
   background-color: var(--app-card);
@@ -315,4 +318,18 @@ button:focus-visible,
 .theme-dark .btn-chunky-disabled {
   background-color: var(--app-bg-softer);
   color: var(--app-ink-softer);
+}
+
+/* ============================================================
+ * 答题页面文字颜色强制深蓝（兼容暗色模式异常场景）
+ * 确保无论背景是否正确切换，题目文字都能看清
+ * ============================================================ */
+.lesson-runner .text-ink {
+  color: #235390 !important;
+}
+.lesson-runner .text-ink-light {
+  color: #5a7a9a !important;
+}
+.lesson-runner .text-ink-softer {
+  color: #7a9ab5 !important;
 }
