@@ -140,16 +140,55 @@ class MainActivity : AppCompatActivity() {
         }
 
         val hintView = TextView(this).apply {
-            text = "\n提示：\n• 地址格式：http://IP:端口 或 https://域名\n• 确保手机和容器在同一网络\n• 地址会保存在本地，下次自动连接\n• 连接成功后，三击屏幕左上角可重新设置"
+            text = "\n提示：\n• 地址格式：http://IP:端口 或 https://域名\n• 确保手机和容器在同一网络\n• 地址会保存在本地，下次自动连接\n• 连接成功后，三击屏幕左上角可重新设置\n• 白屏/黑屏？先点下方「清除缓存」试试"
             textSize = 12f
             setTextColor(Color.parseColor("#888888"))
             setPadding(0, 32, 0, 0)
+        }
+
+        val clearCacheBtn = Button(this).apply {
+            text = "清除缓存并重连"
+            textSize = 14f
+            setTextColor(Color.parseColor("#FF4B4B"))
+            setBackgroundColor(Color.parseColor("#FFFFFF"))
+            setPadding(0, 36, 0, 36)
+            isAllCaps = false
+            val shape = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.parseColor("#FFFFFF"))
+                cornerRadius = 32f
+                setStroke(4, Color.parseColor("#FF4B4B"))
+            }
+            setBackgroundDrawable(shape)
+            setOnClickListener {
+                // 清除所有 WebView 数据
+                if (::webView.isInitialized) {
+                    webView.clearCache(true)
+                    webView.clearHistory()
+                    webView.clearFormData()
+                }
+                android.webkit.WebStorage.getInstance().deleteAllData()
+                android.webkit.CookieManager.getInstance().removeAllCookies(null)
+                Toast.makeText(this@MainActivity, "缓存已清除", Toast.LENGTH_SHORT).show()
+                val url = urlEditText.text.toString().trim()
+                if (validateUrl(url)) {
+                    saveUrl(url)
+                    setupWebView()
+                    loadServer(url)
+                }
+            }
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            params.topMargin = 24
+            layoutParams = params
         }
 
         val btnContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, 48, 0, 0)
             addView(connectBtn)
+            addView(clearCacheBtn)
         }
 
         settingsView.addView(titleView)
@@ -215,7 +254,7 @@ class MainActivity : AppCompatActivity() {
                 allowFileAccess = true
                 allowContentAccess = true
                 mediaPlaybackRequiresUserGesture = false
-                cacheMode = WebSettings.LOAD_DEFAULT
+                cacheMode = WebSettings.LOAD_NO_CACHE
                 setSupportMultipleWindows(false)
                 javaScriptCanOpenWindowsAutomatically = false
                 mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
@@ -234,6 +273,21 @@ class MainActivity : AppCompatActivity() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
                     hideLoading()
+                    // 清除可能残留的 Service Worker 缓存
+                    view?.evaluateJavascript(
+                        """
+                        (function() {
+                            try {
+                                if (navigator.serviceWorker) {
+                                    navigator.serviceWorker.getRegistrations().then(function(regs) {
+                                        regs.forEach(function(r) { r.unregister(); });
+                                    });
+                                }
+                            } catch(e) {}
+                        })();
+                        """.trimIndent(),
+                        null
+                    )
                     // 注入音频监听脚本：用事件捕获代替原型 hook，更安全
                     view?.evaluateJavascript(
                         """
@@ -325,6 +379,14 @@ class MainActivity : AppCompatActivity() {
         })
 
         webContainer.addView(webView)
+
+        // 每次创建 WebView 时清除旧的缓存和历史
+        webView.clearCache(true)
+        webView.clearHistory()
+        // 清除 Service Worker 缓存
+        webView.clearFormData()
+        android.webkit.WebStorage.getInstance().deleteAllData()
+
         WebView.setWebContentsDebuggingEnabled(true)
 
         // Service Worker 支持
