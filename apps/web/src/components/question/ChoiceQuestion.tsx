@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/cn";
 import { MathText } from "@/components/MathText";
@@ -22,6 +22,16 @@ function normalizeOpt(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, "");
 }
 
+/** Fisher-Yates 随机打乱 */
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 export function ChoiceQuestion({
   question,
   answer,
@@ -31,16 +41,42 @@ export function ChoiceQuestion({
   locked = false,
 }: QuestionRendererProps) {
   const rawCorrect = question.answer.trim();
-  let correctLetter = rawCorrect.toUpperCase().charAt(0);
-  // 若 answer 不是单字母 A-D，则在 options 里反查对应字母
-  if (!/^[A-D]$/.test(correctLetter) && question.options?.length) {
+  // 先找出正确选项在原始数组中的索引
+  let correctIdx = 0;
+  if (/^[A-D]$/.test(rawCorrect.toUpperCase().charAt(0))) {
+    correctIdx = rawCorrect.toUpperCase().charCodeAt(0) - 65;
+  } else if (question.options?.length) {
     const cn = normalizeOpt(rawCorrect);
     const idx = question.options.findIndex(o => {
       const stripped = o.replace(/^[A-D][.、]\s*/, "");
       return normalizeOpt(o) === cn || normalizeOpt(stripped) === cn;
     });
-    if (idx >= 0) correctLetter = String.fromCharCode(65 + idx);
+    if (idx >= 0) correctIdx = idx;
   }
+
+  // 每次进入答题阶段时随机打乱选项顺序（检查阶段保持同一顺序，避免跳变）
+  const [shuffleSeed, setShuffleSeed] = useState(0);
+  useEffect(() => {
+    if (phase === "answering") {
+      setShuffleSeed(s => s + 1); // 每次进入答题阶段重新打乱
+    }
+  }, [phase, question.id]);
+
+  const { shuffledOptions, shuffledAudioOptions, correctLetter } = useMemo(() => {
+    const options = question.options ?? [];
+    const audioOptions = question.audio?.options ?? [];
+    const indices = options.map((_, i) => i);
+    const shuffledIndices = shuffle(indices);
+    const shuffledOptions = shuffledIndices.map(i => options[i]);
+    const shuffledAudioOptions = audioOptions.length
+      ? shuffledIndices.map(i => audioOptions[i] ?? null)
+      : [];
+    const newCorrectIdx = shuffledIndices.indexOf(correctIdx);
+    const correctLetter = String.fromCharCode(65 + newCorrectIdx);
+    return { shuffledOptions, shuffledAudioOptions, correctLetter };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [question.id, shuffleSeed]);
+
   const [ripples, setRipples] = useState<Record<string, Ripple[]>>({});
   const idRef = useRef(0);
 
@@ -53,7 +89,7 @@ export function ChoiceQuestion({
     cancelNarrate();
     // 选中选项时自动朗读该选项
     const idx = letter.charCodeAt(0) - 65;
-    const optAudio = question.audio?.options?.[idx];
+    const optAudio = shuffledAudioOptions[idx];
     if (optAudio) void playTTS(optAudio);
     playSfx("tap");
     haptic("light");
@@ -101,7 +137,7 @@ export function ChoiceQuestion({
       </div>
 
       <div className="space-y-3">
-        {question.options.map((opt, idx) => {
+        {shuffledOptions.map((opt, idx) => {
           const letter = String.fromCharCode(65 + idx); // A B C D
           const display = /^[A-D][.、]/.test(opt) ? opt.replace(/^[A-D][.、]\s*/, "") : opt;
           const selected = answer === letter;
@@ -118,7 +154,7 @@ export function ChoiceQuestion({
           // 答错时在正确选项上播放脉冲高亮，引导用户注意
           const shouldPulse = phase === "checked" && !isCorrect && isThisCorrect;
 
-          const optionAudio = question.audio?.options?.[idx] ?? null;
+          const optionAudio = shuffledAudioOptions[idx] ?? null;
           return (
             <div key={idx} className="flex items-stretch gap-2">
               <motion.button

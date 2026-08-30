@@ -27,6 +27,16 @@ import { useAutoNarrate } from "@/lib/useAutoNarrate";
 import { shouldIgnoreKey } from "./keyboard";
 import type { QuestionRendererProps } from "./QuestionRenderer";
 
+/** Fisher-Yates 随机打乱 */
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 const LEFT_KEYS = ["A", "B", "C", "D"] as const;
 const RIGHT_KEYS = ["1", "2", "3", "4"] as const;
 type LeftKey = (typeof LEFT_KEYS)[number];
@@ -44,20 +54,48 @@ export function MatchingQuestion({
   const options = question.options ?? [];
   const cancelNarrate = useAutoNarrate([question.audio?.question], question.id);
   const left = options.slice(0, 4);
-  const right = options.slice(4, 8);
-  const pairTotal = Math.min(left.length, right.length, 4);
+  const rightRaw = options.slice(4, 8);
+  const pairTotal = Math.min(left.length, rightRaw.length, 4);
 
-  // canonical answer 解析：{ A: "1", B: "2", ... }
+  // 每次进入答题阶段时随机打乱右列顺序
+  const [shuffleSeed, setShuffleSeed] = useState(0);
+  useEffect(() => {
+    if (phase === "answering") {
+      setShuffleSeed(s => s + 1);
+    }
+  }, [phase, question.id]);
+
+  // 右列打乱后的文本 + 原始索引映射
+  const { right, rightOrigIndices, shuffledAudioRight } = useMemo(() => {
+    const indices = rightRaw.map((_, i) => i);
+    const shuffled = shuffle(indices);
+    const right = shuffled.map(i => rightRaw[i] ?? "");
+    const audioOptions = question.audio?.options ?? [];
+    const shuffledAudioRight = shuffled.map(i => audioOptions[4 + i] ?? null);
+    return { right, rightOrigIndices: shuffled, shuffledAudioRight };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [question.id, shuffleSeed]);
+
+  // canonical answer 解析：{ A: "1", B: "2", ... } — 这里的 "1"/"2" 是原始右列的 key
+  // 我们需要把它转换成「打乱后新位置的 key」
   const answerMap = useMemo(() => {
     const m: Partial<Record<LeftKey, RightKey>> = {};
     for (const part of question.answer.split(",")) {
       const [l, r] = part.trim().split("-");
       const lk = l?.trim().toUpperCase() as LeftKey | undefined;
       const rk = r?.trim() as RightKey | undefined;
-      if (lk && rk && (LEFT_KEYS as readonly string[]).includes(lk)) m[lk] = rk;
+      if (lk && rk && (LEFT_KEYS as readonly string[]).includes(lk)) {
+        // 原始右列索引（"1" → 0, "2" → 1, ...）
+        const origIdx = RIGHT_KEYS.indexOf(rk);
+        // 在打乱后的数组中找到这个原始索引对应的新位置 key
+        const newIdx = rightOrigIndices.indexOf(origIdx);
+        if (newIdx >= 0) {
+          m[lk] = RIGHT_KEYS[newIdx];
+        }
+      }
     }
     return m;
-  }, [question.answer]);
+  }, [question.answer, rightOrigIndices]);
 
   /** 已配对成功（消失）的左键集合 */
   const [matched, setMatched] = useState<Partial<Record<LeftKey, RightKey>>>({});
@@ -87,8 +125,13 @@ export function MatchingQuestion({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matched, disabled, locked, pairTotal]);
 
-  function optionAudioAt(idx: number) {
-    const src = question.audio?.options?.[idx];
+  function optionAudioAt(side: "left" | "right", idx: number) {
+    let src: string | null | undefined;
+    if (side === "left") {
+      src = question.audio?.options?.[idx];
+    } else {
+      src = shuffledAudioRight[idx];
+    }
     if (src) void playTTS(src);
   }
 
@@ -97,7 +140,7 @@ export function MatchingQuestion({
     cancelNarrate();
     playSfx("tap");
     haptic("light");
-    optionAudioAt(LEFT_KEYS.indexOf(k));
+    optionAudioAt("left", LEFT_KEYS.indexOf(k));
     setActiveLeft(activeLeft === k ? null : k);
   }
 
@@ -106,7 +149,7 @@ export function MatchingQuestion({
     if (activeLeft === null) return;
     if (Object.values(matched).includes(rk)) return;
     cancelNarrate();
-    optionAudioAt(4 + RIGHT_KEYS.indexOf(rk));
+    optionAudioAt("right", RIGHT_KEYS.indexOf(rk));
     const l = activeLeft;
     setActiveLeft(null);
 

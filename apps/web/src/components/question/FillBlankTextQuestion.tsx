@@ -7,7 +7,7 @@
  * 答案是 1-6 个汉字 / 1 个英文单词。
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/cn";
 import { MathText } from "@/components/MathText";
@@ -23,7 +23,17 @@ import type { QuestionRendererProps } from "./QuestionRenderer";
 const DISTRACTOR_POOL =
   "的一是了不人我在有他这中大来上个国到说们为子和你地出会也时要就可以对生能而着事前里所去行过家十用发天如然作方成者多日都三小军二无同么经法当起与好看学进种将还分此心前把把道文些将主实重新明体开它合已从提力此面理由她长角期将再想许让向又物被全书走给最便位加将些别几义路反条其化或接将片向才助战持区住四带运段切反确据形今指两打西再至张头走知活步往什";
 
-/** 简易伪随机 —— 基于 question id 做稳定 shuffle，每次渲染保持一致 */
+/** Fisher-Yates 随机打乱 */
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/** 简易伪随机 —— 基于 seed 做稳定 shuffle（用于干扰字抽样） */
 function seededShuffle<T>(arr: T[], seed: number): T[] {
   const a = [...arr];
   let s = seed;
@@ -60,7 +70,7 @@ function buildCandidates(answerStr: string, questionId: number): string[] {
     );
     const distractors = vowelPool.slice(0, Math.min(vowelWanted, vowelPool.length));
     distractors.push(...consonantPool.slice(0, distractorCount - distractors.length));
-    return seededShuffle([...answerChars, ...distractors], questionId);
+    return [...answerChars, ...distractors]; // 返回原始数组，由组件层控制 shuffle
   }
 
   const answerChars = [...new Set(answerStr.split(""))];
@@ -74,7 +84,7 @@ function buildCandidates(answerStr: string, questionId: number): string[] {
   const distractors = shuffledPool.slice(0, distractorCount);
 
   const all = [...answerChars, ...distractors];
-  return seededShuffle(all, questionId);
+  return all; // 返回原始数组，由组件层控制 shuffle
 }
 
 export function FillBlankTextQuestion({
@@ -88,9 +98,23 @@ export function FillBlankTextQuestion({
   const disabled = phase === "checked";
   const cancelNarrate = useAutoNarrate([question.audio?.question], question.id);
 
-  const candidates = useMemo(
+  const rawCandidates = useMemo(
     () => buildCandidates(question.answer, question.id),
     [question.answer, question.id],
+  );
+
+  // 每次进入答题阶段时随机打乱候选字顺序
+  const [shuffleSeed, setShuffleSeed] = useState(0);
+  useEffect(() => {
+    if (phase === "answering") {
+      setShuffleSeed(s => s + 1);
+    }
+  }, [phase, question.id]);
+
+  const candidates = useMemo(
+    () => shuffle(rawCandidates),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rawCandidates, shuffleSeed],
   );
 
   function handleKey(k: string) {
