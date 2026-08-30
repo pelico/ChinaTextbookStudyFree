@@ -201,10 +201,12 @@ class MainActivity : AppCompatActivity() {
      */
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
-        webContainer = FrameLayout(this)
+        webContainer = FrameLayout(this).apply {
+            setBackgroundColor(Color.parseColor("#FFFFFF"))
+        }
 
         webView = WebView(this).apply {
-            setBackgroundColor(Color.TRANSPARENT)
+            setBackgroundColor(Color.parseColor("#FFFFFF"))
 
             settings.apply {
                 javaScriptEnabled = true
@@ -236,40 +238,49 @@ class MainActivity : AppCompatActivity() {
                     view?.evaluateJavascript(
                         """
                         (function() {
-                            if (window.__cstfAudioInjected) return;
-                            window.__cstfAudioInjected = true;
-                            var playingCount = 0;
-                            function hookAudio(proto) {
-                                var origPlay = proto.play;
-                                var origPause = proto.pause;
-                                proto.play = function() {
-                                    var result = origPlay.apply(this, arguments);
-                                    if (!this.__cstfHooked) {
-                                        this.__cstfHooked = true;
-                                        this.addEventListener('play', function() {
-                                            playingCount++;
-                                            if (playingCount === 1 && window.CSTFAndroid) {
-                                                window.CSTFAndroid.startPlayback();
-                                            }
-                                        });
-                                        this.addEventListener('pause', function() {
-                                            if (playingCount > 0) playingCount--;
-                                            if (playingCount === 0 && window.CSTFAndroid) {
-                                                window.CSTFAndroid.stopPlayback();
-                                            }
-                                        });
-                                        this.addEventListener('ended', function() {
-                                            if (playingCount > 0) playingCount--;
-                                            if (playingCount === 0 && window.CSTFAndroid) {
-                                                window.CSTFAndroid.stopPlayback();
-                                            }
-                                        });
-                                    }
-                                    return result;
-                                };
+                            try {
+                                if (window.__cstfAudioInjected) return;
+                                window.__cstfAudioInjected = true;
+                                var playingCount = 0;
+                                function hookAudio(proto) {
+                                    if (!proto || !proto.play) return;
+                                    var origPlay = proto.play;
+                                    var origPause = proto.pause;
+                                    proto.play = function() {
+                                        var result = origPlay.apply(this, arguments);
+                                        if (!this.__cstfHooked) {
+                                            this.__cstfHooked = true;
+                                            this.addEventListener('play', function() {
+                                                playingCount++;
+                                                if (playingCount === 1 && window.CSTFAndroid) {
+                                                    window.CSTFAndroid.startPlayback();
+                                                }
+                                            });
+                                            this.addEventListener('pause', function() {
+                                                if (playingCount > 0) playingCount--;
+                                                if (playingCount === 0 && window.CSTFAndroid) {
+                                                    window.CSTFAndroid.stopPlayback();
+                                                }
+                                            });
+                                            this.addEventListener('ended', function() {
+                                                if (playingCount > 0) playingCount--;
+                                                if (playingCount === 0 && window.CSTFAndroid) {
+                                                    window.CSTFAndroid.stopPlayback();
+                                                }
+                                            });
+                                        }
+                                        return result;
+                                    };
+                                }
+                                if (typeof HTMLAudioElement !== 'undefined') {
+                                    hookAudio(HTMLAudioElement.prototype);
+                                }
+                                if (typeof HTMLMediaElement !== 'undefined') {
+                                    hookAudio(HTMLMediaElement.prototype);
+                                }
+                            } catch(e) {
+                                console.warn('CSTF audio hook failed:', e);
                             }
-                            hookAudio(HTMLAudioElement.prototype);
-                            hookAudio(HTMLMediaElement.prototype);
                         })();
                         """.trimIndent(),
                         null
