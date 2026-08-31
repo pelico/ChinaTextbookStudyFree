@@ -588,6 +588,7 @@ start_api_server
 
 # ---- 启动自定义学习 API 服务（Python + SQLite）----
 mkdir -p /data/images /data/textbooks
+ln -sf /data/images /usr/share/nginx/html/custom-images
 python3 /app/custom_server.py &
 echo "=== 自定义学习 API 服务已启动（127.0.0.1:18081）==="
 
