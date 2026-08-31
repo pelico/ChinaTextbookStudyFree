@@ -6,6 +6,8 @@ on:
     paths:
       - 'apps/android/**'
       - '.github/workflows/android-build.yml'
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 jobs:
@@ -46,7 +48,7 @@ jobs:
           path: apps/android/app/build/outputs/apk/debug/*.apk
           retention-days: 30
 
-      - name: Upload to Release
+      - name: Upload to Release (main 分支 → android-latest)
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
@@ -63,5 +65,26 @@ jobs:
             小技巧：三击屏幕左上角可重新设置服务器地址
           files: apps/android/app/build/outputs/apk/debug/*.apk
           prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload to Release (tag → 对应版本 Release)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: |
+            版本 ${{ github.ref_name }}
+
+            包含 Android APK 和 Docker 镜像（ghcr.io/pelico/chinatextbookstudyfree:${{ github.ref_name }}）。
+
+            **Android APK 使用方法：**
+            1. 下载并安装到手机（需开启"安装未知来源应用"）
+            2. 首次打开填写你部署的容器地址（如 http://192.168.1.100:5230）
+            3. 点击连接即可使用
+
+            小技巧：三击屏幕左上角可重新设置服务器地址
+          files: apps/android/app/build/outputs/apk/debug/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
