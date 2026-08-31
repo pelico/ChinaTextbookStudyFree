@@ -87,7 +87,8 @@ export function CustomReader({ bookId }: { bookId: string }) {
     setExtracting(true);
     setError("");
     try {
-      await extractBookText(bookId);
+      const hasText = data?.has_text;
+      await extractBookText(bookId, hasText);  // 已有文字时 force=true 重新识别
       await load();
     } catch (e: any) {
       setError(e.message);
@@ -210,6 +211,14 @@ export function CustomReader({ bookId }: { bookId: string }) {
                   <option value={1.2}>快速</option>
                   <option value={1.5}>极速</option>
                 </select>
+                <button
+                  onClick={handleExtract}
+                  disabled={extracting}
+                  className="rounded-lg bg-emerald-500/15 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-50"
+                  title="重新识别文字"
+                >
+                  {extracting ? "⏳ 识别中..." : "🔄 重新识别"}
+                </button>
                 {isSpeechSupported() ? null : (
                   <span className="text-xs text-amber-400">浏览器不支持语音</span>
                 )}

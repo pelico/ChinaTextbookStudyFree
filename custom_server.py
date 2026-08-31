@@ -523,7 +523,7 @@ EXTRACT_TEXT_PROMPT = """请识别这张教材图片的全部文字内容。
 6. 如果有图片中的标注文字（如地图上的地名、图表中的数据），可以提取"""
 
 
-def extract_texts_for_book(book_id):
+def extract_texts_for_book(book_id, force=False):
     """批量提取书本所有页面的文字内容"""
     conn = get_db()
     try:
@@ -536,10 +536,15 @@ def extract_texts_for_book(book_id):
         if not pages:
             raise RuntimeError("没有找到页面图片")
 
-        # 已提取的页面
-        existing = {r["page_number"] for r in conn.execute(
-            "SELECT page_number FROM page_texts WHERE book_id = ?", (book_id,)
-        )}
+        # 已提取的页面（force=True 时清空重来）
+        existing = set()
+        if force:
+            conn.execute("DELETE FROM page_texts WHERE book_id = ?", (book_id,))
+            conn.commit()
+        else:
+            existing = {r["page_number"] for r in conn.execute(
+                "SELECT page_number FROM page_texts WHERE book_id = ?", (book_id,)
+            ).fetchall()}
 
         to_extract = [p for p in pages if p["page_number"] not in existing]
         if not to_extract:
@@ -1166,7 +1171,14 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
 
             # /books/:id/extract-text — 提取页面文字
             if len(parts) == 3 and parts[0] == "books" and parts[2] == "extract-text":
-                result = extract_texts_for_book(parts[1])
+                body = self._read_body()
+                force = False
+                if body:
+                    try:
+                        force = json.loads(body).get("force", False)
+                    except Exception:
+                        pass
+                result = extract_texts_for_book(parts[1], force=force)
                 self._send_json(result)
                 return
 

@@ -84,8 +84,8 @@ export async function getBookRead(bookId: string): Promise<BookReadData> {
   return apiGet(`books/${bookId}/read`);
 }
 
-export async function extractBookText(bookId: string): Promise<{ total: number; extracted: number; skipped: number }> {
-  return apiPost(`books/${bookId}/extract-text`, {});
+export async function extractBookText(bookId: string, force = false): Promise<{ total: number; extracted: number; skipped: number }> {
+  return apiPost(`books/${bookId}/extract-text`, { force });
 }
 
 export function compressImage(file: File, maxDim = 1080, quality = 0.7): Promise<string> {
