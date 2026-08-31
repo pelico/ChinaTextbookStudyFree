@@ -39,9 +39,9 @@ export interface AIConfig {
 }
 
 export const DEFAULT_AI_CONFIG: AIConfig = {
-  baseURL: "https://api.openai.com/v1",
+  baseURL: "https://aiapi.fonken.net/v1",
   apiKey: "",
-  model: "gpt-4o-mini",
+  model: "gemini-3.1-flash-lite",
 };
 
 const STORAGE_KEY = "csf-worksheet-ai-config";

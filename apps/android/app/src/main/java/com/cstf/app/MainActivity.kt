@@ -96,7 +96,7 @@ class MainActivity : AppCompatActivity() {
         urlEditText = EditText(this).apply {
             hint = "例如：http://192.168.1.100:5230"
             textSize = 16f
-            setText(currentUrl)
+            setText(if (currentUrl.isNotEmpty()) currentUrl else "https://xx.111312.xyz")
             setTextColor(Color.parseColor("#1A1A1A"))
             setBackgroundColor(Color.parseColor("#FFFFFF"))
             setPadding(48, 40, 48, 40)

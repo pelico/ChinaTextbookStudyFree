@@ -344,7 +344,7 @@ export function WorksheetClient({ books }: Props) {
                     setAiConfig(cfg);
                     saveAIConfig(cfg);
                   }}
-                  placeholder="https://api.openai.com/v1"
+                  placeholder="https://aiapi.fonken.net/v1"
                   className="w-full px-3 py-2 rounded-lg border-2 border-bg-softer text-sm text-ink focus:border-primary focus:outline-none"
                 />
               </div>
@@ -372,7 +372,7 @@ export function WorksheetClient({ books }: Props) {
                     setAiConfig(cfg);
                     saveAIConfig(cfg);
                   }}
-                  placeholder="gpt-4o-mini"
+                  placeholder="gemini-3.1-flash-lite"
                   className="w-full px-3 py-2 rounded-lg border-2 border-bg-softer text-sm text-ink focus:border-primary focus:outline-none"
                 />
               </div>
