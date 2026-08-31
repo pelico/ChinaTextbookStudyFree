@@ -142,6 +142,18 @@ def init_db():
     if "folder_path" not in cols_books:
         conn.execute("ALTER TABLE books ADD COLUMN folder_path TEXT")
 
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS page_texts (
+        id TEXT PRIMARY KEY,
+        book_id TEXT NOT NULL,
+        page_number INTEGER NOT NULL,
+        text_content TEXT,
+        created_at TEXT,
+        UNIQUE(book_id, page_number)
+    );
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_pt_book ON page_texts(book_id);")
+
     conn.commit()
     conn.close()
 
@@ -495,6 +507,113 @@ def create_book_from_folder(title, subject, grade, semester, folder_path):
     result["total_pages"] = total
     result["batches"] = len(partial_outlines)
     return result
+
+
+# ============================================================
+# Page text extraction (for reading view)
+# ============================================================
+EXTRACT_TEXT_PROMPT = """请识别这张教材图片的全部文字内容。
+
+要求：
+1. 按原文格式输出所有可见文字，包括标题、正文、例题、注释、图说等
+2. 保持原有的段落和换行结构
+3. 只输出纯文字内容，不要添加任何解释、标记或代码块
+4. 如果有表格，按行输出，用 | 分隔
+5. 如果有图片或插图，用 [图片：简短描述] 标注"""
+
+
+def extract_texts_for_book(book_id):
+    """批量提取书本所有页面的文字内容"""
+    conn = get_db()
+    try:
+        # 获取所有页面图片
+        pages = conn.execute(
+            "SELECT page_number, filename FROM page_images "
+            "WHERE book_id = ? AND page_number IS NOT NULL "
+            "ORDER BY page_number", (book_id,)
+        ).fetchall()
+        if not pages:
+            raise RuntimeError("没有找到页面图片")
+
+        # 已提取的页面
+        existing = {r["page_number"] for r in conn.execute(
+            "SELECT page_number FROM page_texts WHERE book_id = ?", (book_id,)
+        )}
+
+        to_extract = [p for p in pages if p["page_number"] not in existing]
+        if not to_extract:
+            return {"total": len(pages), "extracted": 0, "skipped": len(existing)}
+
+        now = now_iso()
+        book_img_dir = os.path.join(IMAGES_DIR, book_id)
+        batch_size = 3
+        extracted = 0
+
+        for i in range(0, len(to_extract), batch_size):
+            batch = to_extract[i:i + batch_size]
+            images_b64 = []
+            for p in batch:
+                img_path = os.path.join(book_img_dir, p["filename"])
+                if os.path.exists(img_path):
+                    images_b64.append(read_image_as_b64(img_path))
+
+            if not images_b64:
+                continue
+
+            try:
+                raw_resp = call_ai_vision(images_b64, EXTRACT_TEXT_PROMPT, timeout=120)
+                # AI 可能返回多段文本（每张图片一段），用 --- 分隔
+                texts = raw_resp.split("---") if "---" in raw_resp else [raw_resp]
+
+                for j, p in enumerate(batch):
+                    text = texts[j].strip() if j < len(texts) else texts[0].strip()
+                    conn.execute(
+                        "INSERT OR REPLACE INTO page_texts (id, book_id, page_number, text_content, created_at) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (f"{book_id}-pt-{p['page_number']}", book_id, p["page_number"], text, now)
+                    )
+                    extracted += 1
+                conn.commit()
+            except Exception:
+                continue
+
+        return {"total": len(pages), "extracted": extracted, "skipped": len(existing)}
+    finally:
+        conn.close()
+
+
+def get_book_read(book_id):
+    """获取阅读视图数据：页面图片 + 文字"""
+    conn = get_db()
+    try:
+        book = conn.execute(
+            "SELECT id, title, subject, grade, semester FROM books WHERE id = ?", (book_id,)
+        ).fetchone()
+        if not book:
+            return None
+
+        pages = conn.execute(
+            "SELECT pi.page_number, pi.filename, pi.kp_id, pi.unit_id, "
+            "COALESCE(pt.text_content, '') as text_content, pt.text_content IS NOT NULL as has_text "
+            "FROM page_images pi "
+            "LEFT JOIN page_texts pt ON pt.book_id = pi.book_id AND pt.page_number = pi.page_number "
+            "WHERE pi.book_id = ? AND pi.page_number IS NOT NULL "
+            "ORDER BY pi.page_number", (book_id,)
+        ).fetchall()
+
+        units = conn.execute(
+            "SELECT id, unit_number, title FROM units WHERE book_id = ? ORDER BY unit_number",
+            (book_id,)
+        ).fetchall()
+
+        return {
+            "book": dict(book),
+            "pages": [dict(p) for p in pages],
+            "units": [dict(u) for u in units],
+            "has_text": any(p["has_text"] for p in pages),
+        }
+    finally:
+        conn.close()
 # ============================================================
 OUTLINE_SYSTEM = "你是一名资深小学教研员，精通中国小学各科教材体系。"
 
@@ -968,6 +1087,15 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                     conn.close()
                 return
 
+            # /books/:id/read — 阅读视图数据（图片 + 文字）
+            if len(parts) == 3 and parts[0] == "books" and parts[2] == "read":
+                data = get_book_read(parts[1])
+                if data:
+                    self._send_json(data)
+                else:
+                    self._send_error("书本不存在", 404)
+                return
+
             # /folders — 列出 textbooks 目录下的子目录
             if parts == ["folders"]:
                 folders = []
@@ -1033,6 +1161,12 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
 
                 book = create_book_from_folder(title, subject, grade, semester, folder)
                 self._send_json(book)
+                return
+
+            # /books/:id/extract-text — 提取页面文字
+            if len(parts) == 3 and parts[0] == "books" and parts[2] == "extract-text":
+                result = extract_texts_for_book(parts[1])
+                self._send_json(result)
                 return
 
             # /lessons/:lessonId/questions

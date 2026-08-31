@@ -46,9 +46,17 @@ export function CustomBook({ bookId }: { bookId: string }) {
           <button onClick={() => navigate("/custom/")} className="text-text-muted hover:text-text">←</button>
           <h1 className="text-xl font-bold text-text truncate">{book.title}</h1>
         </div>
-        <p className="text-sm text-text-muted mb-6 ml-7">
+        <p className="text-sm text-text-muted mb-4 ml-7">
           {subjectLabels[book.subject] || book.subject} · {book.grade}年级{book.semester === "up" ? "上" : "下"}册
         </p>
+
+        <button
+          onClick={() => navigate(`/custom/book/${bookId}/read/`)}
+          className="mb-6 w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 px-4 py-3 text-emerald-300 hover:bg-emerald-500/25 transition-colors"
+        >
+          <span>📖</span>
+          <span className="font-bold text-sm">阅读原文 + 语音朗读</span>
+        </button>
 
         {(!book.units || book.units.length === 0) && (
           <div className="rounded-xl bg-bg-soft p-6 text-center text-text-muted">

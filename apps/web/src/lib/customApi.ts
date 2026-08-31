@@ -58,6 +58,36 @@ export function imageUrl(bookId: string, filename: string): string {
   return `/custom-images/${bookId}/${filename}`;
 }
 
+export interface ReadPage {
+  page_number: number;
+  filename: string;
+  kp_id: string | null;
+  unit_id: string | null;
+  text_content: string;
+  has_text: boolean;
+}
+
+export interface BookReadData {
+  book: {
+    id: string;
+    title: string;
+    subject: string;
+    grade: number;
+    semester: string;
+  };
+  pages: ReadPage[];
+  units: Array<{ id: string; unit_number: number; title: string }>;
+  has_text: boolean;
+}
+
+export async function getBookRead(bookId: string): Promise<BookReadData> {
+  return apiGet(`books/${bookId}/read`);
+}
+
+export async function extractBookText(bookId: string): Promise<{ total: number; extracted: number; skipped: number }> {
+  return apiPost(`books/${bookId}/extract-text`, {});
+}
+
 export function compressImage(file: File, maxDim = 1080, quality = 0.7): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
