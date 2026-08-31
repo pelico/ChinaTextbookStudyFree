@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { navigate, getBookRead, extractBookText, imageUrl, type BookReadData } from "@/lib/customApi";
+import { navigate, getBookRead, extractBookText, getExtractStatus, imageUrl, type BookReadData } from "@/lib/customApi";
 import {
   speakText, stopSpeaking, pauseSpeaking, resumeSpeaking,
   isSpeechSupported, type SpeakOptions,
@@ -88,12 +88,27 @@ export function CustomReader({ bookId }: { bookId: string }) {
     setError("");
     try {
       const hasText = data?.has_text;
-      await extractBookText(bookId, hasText);  // 已有文字时 force=true 重新识别
-      await load();
+      await extractBookText(bookId, hasText);
+      // 轮询状态
+      const poll = setInterval(async () => {
+        try {
+          const status = await getExtractStatus(bookId);
+          if (status.status === "done") {
+            clearInterval(poll);
+            setExtracting(false);
+            await load();
+          } else if (status.status === "error") {
+            clearInterval(poll);
+            setExtracting(false);
+            setError(status.message || "识别失败");
+          }
+        } catch {
+          // 忽略临时网络错误，继续轮询
+        }
+      }, 3000);
     } catch (e: any) {
-      setError(e.message);
-    } finally {
       setExtracting(false);
+      setError(e.message);
     }
   }
 

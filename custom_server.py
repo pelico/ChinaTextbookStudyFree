@@ -509,6 +509,12 @@ def create_book_from_folder(title, subject, grade, semester, folder_path):
     return result
 
 
+import threading as _threading
+
+# 异步任务状态追踪
+_extract_jobs: dict = {}
+
+
 # ============================================================
 # Page text extraction (for reading view)
 # ============================================================
@@ -1169,7 +1175,7 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                 self._send_json(book)
                 return
 
-            # /books/:id/extract-text — 提取页面文字
+            # /books/:id/extract-text — 提取页面文字（异步）
             if len(parts) == 3 and parts[0] == "books" and parts[2] == "extract-text":
                 body = self._read_body()
                 force = False
@@ -1178,8 +1184,31 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                         force = json.loads(body).get("force", False)
                     except Exception:
                         pass
-                result = extract_texts_for_book(parts[1], force=force)
-                self._send_json(result)
+                book_id = parts[1]
+                job_key = f"{book_id}"
+                # 已在跑？返回当前状态
+                if job_key in _extract_jobs and _extract_jobs[job_key].get("status") == "processing":
+                    self._send_json({"status": "processing", "message": "正在识别中..."})
+                    return
+                # 启动后台线程
+                _extract_jobs[job_key] = {"status": "processing", "message": "正在识别..."}
+
+                def _do_extract():
+                    try:
+                        result = extract_texts_for_book(book_id, force=force)
+                        _extract_jobs[job_key] = {"status": "done", "result": result}
+                    except Exception as e:
+                        _extract_jobs[job_key] = {"status": "error", "message": str(e)}
+
+                t = _threading.Thread(target=_do_extract, daemon=True)
+                t.start()
+                self._send_json({"status": "started", "message": "识别任务已启动"})
+                return
+
+            # /books/:id/extract-status — 查询提取状态
+            if len(parts) == 3 and parts[0] == "books" and parts[2] == "extract-status":
+                job = _extract_jobs.get(parts[1], {"status": "idle"})
+                self._send_json(job)
                 return
 
             # /lessons/:lessonId/questions
