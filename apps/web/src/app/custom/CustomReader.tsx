@@ -1,7 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { navigate, getBookRead, extractBookText, getExtractStatus, imageUrl, type BookReadData } from "@/lib/customApi";
+import {
+  navigate, getBookRead, extractBookText, getExtractStatus,
+  updatePageText, imageUrl, type BookReadData,
+} from "@/lib/customApi";
 import {
   speakText, stopSpeaking, pauseSpeaking, resumeSpeaking,
   isSpeechSupported, type SpeakOptions,
@@ -17,7 +20,12 @@ export function CustomReader({ bookId }: { bookId: string }) {
   const [highlightIdx, setHighlightIdx] = useState(-1);
   const [rate, setRate] = useState(1);
   const [error, setError] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState("");
   const textRef = useRef<HTMLDivElement>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -33,7 +41,10 @@ export function CustomReader({ bookId }: { bookId: string }) {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    return () => stopSpeaking();
+    return () => {
+      stopSpeaking();
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
   }, []);
 
   const page = data?.pages[pageIdx];
@@ -75,30 +86,63 @@ export function CustomReader({ bookId }: { bookId: string }) {
 
   function handlePrev() {
     handleStop();
+    setEditing(false);
     if (pageIdx > 0) setPageIdx(pageIdx - 1);
   }
 
   function handleNext() {
     handleStop();
+    setEditing(false);
     if (data && pageIdx < data.pages.length - 1) setPageIdx(pageIdx + 1);
+  }
+
+  function handleStartEdit() {
+    handleStop();
+    setEditText(page?.text_content || "");
+    setEditing(true);
+  }
+
+  function handleCancelEdit() {
+    setEditing(false);
+    setSaveMsg("");
+  }
+
+  async function handleSaveEdit() {
+    if (!page) return;
+    setSaving(true);
+    setSaveMsg("");
+    try {
+      await updatePageText(bookId, page.page_number, editText);
+      setSaveMsg("已保存");
+      setEditing(false);
+      await load();
+      setTimeout(() => setSaveMsg(""), 2000);
+    } catch (e: any) {
+      setSaveMsg("保存失败: " + e.message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleExtract() {
     setExtracting(true);
     setError("");
+    setEditing(false);
     try {
       const hasText = data?.has_text;
       await extractBookText(bookId, hasText);
-      // 轮询状态
-      const poll = setInterval(async () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = setInterval(async () => {
         try {
           const status = await getExtractStatus(bookId);
           if (status.status === "done") {
-            clearInterval(poll);
+            if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = null;
             setExtracting(false);
             await load();
           } else if (status.status === "error") {
-            clearInterval(poll);
+            if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = null;
             setExtracting(false);
             setError(status.message || "识别失败");
           }
@@ -116,7 +160,6 @@ export function CustomReader({ bookId }: { bookId: string }) {
   function handleAutoNext() {
     if (data && pageIdx < data.pages.length - 1) {
       setPageIdx(pageIdx + 1);
-      // 下一页自动开始朗读
       setTimeout(() => {
         const next = data.pages[pageIdx + 1];
         if (next?.text_content) {
@@ -176,6 +219,7 @@ export function CustomReader({ bookId }: { bookId: string }) {
         </button>
         <span className="text-xs text-text-muted">
           {pageIdx + 1} / {data.pages.length}
+          {saveMsg && <span className="ml-2 text-emerald-400">{saveMsg}</span>}
         </span>
       </div>
 
@@ -194,48 +238,77 @@ export function CustomReader({ bookId }: { bookId: string }) {
 
         {/* 文字区 */}
         <div className="md:w-[420px] shrink-0 flex flex-col border-t md:border-t-0 md:border-l border-bg-soft overflow-hidden">
-          {/* TTS 控制栏 */}
-          <div className="shrink-0 flex items-center gap-2 border-b border-bg-soft px-4 py-2.5 bg-bg/95">
+          {/* 控制栏 */}
+          <div className="shrink-0 flex items-center gap-2 border-b border-bg-soft px-4 py-2.5 bg-bg/95 flex-wrap">
             {page?.text_content ? (
               <>
-                <button
-                  onClick={handleSpeak}
-                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-bold transition-colors ${
-                    speaking && !paused
-                      ? "bg-amber-500/20 text-amber-300"
-                      : "bg-violet-500/15 text-violet-300 hover:bg-violet-500/25"
-                  }`}
-                >
-                  {speaking && !paused ? "⏸ 暂停" : paused ? "▶ 继续" : "🔊 朗读"}
-                </button>
-                {(speaking || paused) && (
-                  <button
-                    onClick={handleStop}
-                    className="rounded-lg bg-red-500/15 px-3 py-1.5 text-sm text-red-300 hover:bg-red-500/25"
-                  >
-                    ⏹ 停止
-                  </button>
+                {!editing && (
+                  <>
+                    <button
+                      onClick={handleSpeak}
+                      className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-bold transition-colors ${
+                        speaking && !paused
+                          ? "bg-amber-500/20 text-amber-300"
+                          : "bg-violet-500/15 text-violet-300 hover:bg-violet-500/25"
+                      }`}
+                    >
+                      {speaking && !paused ? "⏸ 暂停" : paused ? "▶ 继续" : "🔊 朗读"}
+                    </button>
+                    {(speaking || paused) && (
+                      <button
+                        onClick={handleStop}
+                        className="rounded-lg bg-red-500/15 px-3 py-1.5 text-sm text-red-300 hover:bg-red-500/25"
+                      >
+                        ⏹ 停止
+                      </button>
+                    )}
+                    <select
+                      value={rate}
+                      onChange={e => { setRate(Number(e.target.value)); handleStop(); }}
+                      className="rounded-lg bg-bg-soft px-2 py-1 text-xs text-text outline-none"
+                    >
+                      <option value={0.8}>慢速</option>
+                      <option value={1}>正常</option>
+                      <option value={1.2}>快速</option>
+                      <option value={1.5}>极速</option>
+                    </select>
+                    <button
+                      onClick={handleStartEdit}
+                      className="rounded-lg bg-blue-500/15 px-2 py-1 text-xs text-blue-300 hover:bg-blue-500/25"
+                      title="编辑文字"
+                    >
+                      ✏️ 编辑
+                    </button>
+                    <button
+                      onClick={handleExtract}
+                      disabled={extracting}
+                      className="rounded-lg bg-emerald-500/15 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-50"
+                      title="重新识别文字"
+                    >
+                      {extracting ? "⏳ 识别中..." : "🔄 重新识别"}
+                    </button>
+                    {isSpeechSupported() ? null : (
+                      <span className="text-xs text-amber-400">浏览器不支持语音</span>
+                    )}
+                  </>
                 )}
-                <select
-                  value={rate}
-                  onChange={e => { setRate(Number(e.target.value)); handleStop(); }}
-                  className="rounded-lg bg-bg-soft px-2 py-1 text-xs text-text outline-none"
-                >
-                  <option value={0.8}>慢速</option>
-                  <option value={1}>正常</option>
-                  <option value={1.2}>快速</option>
-                  <option value={1.5}>极速</option>
-                </select>
-                <button
-                  onClick={handleExtract}
-                  disabled={extracting}
-                  className="rounded-lg bg-emerald-500/15 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-50"
-                  title="重新识别文字"
-                >
-                  {extracting ? "⏳ 识别中..." : "🔄 重新识别"}
-                </button>
-                {isSpeechSupported() ? null : (
-                  <span className="text-xs text-amber-400">浏览器不支持语音</span>
+                {editing && (
+                  <>
+                    <button
+                      onClick={handleSaveEdit}
+                      disabled={saving}
+                      className="flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-sm text-white font-bold hover:bg-emerald-600 disabled:opacity-50"
+                    >
+                      {saving ? "保存中..." : "💾 保存"}
+                    </button>
+                    <button
+                      onClick={handleCancelEdit}
+                      disabled={saving}
+                      className="rounded-lg bg-bg-soft px-3 py-1.5 text-sm text-text hover:bg-bg-soft/60 disabled:opacity-50"
+                    >
+                      取消
+                    </button>
+                  </>
                 )}
               </>
             ) : (
@@ -258,7 +331,15 @@ export function CustomReader({ bookId }: { bookId: string }) {
 
           {/* 文字内容 */}
           <div ref={textRef} className="flex-1 overflow-y-auto px-4 py-4">
-            {page?.text_content ? (
+            {editing ? (
+              <textarea
+                value={editText}
+                onChange={e => setEditText(e.target.value)}
+                className="w-full h-full min-h-[300px] resize-none rounded-lg bg-bg-soft px-3 py-2 text-sm text-text outline-none focus:ring-2 ring-violet-400"
+                placeholder="在此编辑文字内容..."
+                autoFocus
+              />
+            ) : page?.text_content ? (
               <div className="space-y-1.5 text-sm leading-relaxed text-text">
                 {sentences.map((s, i) => (
                   <span
@@ -292,7 +373,8 @@ export function CustomReader({ bookId }: { bookId: string }) {
               <div className="flex flex-col items-center justify-center h-full text-text-muted gap-3">
                 <span className="text-4xl opacity-30">📄</span>
                 <p className="text-sm">点击上方"提取文字"按钮</p>
-                <p className="text-xs">AI 会识别图片中的文字内容用于朗读</p>
+                <p className="text-xs">AI 会逐页识别图片中的文字内容</p>
+                <p className="text-xs text-text-muted/60">识别后可编辑修正，再生成题目</p>
               </div>
             )}
             {error && (
@@ -309,7 +391,7 @@ export function CustomReader({ bookId }: { bookId: string }) {
             >
               ← 上一页
             </button>
-            {speaking && !paused && (
+            {speaking && !paused && !editing && (
               <button
                 onClick={handleAutoNext}
                 className="text-xs text-violet-300"

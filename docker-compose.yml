@@ -12,19 +12,13 @@ services:
       AI_API_KEY: ${AI_API_KEY:-}
       AI_MODEL: ${AI_MODEL:-gemini-3.1-flash-lite}
     volumes:
-      - cnstudy-audio:/usr/share/nginx/html/audio
-      - cnstudy-pages:/usr/share/nginx/html/textbook-pages
-      - cnstudy-stories:/usr/share/nginx/html/story-images
-      - cnstudy-custom:/data
+      - ./data/audio:/usr/share/nginx/html/audio
+      - ./data/textbook-pages:/usr/share/nginx/html/textbook-pages
+      - ./data/story-images:/usr/share/nginx/html/story-images
+      - ./data/custom:/data
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost/"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
-
-volumes:
-  cnstudy-audio:
-  cnstudy-pages:
-  cnstudy-stories:
-  cnstudy-custom:

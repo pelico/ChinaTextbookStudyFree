@@ -92,6 +92,29 @@ export async function getExtractStatus(bookId: string): Promise<{ status: string
   return apiGet(`books/${bookId}/extract-status`);
 }
 
+export async function updatePageText(
+  bookId: string,
+  pageNumber: number,
+  text: string
+): Promise<{ success: boolean }> {
+  return apiPost(`books/${bookId}/pages/${pageNumber}/text`, { text });
+}
+
+export interface TextStatus {
+  total_pages: number;
+  text_pages: number;
+  has_text: boolean;
+  has_outline: boolean;
+}
+
+export async function getTextStatus(bookId: string): Promise<TextStatus> {
+  return apiGet(`books/${bookId}/text-status`);
+}
+
+export async function generateOutlineFromTexts(bookId: string): Promise<CustomBook> {
+  return apiPost(`books/${bookId}/generate-outline`);
+}
+
 export function compressImage(file: File, maxDim = 1080, quality = 0.7): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

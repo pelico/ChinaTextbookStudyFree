@@ -54,12 +54,12 @@ export function CustomFolderCreate() {
     if (!folderPath.trim()) { setError("请选择或输入目录路径"); return; }
 
     setLoading(true);
-    setStatusMsg("正在扫描目录并分批识别...");
+    setStatusMsg("正在扫描目录并创建教材...");
     try {
       const book = await createBookFromFolder(
         title.trim(), subject, grade, semester, folderPath.trim()
       );
-      setStatusMsg(`识别完成：${book.units?.length || 0} 个单元，${book.total_pages || 0} 页`);
+      setStatusMsg(`创建完成：${book.total_pages || 0} 页，接下来提取文字`);
       setTimeout(() => navigate(`/custom/book/${book.id}/`), 1000);
     } catch (e: any) {
       setError(e.message);
@@ -135,7 +135,7 @@ export function CustomFolderCreate() {
               教材图片目录
             </label>
             <p className="text-xs text-text-muted mb-2">
-              将教材拍照或扫描的图片放到持久化目录，每页一张图。AI 会分批识别全部内容。
+              将教材拍照或扫描的图片放到持久化目录，每页一张图。创建后进入阅读页逐页提取文字，可人工修正，再从文字生成大纲和题目。
             </p>
             {foldersLoading ? (
               <div className="rounded-xl bg-bg-soft px-4 py-3 text-text-muted text-sm">
@@ -200,7 +200,7 @@ export function CustomFolderCreate() {
             disabled={loading}
             className="w-full rounded-xl bg-violet-500 px-4 py-3.5 text-white font-bold hover:bg-violet-600 disabled:opacity-50 transition-colors"
           >
-            {loading ? "识别中..." : "开始识别并创建"}
+            {loading ? "创建中..." : "创建教材"}
           </button>
         </div>
       </div>

@@ -404,7 +404,9 @@ def merge_outlines(partial_outlines):
 
 
 def create_book_from_folder(title, subject, grade, semester, folder_path):
-    """从目录扫描图片 → 分批 AI 识别 → 合并大纲 → 写入 SQLite"""
+    """从目录扫描图片 → 复制到标准目录 → 写入 SQLite（不生成大纲）
+    大纲生成改为后续从文字内容生成（generate_outline_from_texts）
+    """
     book_id = generate_book_id(subject, grade, semester)
     now = now_iso()
 
@@ -414,33 +416,6 @@ def create_book_from_folder(title, subject, grade, semester, folder_path):
         raise RuntimeError(f"目录中没有找到图片文件: {folder_path}")
 
     total = len(image_paths)
-    batch_size = 4
-    partial_outlines = []
-
-    # 分批处理
-    for i in range(0, total, batch_size):
-        batch = image_paths[i:i + batch_size]
-        batch_start = i + 1
-        batch_end = min(i + batch_size, total)
-
-        # 读取图片为 base64
-        images_b64 = [read_image_as_b64(p) for p in batch]
-
-        # 调用 AI
-        prompt = BATCH_OUTLINE_PROMPT.format(
-            batch_start=batch_start,
-            batch_end=batch_end,
-            total_pages=total,
-        )
-        try:
-            raw_resp = call_ai_vision(images_b64, prompt, timeout=180)
-            partial = parse_json_response(raw_resp)
-            partial_outlines.append(partial)
-        except Exception as e:
-            partial_outlines.append({"units": [], "error": str(e)})
-
-    # 合并大纲
-    merged_units = merge_outlines(partial_outlines)
 
     # 复制图片到标准目录
     book_img_dir = os.path.join(IMAGES_DIR, book_id)
@@ -453,7 +428,7 @@ def create_book_from_folder(title, subject, grade, semester, folder_path):
         shutil.copy2(src_path, dest)
         page_map[i + 1] = fname
 
-    # 写入 SQLite
+    # 写入 SQLite（仅书本 + 页面图片，不生成大纲）
     with db_lock:
         conn = get_db()
         try:
@@ -463,38 +438,9 @@ def create_book_from_folder(title, subject, grade, semester, folder_path):
                 (book_id, title, subject, grade, semester, folder_path, now, now)
             )
 
-            for u in merged_units:
-                unit_id = f"{book_id}-u{u['unit_number']}"
-                conn.execute(
-                    "INSERT INTO units (id, book_id, unit_number, title, sort_order) "
-                    "VALUES (?, ?, ?, ?, ?)",
-                    (unit_id, book_id, u["unit_number"], u.get("title", ""), u["unit_number"])
-                )
-                kps = u.get("knowledge_points", [])
-                for j, kp in enumerate(kps):
-                    kp_id = f"{unit_id}-kp{j+1}"
-                    qtypes = json.dumps(kp.get("question_types", ["true_false", "choice"]), ensure_ascii=False)
-                    conn.execute(
-                        "INSERT INTO knowledge_points "
-                        "(id, unit_id, name, description, difficulty, question_types, sort_order, source, created_at) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, 'ai', ?)",
-                        (kp_id, unit_id, kp.get("name", ""), kp.get("description", ""),
-                         kp.get("difficulty", 3), qtypes, j+1, now)
-                    )
-                    # 关联图片
-                    kp_page = kp.get("page")
-                    if kp_page and kp_page in page_map:
-                        conn.execute(
-                            "INSERT INTO page_images (id, book_id, unit_id, kp_id, filename, page_number, sort_idx, created_at) "
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                            (uuid.uuid4().hex, book_id, unit_id, kp_id,
-                             page_map[kp_page], kp_page, kp_page, now)
-                        )
-
-            # 所有页面图片都存一份（用于阅读视图）
             for page_num, fname in page_map.items():
                 conn.execute(
-                    "INSERT OR IGNORE INTO page_images (id, book_id, filename, page_number, sort_idx, created_at) "
+                    "INSERT INTO page_images (id, book_id, filename, page_number, sort_idx, created_at) "
                     "VALUES (?, ?, ?, ?, ?, ?)",
                     (f"{book_id}-p{page_num}", book_id, fname, page_num, page_num, now)
                 )
@@ -505,7 +451,6 @@ def create_book_from_folder(title, subject, grade, semester, folder_path):
 
     result = get_book_detail(book_id)
     result["total_pages"] = total
-    result["batches"] = len(partial_outlines)
     return result
 
 
@@ -558,34 +503,25 @@ def extract_texts_for_book(book_id, force=False):
 
         now = now_iso()
         book_img_dir = os.path.join(IMAGES_DIR, book_id)
-        batch_size = 3
         extracted = 0
 
-        for i in range(0, len(to_extract), batch_size):
-            batch = to_extract[i:i + batch_size]
-            images_b64 = []
-            for p in batch:
-                img_path = os.path.join(book_img_dir, p["filename"])
-                if os.path.exists(img_path):
-                    images_b64.append(read_image_as_b64(img_path))
-
-            if not images_b64:
+        for p in to_extract:
+            img_path = os.path.join(book_img_dir, p["filename"])
+            if not os.path.exists(img_path):
                 continue
+            images_b64 = [read_image_as_b64(img_path)]
 
             try:
                 raw_resp = call_ai_vision(images_b64, EXTRACT_TEXT_PROMPT, timeout=120)
-                # AI 可能返回多段文本（每张图片一段），用 --- 分隔
-                texts = raw_resp.split("---") if "---" in raw_resp else [raw_resp]
+                text = raw_resp.strip()
 
-                for j, p in enumerate(batch):
-                    text = texts[j].strip() if j < len(texts) else texts[0].strip()
-                    conn.execute(
-                        "INSERT OR REPLACE INTO page_texts (id, book_id, page_number, text_content, created_at) "
-                        "VALUES (?, ?, ?, ?, ?)",
-                        (f"{book_id}-pt-{p['page_number']}", book_id, p["page_number"], text, now)
-                    )
-                    extracted += 1
+                conn.execute(
+                    "INSERT OR REPLACE INTO page_texts (id, book_id, page_number, text_content, created_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (f"{book_id}-pt-{p['page_number']}", book_id, p["page_number"], text, now)
+                )
                 conn.commit()
+                extracted += 1
             except Exception:
                 continue
 
@@ -626,6 +562,157 @@ def get_book_read(book_id):
         }
     finally:
         conn.close()
+
+
+def update_page_text(book_id, page_number, text):
+    """保存人工修正的页面文字"""
+    now = now_iso()
+    with db_lock:
+        conn = get_db()
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO page_texts (id, book_id, page_number, text_content, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (f"{book_id}-pt-{page_number}", book_id, page_number, text, now)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    return {"success": True}
+
+
+def get_page_texts_for_kp(kp_id):
+    """获取知识点关联页面的文字内容"""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT pt.page_number, pt.text_content "
+            "FROM page_texts pt "
+            "JOIN page_images pi ON pi.book_id = pt.book_id AND pi.page_number = pt.page_number "
+            "WHERE pi.kp_id = ? "
+            "ORDER BY pt.page_number",
+            (kp_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_all_page_texts(book_id):
+    """获取书本所有页面的文字内容"""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT page_number, text_content FROM page_texts "
+            "WHERE book_id = ? ORDER BY page_number",
+            (book_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+TEXT_OUTLINE_PROMPT = """以下是教材的逐页文字内容。请分析这些内容，提取完整的单元和知识点结构。
+
+{pages_text}
+
+要求：
+1. 按教材的实际结构组织单元和知识点，不要编造不存在的内容
+2. 每个知识点标注其首次出现的页码（page 字段）
+3. 每个知识点需要：名称、简短描述、难度（1-5级）、适合的题型
+4. 题型从以下选择：true_false, choice, fill_blank, fill_blank_text, calculation, word_order, matching
+5. 单元之间用 unit_number 区分，按教材实际编排
+
+只输出 JSON，不要包含 markdown 代码块标记或任何其他文字：
+{{
+  "units": [
+    {{
+      "unit_number": 1,
+      "title": "单元标题",
+      "page_start": 1,
+      "page_end": 3,
+      "knowledge_points": [
+        {{
+          "name": "知识点名称",
+          "description": "简短描述",
+          "difficulty": 2,
+          "question_types": ["choice", "fill_blank_text"],
+          "page": 1
+        }}
+      ]
+    }}
+  ]
+}}"""
+
+
+def generate_outline_from_texts(book_id):
+    """基于已提取/修正的页面文字生成大纲（纯文本 AI 调用，不使用图片）"""
+    page_texts = get_all_page_texts(book_id)
+    if not page_texts:
+        raise RuntimeError("尚无页面文字，请先提取文字")
+
+    pages_text = "\n\n".join(
+        f"第{pt['page_number']}页：\n{pt['text_content']}" for pt in page_texts
+    )
+
+    prompt = TEXT_OUTLINE_PROMPT.format(pages_text=pages_text)
+
+    raw_resp = call_ai([
+        {"role": "system", "content": OUTLINE_SYSTEM},
+        {"role": "user", "content": prompt},
+    ], timeout=180)
+
+    outline_data = parse_json_response(raw_resp)
+    units_data = outline_data.get("units", [])
+    if not units_data:
+        raise RuntimeError("AI 未能从文字内容中识别出单元结构")
+
+    now = now_iso()
+
+    with db_lock:
+        conn = get_db()
+        try:
+            # 清除旧大纲（如果有）
+            conn.execute("DELETE FROM question_sets WHERE kp_id IN (SELECT id FROM knowledge_points WHERE unit_id IN (SELECT id FROM units WHERE book_id = ?))", (book_id,))
+            conn.execute("DELETE FROM knowledge_points WHERE unit_id IN (SELECT id FROM units WHERE book_id = ?)", (book_id,))
+            conn.execute("DELETE FROM units WHERE book_id = ?", (book_id,))
+            # 清除 page_images 中的 kp 关联
+            conn.execute("UPDATE page_images SET kp_id = NULL, unit_id = NULL WHERE book_id = ?", (book_id,))
+
+            for u in units_data:
+                unit_id = f"{book_id}-u{u['unit_number']}"
+                conn.execute(
+                    "INSERT INTO units (id, book_id, unit_number, title, sort_order) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (unit_id, book_id, u["unit_number"], u.get("title", ""), u["unit_number"])
+                )
+                kps = u.get("knowledge_points", [])
+                for j, kp in enumerate(kps):
+                    kp_id = f"{unit_id}-kp{j+1}"
+                    qtypes = json.dumps(kp.get("question_types", ["true_false", "choice"]), ensure_ascii=False)
+                    conn.execute(
+                        "INSERT INTO knowledge_points "
+                        "(id, unit_id, name, description, difficulty, question_types, sort_order, source, created_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, 'ai', ?)",
+                        (kp_id, unit_id, kp.get("name", ""), kp.get("description", ""),
+                         kp.get("difficulty", 3), qtypes, j+1, now)
+                    )
+                    # 关联图片
+                    kp_page = kp.get("page")
+                    if kp_page:
+                        conn.execute(
+                            "UPDATE page_images SET kp_id = ?, unit_id = ? "
+                            "WHERE book_id = ? AND page_number = ?",
+                            (kp_id, unit_id, book_id, kp_page)
+                        )
+
+            conn.commit()
+        finally:
+            conn.close()
+
+    result = get_book_detail(book_id)
+    result["total_pages"] = len(page_texts)
+    return result
 # ============================================================
 OUTLINE_SYSTEM = "你是一名资深小学教研员，精通中国小学各科教材体系。"
 
@@ -711,7 +798,7 @@ QUESTION_USER_TEMPLATE = """学科：{subject}
 知识点描述：{kp_description}
 难度上限：{difficulty}级
 适合题型：{question_types}
-
+{page_text_context}
 请生成 5-7 道题目，覆盖以上知识点，难度不超过 {difficulty} 级。
 
 重要：本次生成编号为 {seed}，请确保生成全新的题目内容和角度，不要与之前的题目重复。每道题应从不同角度考察该知识点。
@@ -937,6 +1024,17 @@ def generate_questions_for_kp(kp_id, version=None):
     subject_labels = {
         "math": "数学", "chinese": "语文", "english": "英语", "science": "科学"
     }
+
+    # 获取知识点关联页面的文字内容
+    page_texts = get_page_texts_for_kp(kp_id)
+    if page_texts:
+        text_ctx = "\n教材原文参考：\n"
+        for pt in page_texts:
+            text_ctx += f"第{pt['page_number']}页：{pt['text_content']}\n\n"
+        text_ctx = text_ctx.rstrip()
+    else:
+        text_ctx = ""
+
     user_prompt = QUESTION_USER_TEMPLATE.format(
         subject=subject_labels.get(kp["subject"], kp["subject"]),
         textbook=kp["book_title"],
@@ -948,6 +1046,7 @@ def generate_questions_for_kp(kp_id, version=None):
         difficulty=kp["difficulty"],
         question_types=", ".join(json.loads(kp["question_types"])),
         seed=random.randint(1, 99999),
+        page_text_context=text_ctx,
     )
 
     # 调用 AI
@@ -1108,6 +1207,33 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                     self._send_error("书本不存在", 404)
                 return
 
+            # /books/:id/text-status — 查询文字提取状态
+            if len(parts) == 3 and parts[0] == "books" and parts[2] == "text-status":
+                book_id = parts[1]
+                conn = get_db()
+                try:
+                    total_pages = conn.execute(
+                        "SELECT COUNT(*) as c FROM page_images WHERE book_id = ? AND page_number IS NOT NULL",
+                        (book_id,)
+                    ).fetchone()["c"]
+                    text_pages = conn.execute(
+                        "SELECT COUNT(*) as c FROM page_texts WHERE book_id = ?",
+                        (book_id,)
+                    ).fetchone()["c"]
+                    units_count = conn.execute(
+                        "SELECT COUNT(*) as c FROM units WHERE book_id = ?",
+                        (book_id,)
+                    ).fetchone()["c"]
+                    self._send_json({
+                        "total_pages": total_pages,
+                        "text_pages": text_pages,
+                        "has_text": text_pages > 0,
+                        "has_outline": units_count > 0,
+                    })
+                finally:
+                    conn.close()
+                return
+
             # /folders — 列出 textbooks 目录下的子目录
             if parts == ["folders"]:
                 folders = []
@@ -1209,6 +1335,25 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
             if len(parts) == 3 and parts[0] == "books" and parts[2] == "extract-status":
                 job = _extract_jobs.get(parts[1], {"status": "idle"})
                 self._send_json(job)
+                return
+
+            # /books/:id/pages/:page/text — 保存人工修正的页面文字
+            if (len(parts) == 5 and parts[0] == "books" and parts[2] == "pages"
+                    and parts[4] == "text"):
+                book_id = parts[1]
+                page_number = int(parts[3])
+                body = self._read_body()
+                data = json.loads(body)
+                text = data.get("text", "")
+                result = update_page_text(book_id, page_number, text)
+                self._send_json(result)
+                return
+
+            # /books/:id/generate-outline — 从文字内容生成大纲
+            if len(parts) == 3 and parts[0] == "books" and parts[2] == "generate-outline":
+                book_id = parts[1]
+                result = generate_outline_from_texts(book_id)
+                self._send_json(result)
                 return
 
             # /lessons/:lessonId/questions
