@@ -52,6 +52,7 @@ import { shouldIgnoreKey, isButtonTarget } from "./question/keyboard";
 import { Mascot, type MascotMood, type MascotReaction } from "./Mascot";
 import { MuteToggle, AutoNarrateToggle, useSyncMute } from "./MuteToggle";
 import { TTSButton } from "./TTSButton";
+import { SpeechTTSButton } from "./SpeechTTSButton";
 import { useAutoNarrate } from "@/lib/useAutoNarrate";
 import { uiAudio } from "@/lib/uiAudio";
 import { playTTS } from "@/lib/tts";
@@ -70,6 +71,16 @@ import { renderBadgeCard, renderStreakCard, buildShareWeek } from "@/lib/shareCa
 import type { QuestionType } from "@cstf/core";
 
 /** 仿 Duolingo 题型胶囊文案（紫色 NEW WORD tag） */
+function buildSpeakText(q: { type: QuestionType; question: string; options: string[] }): string {
+  let text = q.question;
+  if (q.type === "choice" && q.options?.length) {
+    q.options.forEach((opt, i) => {
+      text += ` ${String.fromCharCode(65 + i)} ${opt}`;
+    });
+  }
+  return text;
+}
+
 function questionTagLabel(type: QuestionType): string {
   switch (type) {
     case "choice":
@@ -215,6 +226,8 @@ interface LessonRunnerProps {
   backHref?: string;
   /** 自定义导航函数（用于客户端路由兼容，默认用 router.push） */
   navigateFn?: (href: string) => void;
+  /** 语音朗读语言（设置后启用 speechSynthesis 朗读题目，zh-CN 或 en-US） */
+  speakLang?: string;
 }
 
 /** 结算页的任务进度快照：before = 通关记账前，after = 记账后 */
@@ -246,7 +259,7 @@ interface SessionStats {
   quests: QuestSnapshot[];
 }
 
-export function LessonRunner({ lesson, chestSlot = null, backHref, navigateFn }: LessonRunnerProps) {
+export function LessonRunner({ lesson, chestSlot = null, backHref, navigateFn, speakLang }: LessonRunnerProps) {
   useSyncMute();
   useProgressTicker(); // 红心实时恢复
   const router = useRouter();
@@ -1347,6 +1360,14 @@ export function LessonRunner({ lesson, chestSlot = null, backHref, navigateFn }:
               <span className="w-1.5 h-1.5 rounded-full bg-secondary" />
               {questionTagLabel(current.type)}
             </span>
+            {speakLang && (
+              <SpeechTTSButton
+                text={buildSpeakText(current)}
+                lang={speakLang}
+                size="sm"
+                label="朗读题目"
+              />
+            )}
             {/* 错题重答提示：这题之前答错过，重排回来了 */}
             {attemptedRef.current.has(current.id) && phase === "answering" && (
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-warning/15 text-warning text-[11px] font-extrabold">

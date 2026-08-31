@@ -21,6 +21,7 @@ export function CustomLesson({ bookId, lessonId }: { bookId: string; lessonId: s
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [kpName, setKpName] = useState("");
+  const [bookSubject, setBookSubject] = useState<string>("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -34,6 +35,7 @@ export function CustomLesson({ bookId, lessonId }: { bookId: string; lessonId: s
       for (const u of book.units || []) {
         const idx = u.knowledge_points.findIndex(kp => kp.id === lessonId);
         if (idx >= 0) {
+          setBookSubject(book.subject);
           const kp = u.knowledge_points[idx];
           setLesson({
             id: lessonId,
@@ -121,7 +123,7 @@ export function CustomLesson({ bookId, lessonId }: { bookId: string; lessonId: s
           )}
         </button>
       </div>
-      <LessonRunner key={version} lesson={lesson} chestSlot={null} backHref={`/custom/book/${bookId}/`} navigateFn={navigate} />
+      <LessonRunner key={version} lesson={lesson} chestSlot={null} backHref={`/custom/book/${bookId}/`} navigateFn={navigate} speakLang={bookSubject === "english" ? "en-US" : "zh-CN"} />
     </div>
   );
 }
