@@ -1234,6 +1234,12 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                     conn.close()
                 return
 
+            # /books/:id/extract-status — 查询异步提取任务状态
+            if len(parts) == 3 and parts[0] == "books" and parts[2] == "extract-status":
+                job = _extract_jobs.get(parts[1], {"status": "idle"})
+                self._send_json(job)
+                return
+
             # /folders — 列出 textbooks 目录下的子目录
             if parts == ["folders"]:
                 folders = []
@@ -1329,12 +1335,6 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                 t = _threading.Thread(target=_do_extract, daemon=True)
                 t.start()
                 self._send_json({"status": "started", "message": "识别任务已启动"})
-                return
-
-            # /books/:id/extract-status — 查询提取状态
-            if len(parts) == 3 and parts[0] == "books" and parts[2] == "extract-status":
-                job = _extract_jobs.get(parts[1], {"status": "idle"})
-                self._send_json(job)
                 return
 
             # /books/:id/pages/:page/text — 保存人工修正的页面文字
