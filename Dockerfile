@@ -95,7 +95,7 @@ LABEL org.opencontainers.image.description="小学全科 AI 学习平台（Web �
 LABEL org.opencontainers.image.licenses="MIT"
 
 # curl + unzip + python3 + nc：entrypoint 首次启动时自动下载资源 + 重试 API
-RUN apk add --no-cache curl unzip python3 netcat-openbsd sqlite-libs
+RUN apk add --no-cache curl unzip python3 netcat-openbsd sqlite-libs poppler-utils
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY docker-entrypoint.sh /docker-entrypoint.sh

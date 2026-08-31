@@ -23,18 +23,29 @@ export function CustomCreate() {
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
-    const compressed: string[] = [];
+    const processed: string[] = [];
     const previews: string[] = [];
     for (const file of Array.from(files)) {
       try {
-        const dataUrl = await compressImage(file, 1280, 0.65);
-        compressed.push(dataUrl);
-        previews.push(dataUrl);
+        if (file.type === "application/pdf") {
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+          processed.push(dataUrl);
+          previews.push("__pdf__");
+        } else {
+          const dataUrl = await compressImage(file, 1280, 0.65);
+          processed.push(dataUrl);
+          previews.push(dataUrl);
+        }
       } catch {
-        alert(`图片处理失败: ${file.name}`);
+        alert(`文件处理失败: ${file.name}`);
       }
     }
-    setImages(prev => [...prev, ...compressed]);
+    setImages(prev => [...prev, ...processed]);
     setPreviewUrls(prev => [...prev, ...previews]);
   }
 
@@ -45,7 +56,7 @@ export function CustomCreate() {
 
   async function handleSubmit() {
     if (!title.trim()) { setError("请输入教材名称"); return; }
-    if (images.length === 0) { setError("请上传至少一张教材照片"); return; }
+    if (images.length === 0) { setError("请上传至少一张教材照片或 PDF"); return; }
 
     setLoading(true);
     setError("");
@@ -118,13 +129,12 @@ export function CustomCreate() {
             </div>
 
             <div>
-              <label className="block text-sm font-bold text-text mb-2">教材拍照（目录页 + 内容页）</label>
+              <label className="block text-sm font-bold text-text mb-2">教材拍照或上传 PDF（目录页 + 内容页）</label>
               <input
                 ref={fileRef}
                 type="file"
-                accept="image/*"
+                accept="image/*,application/pdf"
                 multiple
-                capture="environment"
                 onChange={e => handleFiles(e.target.files)}
                 className="hidden"
               />
@@ -133,13 +143,19 @@ export function CustomCreate() {
                 className="w-full flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-violet-400/40 bg-violet-500/10 px-4 py-8 text-violet-300 hover:bg-violet-500/20 transition-colors"
               >
                 <span className="text-3xl">📷</span>
-                <span className="font-bold">点击拍照或选择图片</span>
+                <span className="font-bold">点击拍照、选择图片或上传 PDF</span>
               </button>
               {previewUrls.length > 0 && (
                 <div className="mt-3 grid grid-cols-3 gap-2">
                   {previewUrls.map((url, i) => (
                     <div key={i} className="relative group">
-                      <img src={url} alt={`page ${i+1}`} className="w-full h-24 object-cover rounded-lg" />
+                      {url === "__pdf__" ? (
+                        <div className="w-full h-24 flex items-center justify-center rounded-lg bg-violet-500/10 border border-violet-400/30">
+                          <span className="text-2xl">📄</span>
+                        </div>
+                      ) : (
+                        <img src={url} alt={`page ${i+1}`} className="w-full h-24 object-cover rounded-lg" />
+                      )}
                       <button
                         onClick={() => removeImage(i)}
                         className="absolute top-1 right-1 rounded-full bg-black/60 text-white text-xs w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100"
@@ -148,7 +164,7 @@ export function CustomCreate() {
                   ))}
                 </div>
               )}
-              <p className="text-xs text-text-muted mt-2">支持多张图片，建议拍目录页和各单元内容页</p>
+              <p className="text-xs text-text-muted mt-2">支持图片和 PDF，可混合上传，最多 20 页</p>
             </div>
 
             {error && (

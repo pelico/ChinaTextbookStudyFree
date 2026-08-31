@@ -12,6 +12,9 @@ import os
 import re
 import sqlite3
 import base64
+import subprocess
+import tempfile
+import glob
 import threading
 import time
 import uuid
@@ -199,7 +202,48 @@ def parse_json_response(text):
 
 
 # ============================================================
-# AI Prompts
+# PDF → Images
+# ============================================================
+def convert_pdf_to_images(pdf_b64, max_pages=20):
+    """将 PDF（base64）转换为 JPEG 图片列表（base64 data URL）"""
+    raw = pdf_b64.split(",", 1)[-1] if "," in pdf_b64 else pdf_b64
+    pdf_bytes = base64.b64decode(raw)
+
+    images = []
+    with tempfile.TemporaryDirectory() as tmpdir:
+        pdf_path = os.path.join(tmpdir, "input.pdf")
+        with open(pdf_path, "wb") as f:
+            f.write(pdf_bytes)
+
+        try:
+            subprocess.run(
+                ["pdftoppm", "-jpeg", "-r", "150", "-l", str(max_pages),
+                 pdf_path, "page"],
+                cwd=tmpdir, check=True, capture_output=True, timeout=60
+            )
+        except FileNotFoundError:
+            raise RuntimeError("pdftoppm 未安装，无法处理 PDF")
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("PDF 转换超时（超过 60 秒）")
+
+        for img_path in sorted(glob.glob(os.path.join(tmpdir, "page-*.jpg"))):
+            with open(img_path, "rb") as f:
+                img_b64 = base64.b64encode(f.read()).decode("utf-8")
+                images.append(f"data:image/jpeg;base64,{img_b64}")
+
+    return images
+
+
+def process_uploads(uploads):
+    """处理混合图片/PDF 上传，统一输出为 JPEG base64 data URL 列表"""
+    all_images = []
+    for item in uploads:
+        if item.startswith("data:application/pdf") or item.startswith("data:pdf"):
+            pdf_images = convert_pdf_to_images(item)
+            all_images.extend(pdf_images)
+        else:
+            all_images.append(item)
+    return all_images
 # ============================================================
 OUTLINE_SYSTEM = "你是一名资深小学教研员，精通中国小学各科教材体系。"
 
@@ -303,6 +347,9 @@ def create_book_with_ai(title, subject, grade, semester, images_b64):
     """创建自定义书本：保存图片 → AI 识图 → 生成大纲 → 写入 SQLite"""
     book_id = generate_book_id(subject, grade, semester)
     now = now_iso()
+
+    # 处理混合上传：PDF 转图片，统一为 JPEG base64
+    images_b64 = process_uploads(images_b64)
 
     # 保存图片到磁盘
     book_img_dir = os.path.join(IMAGES_DIR, book_id)
