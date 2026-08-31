@@ -18,6 +18,7 @@ import glob
 import threading
 import time
 import uuid
+import random
 import urllib.request
 import urllib.error
 from datetime import datetime, timezone
@@ -581,6 +582,9 @@ QUESTION_USER_TEMPLATE = """学科：{subject}
 适合题型：{question_types}
 
 请生成 5-7 道题目，覆盖以上知识点，难度不超过 {difficulty} 级。
+
+重要：本次生成编号为 {seed}，请确保生成全新的题目内容和角度，不要与之前的题目重复。每道题应从不同角度考察该知识点。
+
 只输出 JSON 数组，不要包含 markdown 代码块标记或任何其他文字。"""
 
 
@@ -812,6 +816,7 @@ def generate_questions_for_kp(kp_id, version=None):
         kp_description=kp["description"] or "（无描述）",
         difficulty=kp["difficulty"],
         question_types=", ".join(json.loads(kp["question_types"])),
+        seed=random.randint(1, 99999),
     )
 
     # 调用 AI

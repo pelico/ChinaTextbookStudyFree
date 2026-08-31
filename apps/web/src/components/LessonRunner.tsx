@@ -213,6 +213,8 @@ interface LessonRunnerProps {
   chestSlot?: ChestSlot | null;
   /** 退出/完成后的返回路径（默认 /book/{bookId}/，自定义模块传 /custom/book/{bookId}/） */
   backHref?: string;
+  /** 自定义导航函数（用于客户端路由兼容，默认用 router.push） */
+  navigateFn?: (href: string) => void;
 }
 
 /** 结算页的任务进度快照：before = 通关记账前，after = 记账后 */
@@ -244,11 +246,12 @@ interface SessionStats {
   quests: QuestSnapshot[];
 }
 
-export function LessonRunner({ lesson, chestSlot = null, backHref }: LessonRunnerProps) {
+export function LessonRunner({ lesson, chestSlot = null, backHref, navigateFn }: LessonRunnerProps) {
   useSyncMute();
   useProgressTicker(); // 红心实时恢复
   const router = useRouter();
   const _backHref = backHref ?? `/book/${lesson.bookId}/`;
+  const _goBack = navigateFn ?? ((href: string) => router.push(href));
   const recordComplete = useProgressStore(s => s.recordLessonComplete);
   const addMistake = useProgressStore(s => s.addMistake);
   const loseHeart = useProgressStore(s => s.loseHeart);
@@ -926,7 +929,7 @@ export function LessonRunner({ lesson, chestSlot = null, backHref }: LessonRunne
     // 零进度（一题都没答过）直接退出，不弹确认（web-lesson-16）
     if (attemptedRef.current.size === 0 && solved.length === 0) {
       clearLessonSession();
-      router.push(_backHref);
+      _goBack(_backHref);
       return;
     }
     setExitConfirmMounted(true);
@@ -938,7 +941,7 @@ export function LessonRunner({ lesson, chestSlot = null, backHref }: LessonRunne
     playSfx("tap");
     haptic("medium");
     clearLessonSession();
-    router.push(_backHref);
+    _goBack(_backHref);
   }
 
   // ===== 断心遮罩的三个出口 =====
@@ -970,7 +973,7 @@ export function LessonRunner({ lesson, chestSlot = null, backHref }: LessonRunne
     setGateOpen(false);
     // 遮罩承诺过「回来接着上次继续」→ 保留 activeLesson 直接返回（与 iOS onQuit 一致）。
     // 绝不能走 setFailed(true)：那会连带清掉整节课的进度。
-    router.push(_backHref);
+    _goBack(_backHref);
   }
 
   // ============ 首次加载占位（等待 persist 恢复）============
@@ -988,7 +991,7 @@ export function LessonRunner({ lesson, chestSlot = null, backHref }: LessonRunne
       <CompletionScreen
         lesson={lesson}
         stats={sessionStats}
-        onBack={() => router.push(_backHref)}
+        onBack={() => _goBack(_backHref)}
       />
     );
   }
@@ -999,7 +1002,7 @@ export function LessonRunner({ lesson, chestSlot = null, backHref }: LessonRunne
       <FailScreen
         lesson={lesson}
         onRetry={resetSession}
-        onBack={() => router.push(_backHref)}
+        onBack={() => _goBack(_backHref)}
       />
     );
   }
@@ -1011,7 +1014,7 @@ export function LessonRunner({ lesson, chestSlot = null, backHref }: LessonRunne
         lesson={lesson}
         knowledge={lesson.knowledge}
         onStart={() => setShowIntro(false)}
-        onExit={() => router.push(_backHref)}
+        onExit={() => _goBack(_backHref)}
       />
     );
   }

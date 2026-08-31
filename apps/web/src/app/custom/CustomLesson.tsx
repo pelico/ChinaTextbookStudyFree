@@ -121,7 +121,7 @@ export function CustomLesson({ bookId, lessonId }: { bookId: string; lessonId: s
           )}
         </button>
       </div>
-      <LessonRunner key={version} lesson={lesson} chestSlot={null} backHref={`/custom/book/${bookId}/`} />
+      <LessonRunner key={version} lesson={lesson} chestSlot={null} backHref={`/custom/book/${bookId}/`} navigateFn={navigate} />
     </div>
   );
 }
