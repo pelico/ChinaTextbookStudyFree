@@ -1,16 +1,17 @@
 /**
- * 悠悠学堂 Service Worker（critic-7）
+ * 悠悠学堂 Service Worker（critic-8）
  *
  * 策略：
  *   - 壳层（导航请求 / manifest / 图标）：网络优先，失败回缓存 —— 离线也能进入上次访问过的页面
  *   - 课程数据 JSON（/data/**）与 TTS 音频（/audio/**）：stale-while-revalidate
  *     —— 先用缓存秒开，后台悄悄刷新
  *   - 静态构建产物（/_next/static/**，内容寻址不变）：缓存优先
+ *   - API 请求（/api/**）：不拦截，直接透传
  *
  * next 静态导出（output: "export"）下手写注册即可，注册脚本在 layout.tsx。
  */
 
-const VERSION = "v1";
+const VERSION = "v2";
 const SHELL_CACHE = `ctsf-shell-${VERSION}`;
 const DATA_CACHE = `ctsf-data-${VERSION}`;
 const STATIC_CACHE = `ctsf-static-${VERSION}`;
@@ -89,6 +90,9 @@ self.addEventListener("fetch", event => {
   if (request.method !== "GET") return;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+
+  // API 请求：不拦截，直接透传
+  if (url.pathname.startsWith("/api/")) return;
 
   // 课程 JSON 与音频：stale-while-revalidate
   if (url.pathname.startsWith("/data/") || url.pathname.startsWith("/audio/")) {
