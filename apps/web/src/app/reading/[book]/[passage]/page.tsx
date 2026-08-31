@@ -4,9 +4,13 @@ import { notFound } from "next/navigation";
 import type { BookPassages, SiteIndex } from "@/types";
 import { PassageReader } from "@/components/PassageReader";
 
-async function getIndex(): Promise<SiteIndex> {
-  const p = path.join(process.cwd(), "public", "data", "index.json");
-  return JSON.parse(await fs.readFile(p, "utf-8"));
+async function getIndex(): Promise<SiteIndex | null> {
+  try {
+    const p = path.join(process.cwd(), "public", "data", "index.json");
+    return JSON.parse(await fs.readFile(p, "utf-8"));
+  } catch {
+    return null;
+  }
 }
 
 async function getPassages(bookId: string): Promise<BookPassages | null> {
@@ -27,6 +31,7 @@ async function getPassages(bookId: string): Promise<BookPassages | null> {
 
 export async function generateStaticParams() {
   const index = await getIndex();
+  if (!index) return [];
   const params: { book: string; passage: string }[] = [];
   for (const book of index.books) {
     if (!book.hasPassages) continue;

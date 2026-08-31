@@ -8,9 +8,13 @@ import { InnerHeader } from "@/components/InnerHeader";
 import { AppShell } from "@/components/layout/AppShell";
 import type { BookPassages, SiteIndex } from "@/types";
 
-async function getIndex(): Promise<SiteIndex> {
+async function getIndex(): Promise<SiteIndex | null> {
   const p = path.join(process.cwd(), "public", "data", "index.json");
-  return JSON.parse(await fs.readFile(p, "utf-8"));
+  try {
+    return JSON.parse(await fs.readFile(p, "utf-8"));
+  } catch {
+    return null;
+  }
 }
 
 async function getPassages(bookId: string): Promise<BookPassages | null> {
@@ -31,6 +35,7 @@ async function getPassages(bookId: string): Promise<BookPassages | null> {
 
 export async function generateStaticParams() {
   const index = await getIndex();
+  if (!index) return [];
   return index.books.filter(b => b.hasPassages).map(b => ({ book: b.id }));
 }
 
@@ -63,6 +68,7 @@ export default async function ReadingListPage({
 }) {
   const { book: bookId } = await params;
   const index = await getIndex();
+  if (!index) notFound();
   const book = index.books.find(b => b.id === bookId);
   if (!book) notFound();
   const doc = await getPassages(bookId);

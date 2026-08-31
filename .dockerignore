@@ -16,12 +16,11 @@ venv/
 .mypy_cache/
 .ruff_cache/
 
-# ---- 生成资源（Docker 构建时从 Release 下载，不需要进 context）----
+# ---- 生成资源（Docker 构建时 build:data 生成，不需要进 context）----
 apps/web/public/audio/
 apps/web/public/data/
 apps/web/public/textbook-pages/
 apps/web/public/story-images/
-data/
 release-assets/
 
 # ---- iOS 端（Docker 只部署 Web）----

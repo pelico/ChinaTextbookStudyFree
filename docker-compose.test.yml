@@ -12,7 +12,7 @@ services:
     restart: unless-stopped
     environment:
       HTTP_PROXY: "http://192.168.2.88:10809"
-      RELEASE_URL: "https://github.com/pelico/ChinaTextbookStudyFree/releases/latest/download"
+      RELEASE_URL: "https://github.com/pelico/ChinaTextbookStudyFree/releases/download/v1.1.0-assets"
     volumes:
       - assets-audio-test:/usr/share/nginx/html/audio
       - assets-pages-test:/usr/share/nginx/html/textbook-pages

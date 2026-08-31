@@ -2,15 +2,15 @@
 # download-assets.sh — 从 GitHub Release 下载前端所需的音频和数据文件
 #
 # 用法:
-#   bash scripts/download-assets.sh              # 下载最新 release
+#   bash scripts/download-assets.sh              # 下载 v1.1.0-assets release
 #   bash scripts/download-assets.sh v1.1.0-assets # 下载指定版本
 #
 # 需要: curl, tar, python3 (处理 Windows 反斜杠路径的 zip)
 
 set -euo pipefail
 
-REPO="wuwangzhang1216/ChinaTextbookStudyFree"
-TAG="${1:-latest}"
+REPO="pelico/ChinaTextbookStudyFree"
+TAG="${1:-v1.1.0-assets}"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 FRONTEND_DIR="$ROOT_DIR/apps/web"
 PUBLIC_DIR="$FRONTEND_DIR/public"

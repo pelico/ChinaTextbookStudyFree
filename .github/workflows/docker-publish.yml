@@ -56,6 +56,17 @@ jobs:
             org.opencontainers.image.description=小学全科 AI 学习平台
             org.opencontainers.image.licenses=MIT
 
+      - name: Pre-download data.zip
+        run: |
+          mkdir -p data
+          curl -sL "https://github.com/${{ github.repository }}/releases/download/v1.1.0-assets/data.zip" -o data/data.zip
+          if [ -s data/data.zip ] && python3 -c "import zipfile; zipfile.ZipFile('data/data.zip')" 2>/dev/null; then
+            echo "data.zip downloaded OK ($(du -h data/data.zip | cut -f1))"
+          else
+            echo "WARNING: data.zip download failed or invalid"
+            rm -f data/data.zip
+          fi
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:

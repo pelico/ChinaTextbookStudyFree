@@ -52,31 +52,34 @@ COPY . .
 
 # ---- 资源下载 ----
 # SKIP_ASSETS=false（默认）：下载全部资源 ~1.4GB，镜像自包含
-# SKIP_ASSETS=true：从源码生成数据，音频/图片用 volume 挂载
+# SKIP_ASSETS=true：解压预下载的 data.zip 到 public/data/，音频/图片用 volume 挂载
 ARG SKIP_ASSETS=false
-ARG RELEASE_URL="https://github.com/pelico/ChinaTextbookStudyFree/releases/latest/download"
+ARG RELEASE_URL="https://github.com/pelico/ChinaTextbookStudyFree/releases/download/v1.1.0-assets"
 RUN if [ "$SKIP_ASSETS" = "false" ]; then \
       bash scripts/download-assets.sh; \
+    elif [ -f /app/data/data.zip ]; then \
+      echo ">> 轻量模式：解压预下载的 data.zip" && \
+      mkdir -p apps/web/public/data && \
+      printf 'import zipfile,os\nwith zipfile.ZipFile("/app/data/data.zip") as z:\n    for name in z.namelist():\n        fixed=name.replace(chr(92),"/")\n        target=os.path.join("apps/web/public/data",fixed)\n        if fixed.endswith("/"):\n            os.makedirs(target,exist_ok=True)\n            continue\n        os.makedirs(os.path.dirname(target),exist_ok=True)\n        with z.open(name) as sf,open(target,"wb") as df:\n            df.write(sf.read())\n' > /tmp/extract.py && \
+      python3 /tmp/extract.py && \
+      rm /tmp/extract.py && \
+      echo ">> 音频/图片/课本原页请通过 volume 挂载（见 docker-compose.yml）"; \
     else \
-      echo ">> 轻量模式：尝试从 Release 下载 data.zip" && \
+      echo ">> 轻量模式：从 Release 下载 data.zip" && \
       mkdir -p apps/web/public/data && \
       curl -sL "${RELEASE_URL}/data.zip" -o /tmp/data.zip && \
       if python3 -c "import zipfile; zipfile.ZipFile('/tmp/data.zip')" 2>/dev/null; then \
-        echo ">> data.zip 下载成功，解压中..." && \
         printf 'import zipfile,os\nwith zipfile.ZipFile("/tmp/data.zip") as z:\n    for name in z.namelist():\n        fixed=name.replace(chr(92),"/")\n        target=os.path.join("apps/web/public/data",fixed)\n        if fixed.endswith("/"):\n            os.makedirs(target,exist_ok=True)\n            continue\n        os.makedirs(os.path.dirname(target),exist_ok=True)\n        with z.open(name) as sf,open(target,"wb") as df:\n            df.write(sf.read())\n' > /tmp/extract.py && \
         python3 /tmp/extract.py && \
         rm /tmp/extract.py /tmp/data.zip; \
       else \
-        echo ">> data.zip 不可用，从源码生成数据..." && \
-        rm -f /tmp/data.zip && \
-        cd /app/apps/web && npm run build:data; \
-      fi && \
-      echo ">> 音频/图片/课本原页请通过 volume 挂载（见 docker-compose.yml）"; \
+        echo ">> data.zip 不可用，跳过" && rm -f /tmp/data.zip; \
+      fi; \
     fi
 
 # ---- 构建 ----
-# 完整模式：npm run build = build:data + next build（从 output/ + data/ 重新生成数据）
-# 轻量模式：npx next build（跳过 build:data，直接使用预构建的 data.zip）
+# 完整模式：npm run build = build:data + next build
+# 轻量模式：npx next build（使用 data.zip 解压的数据）
 WORKDIR /app/apps/web
 RUN if [ "$SKIP_ASSETS" = "false" ]; then \
       npm run build; \

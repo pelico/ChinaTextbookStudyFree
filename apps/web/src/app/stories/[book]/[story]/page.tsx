@@ -4,9 +4,13 @@ import { notFound } from "next/navigation";
 import type { BookStories, SiteIndex } from "@/types";
 import StoryReaderClient from "./StoryReaderClient";
 
-async function getIndex(): Promise<SiteIndex> {
+async function getIndex(): Promise<SiteIndex | null> {
   const p = path.join(process.cwd(), "public", "data", "index.json");
-  return JSON.parse(await fs.readFile(p, "utf-8"));
+  try {
+    return JSON.parse(await fs.readFile(p, "utf-8"));
+  } catch {
+    return null;
+  }
 }
 
 async function getStories(bookId: string): Promise<BookStories | null> {
@@ -27,6 +31,7 @@ async function getStories(bookId: string): Promise<BookStories | null> {
 
 export async function generateStaticParams() {
   const index = await getIndex();
+  if (!index) return [];
   const params: { book: string; story: string }[] = [];
   for (const book of index.books) {
     if (!book.hasStories) continue;

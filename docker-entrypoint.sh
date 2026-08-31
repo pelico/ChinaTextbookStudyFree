@@ -17,7 +17,7 @@
 #   SKIP_DOWNLOAD — 设为 true 则跳过资源下载（纯前端体验）
 # ================================================================
 
-RELEASE_URL="${RELEASE_URL:-https://github.com/pelico/ChinaTextbookStudyFree/releases/latest/download}"
+RELEASE_URL="${RELEASE_URL:-https://github.com/pelico/ChinaTextbookStudyFree/releases/download/v1.1.0-assets}"
 HTML_ROOT="/usr/share/nginx/html"
 SKIP_DOWNLOAD="${SKIP_DOWNLOAD:-false}"
 STATUS_FILE="$HTML_ROOT/assets-status.json"
