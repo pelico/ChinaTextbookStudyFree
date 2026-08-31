@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 # ============================================================
 DB_PATH = os.environ.get("CUSTOM_DB_PATH", "/data/custom.db")
 IMAGES_DIR = os.environ.get("CUSTOM_IMAGES_DIR", "/data/images")
+TEXTBOOKS_DIR = os.environ.get("CUSTOM_TEXTBOOKS_DIR", "/data/textbooks")
 AI_BASE = os.environ.get("AI_API_BASE", "https://aiapi.fonken.net/v1")
 AI_KEY = os.environ.get("AI_API_KEY", "")
 AI_MODEL = os.environ.get("AI_MODEL", "gemini-3.1-flash-lite")
@@ -128,6 +129,18 @@ def init_db():
     );
     CREATE INDEX IF NOT EXISTS idx_img_book ON page_images(book_id);
     """)
+
+    # Schema migrations (SQLite 不支持 IF NOT EXISTS for ADD COLUMN)
+    cols_page = {r[1] for r in conn.execute("PRAGMA table_info(page_images)")}
+    if "kp_id" not in cols_page:
+        conn.execute("ALTER TABLE page_images ADD COLUMN kp_id TEXT")
+    if "sort_idx" not in cols_page:
+        conn.execute("ALTER TABLE page_images ADD COLUMN sort_idx INTEGER DEFAULT 0")
+
+    cols_books = {r[1] for r in conn.execute("PRAGMA table_info(books)")}
+    if "folder_path" not in cols_books:
+        conn.execute("ALTER TABLE books ADD COLUMN folder_path TEXT")
+
     conn.commit()
     conn.close()
 
@@ -150,6 +163,7 @@ def call_ai(messages, timeout=120):
         "messages": messages,
         "temperature": 0.7,
         "stream": False,
+        "max_tokens": 8192,
     }).encode("utf-8")
 
     req = urllib.request.Request(url, data=body, headers={
@@ -246,6 +260,240 @@ def process_uploads(uploads):
         else:
             all_images.append(item)
     return all_images
+
+
+# ============================================================
+# Folder scanning + batch processing
+# ============================================================
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+
+
+def scan_folder_images(folder_path):
+    """扫描目录下的所有图片文件（含 PDF 转换），按文件名排序返回绝对路径列表"""
+    if not os.path.isdir(folder_path):
+        raise RuntimeError(f"目录不存在: {folder_path}")
+
+    image_files = []
+    pdf_files = []
+
+    for name in sorted(os.listdir(folder_path)):
+        full = os.path.join(folder_path, name)
+        if not os.path.isfile(full):
+            continue
+        ext = os.path.splitext(name)[1].lower()
+        if ext in IMAGE_EXTS:
+            image_files.append(full)
+        elif ext == ".pdf":
+            pdf_files.append(full)
+
+    # PDF 转图片（临时文件）
+    converted = []
+    for pdf_path in pdf_files:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            try:
+                subprocess.run(
+                    ["pdftoppm", "-jpeg", "-r", "150", "-l", "30", pdf_path, "page"],
+                    cwd=tmpdir, check=True, capture_output=True, timeout=120
+                )
+            except Exception as e:
+                continue
+            for img_path in sorted(glob.glob(os.path.join(tmpdir, "page-*.jpg"))):
+                # 复制到持久化临时目录
+                dest = os.path.join(folder_path, f".pdf_{os.path.basename(pdf_path)}_{os.path.basename(img_path)}")
+                import shutil
+                shutil.copy2(img_path, dest)
+                converted.append(dest)
+
+    image_files.extend(converted)
+    image_files.sort(key=lambda p: os.path.basename(p))
+    return image_files
+
+
+BATCH_OUTLINE_PROMPT = """分析以下教材图片（第 {batch_start}-{batch_end} 页，共 {total_pages} 页），提取单元和知识点结构。
+
+要求：
+1. 仔细识别每张图片中的教材内容
+2. 标注每个单元和知识点出现在第几页（page 字段 = 该知识点首次出现的页码，从1开始）
+3. 按教材的实际结构组织，不要编造不存在的内容
+4. 每个知识点需要：名称、简短描述、难度（1-5级）、适合的题型
+5. 题型从以下选择：true_false, choice, fill_blank, fill_blank_text, calculation, word_order, matching
+
+只输出 JSON，不要包含 markdown 代码块标记或任何其他文字：
+{{
+  "units": [
+    {{
+      "unit_number": 1,
+      "title": "单元标题",
+      "page_start": 1,
+      "page_end": 3,
+      "knowledge_points": [
+        {{
+          "name": "知识点名称",
+          "description": "简短描述",
+          "difficulty": 2,
+          "question_types": ["choice", "fill_blank_text"],
+          "page": 1
+        }}
+      ]
+    }}
+  ]
+}}"""
+
+
+def read_image_as_b64(path):
+    """读取图片文件为 base64 data URL"""
+    with open(path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode("utf-8")
+    ext = os.path.splitext(path)[1].lower().lstrip(".")
+    if ext == "jpg":
+        ext = "jpeg"
+    return f"data:image/{ext};base64,{b64}"
+
+
+def merge_outlines(partial_outlines):
+    """合并多个批次的大纲：按 unit_number 去重，知识点按 name 去重"""
+    merged_units = {}
+
+    for outline in partial_outlines:
+        if not outline:
+            continue
+        for u in outline.get("units", []):
+            un = u.get("unit_number", 0)
+            if un not in merged_units:
+                merged_units[un] = {
+                    "unit_number": un,
+                    "title": u.get("title", f"第{un}单元"),
+                    "page_start": u.get("page_start", 999),
+                    "page_end": u.get("page_end", 0),
+                    "knowledge_points": [],
+                    "_kp_names": set(),
+                }
+            mu = merged_units[un]
+            # 合并标题（取非空的）
+            if u.get("title") and len(u["title"]) > len(mu["title"]):
+                mu["title"] = u["title"]
+            mu["page_start"] = min(mu["page_start"], u.get("page_start", 999))
+            mu["page_end"] = max(mu["page_end"], u.get("page_end", 0))
+
+            for kp in u.get("knowledge_points", []):
+                kp_name = kp.get("name", "")
+                if kp_name and kp_name not in mu["_kp_names"]:
+                    mu["_kp_names"].add(kp_name)
+                    mu["knowledge_points"].append(kp)
+
+    result = []
+    for un in sorted(merged_units.keys()):
+        mu = merged_units[un]
+        del mu["_kp_names"]
+        mu["knowledge_points"].sort(key=lambda k: k.get("page", 999))
+        result.append(mu)
+    return result
+
+
+def create_book_from_folder(title, subject, grade, semester, folder_path):
+    """从目录扫描图片 → 分批 AI 识别 → 合并大纲 → 写入 SQLite"""
+    book_id = generate_book_id(subject, grade, semester)
+    now = now_iso()
+
+    # 扫描目录
+    image_paths = scan_folder_images(folder_path)
+    if not image_paths:
+        raise RuntimeError(f"目录中没有找到图片文件: {folder_path}")
+
+    total = len(image_paths)
+    batch_size = 4
+    partial_outlines = []
+
+    # 分批处理
+    for i in range(0, total, batch_size):
+        batch = image_paths[i:i + batch_size]
+        batch_start = i + 1
+        batch_end = min(i + batch_size, total)
+
+        # 读取图片为 base64
+        images_b64 = [read_image_as_b64(p) for p in batch]
+
+        # 调用 AI
+        prompt = BATCH_OUTLINE_PROMPT.format(
+            batch_start=batch_start,
+            batch_end=batch_end,
+            total_pages=total,
+        )
+        try:
+            raw_resp = call_ai_vision(images_b64, prompt, timeout=180)
+            partial = parse_json_response(raw_resp)
+            partial_outlines.append(partial)
+        except Exception as e:
+            partial_outlines.append({"units": [], "error": str(e)})
+
+    # 合并大纲
+    merged_units = merge_outlines(partial_outlines)
+
+    # 复制图片到标准目录
+    book_img_dir = os.path.join(IMAGES_DIR, book_id)
+    os.makedirs(book_img_dir, exist_ok=True)
+    page_map = {}  # page_number → filename
+    for i, src_path in enumerate(image_paths):
+        fname = f"page_{i+1:03d}.jpg"
+        dest = os.path.join(book_img_dir, fname)
+        import shutil
+        shutil.copy2(src_path, dest)
+        page_map[i + 1] = fname
+
+    # 写入 SQLite
+    with db_lock:
+        conn = get_db()
+        try:
+            conn.execute(
+                "INSERT INTO books (id, title, subject, grade, semester, source_type, folder_path, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, 'folder', ?, ?, ?)",
+                (book_id, title, subject, grade, semester, folder_path, now, now)
+            )
+
+            for u in merged_units:
+                unit_id = f"{book_id}-u{u['unit_number']}"
+                conn.execute(
+                    "INSERT INTO units (id, book_id, unit_number, title, sort_order) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (unit_id, book_id, u["unit_number"], u.get("title", ""), u["unit_number"])
+                )
+                kps = u.get("knowledge_points", [])
+                for j, kp in enumerate(kps):
+                    kp_id = f"{unit_id}-kp{j+1}"
+                    qtypes = json.dumps(kp.get("question_types", ["true_false", "choice"]), ensure_ascii=False)
+                    conn.execute(
+                        "INSERT INTO knowledge_points "
+                        "(id, unit_id, name, description, difficulty, question_types, sort_order, source, created_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, 'ai', ?)",
+                        (kp_id, unit_id, kp.get("name", ""), kp.get("description", ""),
+                         kp.get("difficulty", 3), qtypes, j+1, now)
+                    )
+                    # 关联图片
+                    kp_page = kp.get("page")
+                    if kp_page and kp_page in page_map:
+                        conn.execute(
+                            "INSERT INTO page_images (id, book_id, unit_id, kp_id, filename, page_number, sort_idx, created_at) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                            (uuid.uuid4().hex, book_id, unit_id, kp_id,
+                             page_map[kp_page], kp_page, kp_page, now)
+                        )
+
+            # 所有页面图片都存一份（用于阅读视图）
+            for page_num, fname in page_map.items():
+                conn.execute(
+                    "INSERT OR IGNORE INTO page_images (id, book_id, filename, page_number, sort_idx, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (f"{book_id}-p{page_num}", book_id, fname, page_num, page_num, now)
+                )
+
+            conn.commit()
+        finally:
+            conn.close()
+
+    result = get_book_detail(book_id)
+    result["total_pages"] = total
+    result["batches"] = len(partial_outlines)
+    return result
 # ============================================================
 OUTLINE_SYSTEM = "你是一名资深小学教研员，精通中国小学各科教材体系。"
 
@@ -699,6 +947,37 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                     self._send_error("书本不存在", 404)
                 return
 
+            # /books/:id/pages — 获取所有页面图片（阅读视图用）
+            if len(parts) == 3 and parts[0] == "books" and parts[2] == "pages":
+                book_id = parts[1]
+                conn = get_db()
+                try:
+                    rows = conn.execute(
+                        "SELECT filename, page_number, kp_id, unit_id, sort_idx "
+                        "FROM page_images WHERE book_id = ? ORDER BY sort_idx, page_number",
+                        (book_id,)
+                    ).fetchall()
+                    pages = [dict(r) for r in rows]
+                    self._send_json({"pages": pages})
+                finally:
+                    conn.close()
+                return
+
+            # /folders — 列出 textbooks 目录下的子目录
+            if parts == ["folders"]:
+                folders = []
+                if os.path.isdir(TEXTBOOKS_DIR):
+                    for name in sorted(os.listdir(TEXTBOOKS_DIR)):
+                        full = os.path.join(TEXTBOOKS_DIR, name)
+                        if os.path.isdir(full):
+                            # 统计图片数量
+                            count = sum(1 for f in os.listdir(full)
+                                       if os.path.splitext(f)[1].lower() in IMAGE_EXTS
+                                       or os.path.splitext(f)[1].lower() == ".pdf")
+                            folders.append({"name": name, "path": full, "image_count": count})
+                self._send_json({"folders": folders})
+                return
+
             # /lessons/:lessonId/versions
             if len(parts) == 3 and parts[0] == "lessons" and parts[2] == "versions":
                 versions = list_question_versions(parts[1])
@@ -730,6 +1009,24 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                     return
 
                 book = create_book_with_ai(title, subject, grade, semester, images)
+                self._send_json(book)
+                return
+
+            # /books/from-folder
+            if parts == ["books", "from-folder"]:
+                body = self._read_body()
+                data = json.loads(body)
+                title = data.get("title", "自定义教材")
+                subject = data.get("subject", "math")
+                grade = data.get("grade", 1)
+                semester = data.get("semester", "up")
+                folder = data.get("folder_path", "")
+
+                if not folder:
+                    self._send_error("请指定教材图片目录", 400)
+                    return
+
+                book = create_book_from_folder(title, subject, grade, semester, folder)
                 self._send_json(book)
                 return
 

@@ -41,18 +41,27 @@ export function CustomHome() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-text">自定义学习</h1>
-            <p className="text-sm text-text-muted mt-1">拍照上传教材，AI 自动生成题目</p>
+            <p className="text-sm text-text-muted mt-1">拍照或文件夹上传教材，AI 自动生成题目</p>
           </div>
           <a href="/" className="text-sm text-text-muted hover:text-text">← 返回首页</a>
         </div>
 
-        <button
-          onClick={() => navigate("/custom/create/")}
-          className="w-full mb-6 flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-violet-400/40 bg-violet-500/10 px-4 py-6 text-violet-300 hover:bg-violet-500/20 transition-colors"
-        >
-          <span className="text-2xl">+</span>
-          <span className="font-bold">创建自定义教材</span>
-        </button>
+        <div className="grid grid-cols-2 gap-3 mb-6">
+          <button
+            onClick={() => navigate("/custom/create/")}
+            className="flex flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-violet-400/40 bg-violet-500/10 px-4 py-6 text-violet-300 hover:bg-violet-500/20 transition-colors"
+          >
+            <span className="text-2xl">📷</span>
+            <span className="font-bold text-sm">拍照上传</span>
+          </button>
+          <button
+            onClick={() => navigate("/custom/folder-create/")}
+            className="flex flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-emerald-400/40 bg-emerald-500/10 px-4 py-6 text-emerald-300 hover:bg-emerald-500/20 transition-colors"
+          >
+            <span className="text-2xl">📁</span>
+            <span className="font-bold text-sm">从文件夹创建</span>
+          </button>
+        </div>
 
         {loading && (
           <div className="flex items-center justify-center py-12">

@@ -6,6 +6,7 @@ import { CustomHome } from "./CustomHome";
 import { CustomCreate } from "./CustomCreate";
 import { CustomBook } from "./CustomBook";
 import { CustomLesson } from "./CustomLesson";
+import { CustomFolderCreate } from "./CustomFolderCreate";
 
 export default function CustomPage() {
   const [path, setPath] = useState<string>("");
@@ -21,6 +22,7 @@ export default function CustomPage() {
 
   if (parts.length <= 1) return <CustomHome />;
   if (parts[1] === "create") return <CustomCreate />;
+  if (parts[1] === "folder-create") return <CustomFolderCreate />;
   if (parts[1] === "book" && parts.length >= 3) {
     if (parts.length === 3) return <CustomBook bookId={parts[2]} />;
     if (parts.length >= 4) return <CustomLesson bookId={parts[2]} lessonId={parts[3]} />;

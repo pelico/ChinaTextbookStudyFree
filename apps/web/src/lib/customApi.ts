@@ -28,6 +28,36 @@ export async function apiDelete(path: string): Promise<void> {
   if (!res.ok) throw new Error((await res.json()).error || "删除失败");
 }
 
+export interface FolderInfo {
+  name: string;
+  path: string;
+  image_count: number;
+}
+
+export async function listFolders(): Promise<FolderInfo[]> {
+  const data = await apiGet<{ folders: FolderInfo[] }>("folders");
+  return data.folders;
+}
+
+export async function createBookFromFolder(
+  title: string, subject: string, grade: number,
+  semester: string, folderPath: string
+): Promise<CustomBook & { total_pages?: number; batches?: number }> {
+  return apiPost("books/from-folder", { title, subject, grade, semester, folder_path: folderPath });
+}
+
+export interface PageImage {
+  filename: string;
+  page_number: number;
+  kp_id: string | null;
+  unit_id: string | null;
+  sort_idx: number;
+}
+
+export function imageUrl(bookId: string, filename: string): string {
+  return `/custom-images/${bookId}/${filename}`;
+}
+
 export function compressImage(file: File, maxDim = 1080, quality = 0.7): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

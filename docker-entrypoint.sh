@@ -587,7 +587,7 @@ start_background_download
 start_api_server
 
 # ---- 启动自定义学习 API 服务（Python + SQLite）----
-mkdir -p /data/images
+mkdir -p /data/images /data/textbooks
 python3 /app/custom_server.py &
 echo "=== 自定义学习 API 服务已启动（127.0.0.1:18081）==="
 
