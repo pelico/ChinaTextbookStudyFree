@@ -95,11 +95,14 @@ LABEL org.opencontainers.image.description="小学全科 AI 学习平台（Web �
 LABEL org.opencontainers.image.licenses="MIT"
 
 # curl + unzip + python3 + nc：entrypoint 首次启动时自动下载资源 + 重试 API
-RUN apk add --no-cache curl unzip python3 netcat-openbsd
+RUN apk add --no-cache curl unzip python3 netcat-openbsd sqlite-libs
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY docker-entrypoint.sh /docker-entrypoint.sh
+COPY custom_server.py /app/custom_server.py
 RUN chmod +x /docker-entrypoint.sh
+
+VOLUME ["/data"]
 
 # 静态导出产物（含 HTML/CSS/JS + data/）
 COPY --from=builder /app/apps/web/out /usr/share/nginx/html

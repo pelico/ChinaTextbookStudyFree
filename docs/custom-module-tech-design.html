@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>自定义学习模块 · 技术方案设计</title>
+<style>
+:root {
+  --bg: #0f0f12;
+  --surface: #1a1a20;
+  --surface-2: #22222b;
+  --border: rgba(255,255,255,0.08);
+  --text: #e8e8ef;
+  --text-muted: #9a9aa8;
+  --brand: #6f6fff;
+  --brand-soft: #1a1759;
+  --brand-text: #cfd8ff;
+  --accent: #27d2bf;
+  --success: #1dc981;
+  --warning: #efaa17;
+  --danger: #e8463a;
+  --radius: 8px;
+  --radius-card: 12px;
+  --font-sans: -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+  --max-w: 900px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.7 var(--font-sans);
+  padding: 40px 24px;
+}
+.container { max-width: var(--max-w); margin: 0 auto; }
+h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+h2 { font-size: 22px; font-weight: 600; margin: 40px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 17px; font-weight: 600; margin: 28px 0 12px; color: var(--brand-text); }
+h4 { font-size: 15px; font-weight: 600; margin: 20px 0 8px; }
+p { margin-bottom: 12px; color: var(--text); }
+ul, ol { margin: 0 0 16px 20px; }
+li { margin-bottom: 6px; }
+code {
+  font: 13px/1.6 var(--font-mono);
+  background: var(--surface-2);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--accent);
+}
+pre {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 20px;
+  overflow-x: auto;
+  margin: 12px 0 20px;
+}
+pre code {
+  background: none;
+  padding: 0;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.6;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0 20px;
+  font-size: 14px;
+}
+th, td {
+  border: 1px solid var(--border);
+  padding: 10px 14px;
+  text-align: left;
+}
+th {
+  background: var(--surface-2);
+  font-weight: 600;
+  color: var(--brand-text);
+  font-size: 13px;
+}
+td code { font-size: 12px; }
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.badge-new { background: rgba(95,175,255,0.15); color: #5fafff; }
+.badge-reuse { background: rgba(29,201,129,0.15); color: var(--success); }
+.badge-modify { background: rgba(239,170,23,0.15); color: var(--warning); }
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 20px 24px;
+  margin: 16px 0;
+}
+.card-brand { border-color: var(--brand); border-width: 1.5px; }
+.note {
+  border-left: 3px solid var(--accent);
+  padding: 12px 16px;
+  background: rgba(39,210,191,0.06);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  margin: 16px 0;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+.note strong { color: var(--text); }
+.arch-box {
+  display: inline-block;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 16px;
+  font-size: 13px;
+  margin: 4px;
+  background: var(--surface);
+}
+.arch-flow {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 2;
+  white-space: pre;
+  color: var(--text-muted);
+}
+.arch-flow .hi { color: var(--brand); font-weight: 600; }
+.arch-flow .ai { color: var(--accent); }
+.arch-flow .db { color: var(--success); }
+.toc {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 20px 28px;
+  margin: 24px 0;
+}
+.toc ol { margin: 0; padding-left: 20px; }
+.toc li { margin-bottom: 4px; }
+.toc a { color: var(--brand-text); text-decoration: none; }
+.toc a:hover { text-decoration: underline; }
+.step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--brand);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  margin-right: 8px;
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>自定义学习模块 · 技术方案设计</h1>
+<p style="color:var(--text-muted)">路径 A：Python SQLite 后端 + AI 题目刷新 &nbsp;|&nbsp; 2026-08-31</p>
+
+<div class="toc">
+<ol>
+  <li><a href="#overview">架构总览</a></li>
+  <li><a href="#sqlite">SQLite 数据库设计</a></li>
+  <li><a href="#api">REST API 接口规范</a></li>
+  <li><a href="#python">Python 服务设计</a></li>
+  <li><a href="#docker">Docker / nginx 改动</a></li>
+  <li><a href="#frontend">前端页面与数据流</a></li>
+  <li><a href="#ai">AI Prompt 设计</a></li>
+  <li><a href="#steps">实现步骤</a></li>
+  <li><a href="#risks">风险与边界</a></li>
+</ol>
+</div>
+
+<!-- ==================== 1. 架构总览 ==================== -->
+<h2 id="overview">1. 架构总览</h2>
+
+<div class="card card-brand">
+<div class="arch-flow"><span class="hi">用户浏览器</span>
+  │
+  ├──→ nginx :80 (<span class="hi">静态页面</span>) ──→ /usr/share/nginx/html/*
+  │         │
+  │         ├── /api/retry?resource=audio   →  nc 服务 :18080（现有）
+  │         └── /api/custom/*               →  <span class="hi">Python SQLite 服务 :18081（新增）</span>
+  │                                          │
+  │                                          ├── SQLite: /data/custom.db（<span class="db">Docker volume 持久化</span>）
+  │                                          ├── 图片:  /data/images/（Docker volume）
+  │                                          └── AI 调用 ──→ <span class="ai">Gemini / OpenAI 兼容 API</span>（HTTPS）
+  │
+  └──→ localStorage（<span class="hi">积分/经验/成就</span>，现有系统不变）</div>
+</div>
+
+<h3>核心设计原则</h3>
+<ul>
+  <li><strong>大纲固定，题目可刷新</strong>：知识点框架一次生成后稳定存储在 SQLite；每次练习时 AI 生成新题目，旧版本保留可回顾</li>
+  <li><strong>积分系统零改动</strong>：自定义 lesson 用 <code>custom-{bookId}-u{n}-kp{m}</code> 格式的 ID，直接复用现有 Zustand store</li>
+  <li><strong>AI 调用服务端</strong>：Python 后端调用 AI API，API Key 存环境变量不暴露给浏览器</li>
+  <li><strong>零额外依赖</strong>：Python 标准库 <code>http.server</code> + <code>sqlite3</code> + <code>urllib.request</code>，不装 pip 包</li>
+</ul>
+
+<h3>组件复用清单</h3>
+<table>
+<tr><th>组件</th><th>来源</th><th>改动</th></tr>
+<tr><td>积分/经验/成就/连胜</td><td><code>store/progress.ts</code> + <code>core/economy.ts</code></td><td><span class="badge badge-reuse">零改动</span></td></tr>
+<tr><td>答题流程（LessonRunner）</td><td><code>components/LessonRunner.tsx</code></td><td><span class="badge badge-reuse">零改动</span></td></tr>
+<tr><td>题目组件（5 种题型）</td><td><code>components/question/*</code></td><td><span class="badge badge-reuse">零改动</span></td></tr>
+<tr><td>反馈面板</td><td><code>components/FeedbackPanel.tsx</code></td><td><span class="badge badge-reuse">零改动</span></td></tr>
+<tr><td>TTS 播放器</td><td><code>lib/tts.ts</code></td><td><span class="badge badge-modify">可选适配</span></td></tr>
+<tr><td>AI Prompt 模板</td><td><code>lib/worksheet.ts</code></td><td><span class="badge badge-modify">迁移到 Python</span></td></tr>
+<tr><td>Question 类型定义</td><td><code>core/types.ts</code></td><td><span class="badge badge-reuse">直接复用</span></td></tr>
+<tr><td>Python HTTP 服务</td><td>新建</td><td><span class="badge badge-new">新增</span></td></tr>
+<tr><td>SQLite Schema</td><td>新建</td><td><span class="badge badge-new">新增</span></td></tr>
+<tr><td>前端自定义页面</td><td>新建</td><td><span class="badge badge-new">新增</span></td></tr>
+</table>
+
+<!-- ==================== 2. SQLite ==================== -->
+<h2 id="sqlite">2. SQLite 数据库设计</h2>
+
+<p>数据库文件路径：<code>/data/custom.db</code>，映射到 Docker volume <code>cnstudy-custom-data</code>。
+图片文件存 <code>/data/images/</code>，同样映射到 volume。</p>
+
+<h3>表结构</h3>
+
+<h4>books — 自定义书本</h4>
+<pre><code>CREATE TABLE books (
+  id          TEXT PRIMARY KEY,          -- "custom-gz-math-g3up"（自定义命名）
+  title       TEXT NOT NULL,              -- "广州版小学数学三年级上册"
+  subject     TEXT NOT NULL,              -- "math" | "chinese" | "english" | "science"
+  grade       INTEGER NOT NULL,           -- 1-6
+  semester    TEXT NOT NULL,              -- "up" | "down"
+  source_type TEXT DEFAULT 'photo',       -- "photo" | "manual" | "import"
+  cover_image TEXT,                       -- 封面图路径（可选）
+  created_at  TEXT NOT NULL,              -- ISO 时间戳
+  updated_at  TEXT NOT NULL
+);
+</code></pre>
+
+<h4>units — 单元</h4>
+<pre><code>CREATE TABLE units (
+  id           TEXT PRIMARY KEY,          -- "{bookId}-u{n}"
+  book_id      TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+  unit_number  INTEGER NOT NULL,
+  title        TEXT NOT NULL,
+  sort_order   INTEGER DEFAULT 0
+);
+CREATE INDEX idx_units_book ON units(book_id);
+</code></pre>
+
+<h4>knowledge_points — 知识点（大纲框架，固定）</h4>
+<pre><code>CREATE TABLE knowledge_points (
+  id             TEXT PRIMARY KEY,        -- "{bookId}-u{n}-kp{m}"
+  unit_id        TEXT NOT NULL REFERENCES units(id) ON DELETE CASCADE,
+  name           TEXT NOT NULL,            -- "认识图形"
+  description    TEXT,                      -- "能识别长方形、正方形..."
+  difficulty     INTEGER DEFAULT 3,        -- 1-5
+  question_types TEXT DEFAULT '[]',        -- '["true_false","choice","fill_blank_text"]'
+  sort_order     INTEGER DEFAULT 0,
+  source         TEXT DEFAULT 'ai',        -- "ai"（AI 从照片提取）| "manual"
+  created_at     TEXT NOT NULL
+);
+CREATE INDEX idx_kp_unit ON knowledge_points(unit_id);
+</code></pre>
+
+<h4>question_sets — 题目版本（可刷新）</h4>
+<pre><code>CREATE TABLE question_sets (
+  id           TEXT PRIMARY KEY,          -- UUID
+  kp_id        TEXT NOT NULL REFERENCES knowledge_points(id) ON DELETE CASCADE,
+  version      INTEGER NOT NULL,          -- 1, 2, 3...（同一知识点递增）
+  questions    TEXT NOT NULL,              -- JSON 数组，Question[] 格式
+  is_active    INTEGER DEFAULT 1,         -- 1=当前使用版本，0=历史版本
+  ai_model     TEXT,                       -- "gemini-3.1-flash-lite"
+  generated_at TEXT NOT NULL
+);
+CREATE INDEX idx_qs_kp ON question_sets(kp_id);
+CREATE INDEX idx_qs_active ON question_sets(kp_id, is_active);
+</code></pre>
+
+<h4>page_images — 教材拍照页</h4>
+<pre><code>CREATE TABLE page_images (
+  id          TEXT PRIMARY KEY,           -- UUID
+  book_id     TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+  unit_id     TEXT,                        -- 关联到的单元（可为空，未分类时）
+  filename    TEXT NOT NULL,               -- "page_001.jpg"
+  ocr_text    TEXT,                        -- AI 识别出的文本内容
+  page_number INTEGER,                    -- 页码
+  created_at  TEXT NOT NULL
+);
+CREATE INDEX idx_img_book ON page_images(book_id);
+</code></pre>
+
+<div class="note">
+<strong>设计要点：</strong><code>question_sets</code> 的 <code>version</code> 字段实现题目刷新——每次"换一套题"生成新版本，
+旧版本 <code>is_active=0</code> 保留，可做"错题回顾"或"历史版本对比"。
+<code>questions</code> 字段存完整 JSON，与现有 <code>Question</code> 类型完全兼容。
+</div>
+
+<!-- ==================== 3. API ==================== -->
+<h2 id="api">3. REST API 接口规范</h2>
+
+<p>所有接口前缀 <code>/api/custom</code>，由 nginx 反代到 <code>127.0.0.1:18081</code>。</p>
+
+<h3>书本管理</h3>
+<table>
+<tr><th>方法</th><th>路径</th><th>说明</th></tr>
+<tr><td>POST</td><td><code>/api/custom/books</code></td><td>创建自定义书本（含 AI 识图生成大纲）</td></tr>
+<tr><td>GET</td><td><code>/api/custom/books</code></td><td>列出所有自定义书本</td></tr>
+<tr><td>GET</td><td><code>/api/custom/books/:id</code></td><td>获取书本详情 + 完整大纲树</td></tr>
+<tr><td>DELETE</td><td><code>/api/custom/books/:id</code></td><td>删除书本（级联删单元/知识点/题目）</td></tr>
+</table>
+
+<h3>知识点与题目</h3>
+<table>
+<tr><th>方法</th><th>路径</th><th>说明</th></tr>
+<tr><td>GET</td><td><code>/api/custom/books/:id/outline</code></td><td>获取大纲（units + knowledge_points 树结构）</td></tr>
+<tr><td>POST</td><td><code>/api/custom/lessons/:lessonId/questions</code></td><td>获取当前激活题目集（无则自动生成 v1）</td></tr>
+<tr><td>POST</td><td><code>/api/custom/lessons/:lessonId/refresh</code></td><td>刷新题目（生成新版本，设为 active）</td></tr>
+<tr><td>GET</td><td><code>/api/custom/lessons/:lessonId/versions</code></td><td>列出该课的所有历史版本</td></tr>
+</table>
+
+<h3>核心接口详细</h3>
+
+<h4>POST /api/custom/books — 创建书本（含 AI 识图）</h4>
+<pre><code>请求（multipart/form-data）:
+  title:    "广州版小学数学三年级上册"
+  subject:  "math"
+  grade:    3
+  semester: "up"
+  images[]: [file1.jpg, file2.jpg, ...]  # 教材拍照页
+
+响应 200:
+{
+  "book": {
+    "id": "custom-gzmath-g3up",
+    "title": "广州版小学数学三年级上册",
+    "subject": "math",
+    "grade": 3,
+    "units": [
+      {
+        "id": "custom-gzmath-g3up-u1",
+        "unit_number": 1,
+        "title": "时、分、秒",
+        "knowledge_points": [
+          {
+            "id": "custom-gzmath-g3up-u1-kp1",
+            "name": "认识时间单位",
+            "description": "认识时、分、秒及其进率",
+            "difficulty": 2,
+            "question_types": ["true_false", "choice", "fill_blank"]
+          }
+        ]
+      }
+    ]
+  }
+}
+</code></pre>
+
+<h4>POST /api/custom/lessons/:lessonId/refresh — 刷新题目</h4>
+<pre><code>请求:
+  无 body（或可选指定题型偏好）
+
+  lessonId 格式: "custom-gzmath-g3up-u1-kp1"
+  → 解析出 bookId, unit_number, kp_index
+
+响应 200:
+{
+  "version": 3,
+  "questions": [
+    {
+      "id": 1,
+      "type": "choice",
+      "score": 5,
+      "difficulty": 2,
+      "knowledge_point": "认识时间单位",
+      "question": "1小时等于多少分钟？",
+      "options": ["30分钟", "60分钟", "90分钟", "100分钟"],
+      "answer": "60分钟",
+      "explanation": "1小时=60分钟，这是基本的时间单位换算。"
+    },
+    ...
+  ]
+}
+
+响应 500:
+{
+  "error": "AI 生成失败: 请求超时（120秒）"
+}
+</code></pre>
+
+<!-- ==================== 4. Python ==================== -->
+<h2 id="python">4. Python 服务设计</h2>
+
+<h3>架构</h3>
+<div class="card">
+<pre style="margin:0"><code>custom_server.py
+├── HTTP Handler（ThreadingHTTPServer :18081）
+│   ├── 路由分发（path 匹配 + JSON 解析）
+│   ├── CORS 头处理
+│   └── 错误处理
+├── DB Layer（sqlite3 模块）
+│   ├── init_db() — 建表
+│   ├── CRUD 操作
+│   └── 事务管理
+├── AI Layer（urllib.request）
+│   ├── ocr_images() — Vision API 识别教材图片
+│   ├── generate_outline() — 从 OCR 结果生成大纲
+│   └── generate_questions() — 根据知识点生成题目
+└── Config（环境变量）
+    ├── AI_API_BASE — AI 接口地址
+    ├── AI_API_KEY — API Key
+    └── AI_MODEL — 模型名</code></pre>
+</div>
+
+<h3>关键技术决策</h3>
+<ul>
+  <li><strong>ThreadingHTTPServer</strong>：AI 题目生成耗时 10-30s，多线程防止阻塞其他请求</li>
+  <li><strong>urllib.request</strong>：标准库，无需 pip install，支持 HTTPS POST + 超时</li>
+  <li><strong>multipart 解析</strong>：Alpine 无 Python <code>requests</code> 库，用标准库 <code>cgi.FieldStorage</code> 或手动解析 boundary</li>
+  <li><strong>SQLite WAL 模式</strong>：<code>PRAGMA journal_mode=WAL</code>，读写不互斥</li>
+  <li><strong>AI 超时 120s</strong>：与现有 <code>worksheet.ts</code> 一致</li>
+</ul>
+
+<h3>Python 服务核心流程</h3>
+<pre><code># 启动（在 docker-entrypoint.sh 中）
+python3 /app/custom_server.py &amp;
+
+# custom_server.py 核心结构
+import http.server, sqlite3, json, os, urllib.request, uuid, time
+
+DB_PATH = os.environ.get("CUSTOM_DB_PATH", "/data/custom.db")
+AI_BASE = os.environ.get("AI_API_BASE", "https://aiapi.fonken.net/v1")
+AI_KEY  = os.environ.get("AI_API_KEY", "")
+AI_MODEL = os.environ.get("AI_MODEL", "gemini-3.1-flash-lite")
+
+def call_ai(messages, timeout=120):
+    """调用 OpenAI 兼容 API，返回 content 字符串"""
+    url = AI_BASE.rstrip("/") + "/chat/completions"
+    body = json.dumps({
+        "model": AI_MODEL,
+        "messages": messages,
+        "temperature": 0.7,
+        "stream": False,
+    }).encode()
+    req = urllib.request.Request(url, data=body, headers={
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {AI_KEY}",
+    })
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = json.loads(resp.read())
+        return data["choices"][0]["message"]["content"]
+
+class CustomHandler(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        # 路由: /books, /lessons/:id/questions, /lessons/:id/refresh
+        ...
+    def do_GET(self):
+        # 路由: /books, /books/:id, /books/:id/outline, ...
+        ...
+
+if __name__ == "__main__":
+    init_db()
+    server = http.server.ThreadingHTTPServer(
+        ("127.0.0.1", 18081), CustomHandler
+    )
+    server.serve_forever()
+</code></pre>
+
+<!-- ==================== 5. Docker ==================== -->
+<h2 id="docker">5. Docker / nginx 改动</h2>
+
+<h3>Dockerfile 变更</h3>
+<pre><code># Runtime stage — 增加 sqlite 库
+RUN apk add --no-cache curl unzip python3 netcat-openbsd sqlite-libs
+
+# 复制 Python 服务脚本
+COPY custom_server.py /app/custom_server.py
+
+# 额外 volume 挂载点
+VOLUME ["/data"]
+</code></pre>
+
+<h3>docker-entrypoint.sh 变更</h3>
+<p>在 <code>start_api_server</code> 之后、<code>exec nginx</code> 之前增加：</p>
+<pre><code># ---- 启动自定义学习 API 服务 ----
+start_custom_api_server() {
+    mkdir -p /data/images
+    (
+        python3 /app/custom_server.py &amp;
+        echo "=== 自定义学习 API 服务已启动（127.0.0.1:18081）==="
+    )
+}
+start_custom_api_server</code></pre>
+
+<h3>nginx.conf 变更</h3>
+<pre><code># ---- 自定义学习 API ----
+location /api/custom/ {
+    proxy_pass http://127.0.0.1:18081/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_read_timeout 130s;   # AI 生成可能耗时较长
+}
+
+# ---- 更新 Permissions-Policy（允许摄像头拍照）----
+add_header Permissions-Policy "camera=(self), microphone=(), geolocation=()" always;
+
+# ---- CSP 已支持 connect-src 'self' https:，无需改动 ----
+</code></pre>
+
+<h3>docker-compose.yml 变更</h3>
+<pre><code>services:
+  web:
+    image: ghcr.io/pelico/chinatextbookstudyfree:latest
+    ports:
+      - "${PORT:-5231}:80"
+    environment:
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      AI_API_BASE: ${AI_API_BASE:-https://aiapi.fonken.net/v1}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-gemini-3.1-flash-lite}
+    volumes:
+      - cnstudy-audio:/usr/share/nginx/html/audio
+      - cnstudy-pages:/usr/share/nginx/html/textbook-pages
+      - cnstudy-stories:/usr/share/nginx/html/story-images
+      - <span style="color:var(--brand-text)">cnstudy-custom:/data</span>          # 新增：自定义模块数据
+
+volumes:
+  cnstudy-audio:
+  cnstudy-pages:
+  cnstudy-stories:
+  <span style="color:var(--brand-text)">cnstudy-custom:</span>              # 新增</code></pre>
+
+<h3>.env 变更</h3>
+<pre><code>PORT=5231
+HTTP_PROXY=http://192.168.2.88:10809
+AI_API_BASE=https://aiapi.fonken.net/v1
+AI_API_KEY=sk-your-key-here
+AI_MODEL=gemini-3.1-flash-lite</code></pre>
+
+<!-- ==================== 6. Frontend ==================== -->
+<h2 id="frontend">6. 前端页面与数据流</h2>
+
+<h3>新增路由</h3>
+<table>
+<tr><th>路由</th><th>说明</th><th>数据源</th></tr>
+<tr><td><code>/custom/</code></td><td>自定义学习首页（书本列表 + 创建入口）</td><td>GET /api/custom/books</td></tr>
+<tr><td><code>/custom/create/</code></td><td>创建书本（拍照/上传 → AI 识图 → 大纲预览 → 确认）</td><td>POST /api/custom/books</td></tr>
+<tr><td><code>/custom/book/[id]/</code></td><td>书本大纲页（单元 → 知识点 → 课程列表）</td><td>GET /api/custom/books/:id/outline</td></tr>
+<tr><td><code>/custom/book/[id]/[lessonId]/</code></td><td>答题页（复用 LessonRunner）</td><td>POST /api/custom/lessons/:id/questions</td></tr>
+</table>
+
+<h3>答题页数据流</h3>
+<pre><code>用户点击"开始练习"
+  │
+  ├──→ POST /api/custom/lessons/custom-gzmath-g3up-u1-kp1/questions
+  │      │
+  │      ├── SQLite 有 active 题目集？ → 返回 questions JSON
+  │      └── 无 → 调用 AI 生成 v1 → 存 SQLite → 返回
+  │
+  ├──→ 前端拿到 Question[]
+  │      │
+  │      └── 喂给现有 LessonRunner.tsx（零改动）
+  │          ├── 答题 → 正确/错误反馈（FeedbackPanel.tsx，零改动）
+  │          ├── 连击/心数/星级（现有逻辑，零改动）
+  │          └── 完成后 recordLessonComplete(lessonId, ...) → localStorage（零改动）
+  │
+  └── 用户点击"换一套题"
+       │
+       └──→ POST /api/custom/lessons/:lessonId/refresh
+              │
+              ├── AI 生成新题目 → 存为 version N+1, is_active=1
+              ├── 旧版本 is_active=0
+              └── 返回新 Question[] → 前端重新加载 LessonRunner</code></pre>
+
+<h3>创建书本流程（4 步）</h3>
+<pre><code>步骤 1: 填写基本信息
+  → 书名、学科、年级、学期
+
+步骤 2: 拍照/上传
+  → 调用 getUserMedia() 或 file input
+  → 支持多张图片（教材目录页 + 内容页）
+  → 前端预览，可删除/重排
+
+步骤 3: AI 识图生成大纲
+  → POST /api/custom/books (multipart, 含图片)
+  → 后端调用 Gemini Vision API:
+     1. 逐张识别图片内容，提取文本
+     2. 汇总文本，调用 AI 生成结构化大纲 JSON
+     3. 写入 SQLite books + units + knowledge_points + page_images
+  → 前端展示大纲预览，用户可编辑/增删知识点
+
+步骤 4: 确认创建
+  → 大纲确认后，书本出现在首页列表
+  → 点击任意知识点即可开始练习（首次自动生成题目）</code></pre>
+
+<h3>首页入口</h3>
+<p>在现有首页（选书页面）底部增加一个"自定义学习"卡片入口，点击进入 <code>/custom/</code>。
+与现有教材入口视觉上区分（不同图标/颜色），避免干扰。</p>
+
+<!-- ==================== 7. AI Prompt ==================== -->
+<h2 id="ai">7. AI Prompt 设计</h2>
+
+<h3>识图 Prompt（Vision API）</h3>
+<pre><code>messages: [
+  {
+    "role": "system",
+    "content": "你是一名资深小学教研员。分析教材图片，提取单元和知识点结构。"
+  },
+  {
+    "role": "user",
+    "content": [
+      {"type": "text", "text": "分析这些教材页面，提取大纲结构..."},
+      {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,..."}}
+    ]
+  }
+]
+
+# 期望输出：JSON
+{
+  "units": [
+    {
+      "unit_number": 1,
+      "title": "时、分、秒",
+      "knowledge_points": [
+        {"name": "认识时间单位", "description": "...", "difficulty": 2,
+         "question_types": ["true_false", "choice", "fill_blank"]}
+      ]
+    }
+  ]
+}</code></pre>
+
+<h3>题目生成 Prompt（复用 worksheet.ts 模板，迁移到 Python）</h3>
+<pre><code># System Prompt（与 worksheet.ts buildSystemPrompt() 一致）
+"你是一位资深的中国小学教师...输出格式为 JSON 数组..."
+
+# User Prompt（参数化）
+f"""学科：{subject}
+教材：{book_title}
+单元：第{unit_number}单元 {unit_title}
+
+知识点：{kp_name}
+知识点描述：{kp_description}
+难度上限：{difficulty}
+
+请生成 5-7 道题目，题型：{question_types}
+只输出 JSON 数组，不要包含 markdown 标记"""
+
+# temperature=0.7 保证每次不同
+# 但知识点框架固定，保证内容在纲内</code></pre>
+
+<div class="note">
+<strong>题目刷新质量保障：</strong>
+AI 生成时传入 <code>temperature=0.7</code>，同一知识点每次生成不同题目，
+但 prompt 中的知识点描述固定，保证题目内容始终在大纲框架内。
+如果需要更强的多样性，可在 prompt 中附加"请勿与以下已生成题目重复"+ 旧题目摘要。
+</div>
+
+<!-- ==================== 8. Implementation Steps ==================== -->
+<h2 id="steps">8. 实现步骤</h2>
+
+<h3><span class="step-num">1</span>Python SQLite 服务（后端核心）</h3>
+<ul>
+  <li>创建 <code>custom_server.py</code>：HTTP 路由 + SQLite CRUD + AI 调用</li>
+  <li>实现 <code>init_db()</code> 建表逻辑</li>
+  <li>实现 <code>call_ai()</code> 通用 AI 调用函数</li>
+  <li>实现识图 <code>ocr_and_outline()</code> 和题目生成 <code>generate_questions()</code></li>
+  <li>实现所有 REST API 端点</li>
+</ul>
+
+<h3><span class="step-num">2</span>Docker 集成</h3>
+<ul>
+  <li>修改 <code>Dockerfile</code>：增加 sqlite-libs，COPY custom_server.py</li>
+  <li>修改 <code>docker-entrypoint.sh</code>：启动 Python 服务</li>
+  <li>修改 <code>nginx.conf</code>：增加 /api/custom/ 反代，开放 camera 权限</li>
+  <li>修改 <code>docker-compose.yml</code>：增加 /data volume + AI 环境变量</li>
+</ul>
+
+<h3><span class="step-num">3</span>前端页面</h3>
+<ul>
+  <li>创建 <code>/custom/</code> 首页（书本列表 + 创建入口）</li>
+  <li>创建 <code>/custom/create/</code> 创建页（表单 + 拍照 + 大纲预览）</li>
+  <li>创建 <code>/custom/book/[id]/</code> 大纲页（单元/知识点树 + 练习入口）</li>
+  <li>创建 <code>/custom/book/[id]/[lessonId]/</code> 答题页（复用 LessonRunner + 刷新按钮）</li>
+  <li>首页增加自定义学习入口卡片</li>
+</ul>
+
+<h3><span class="step-num">4</span>题目刷新机制</h3>
+<ul>
+  <li>答题页增加"换一套题"按钮</li>
+  <li>调用 refresh API → 重新加载 Question[] → 重置 LessonRunner 状态</li>
+  <li>首次进入知识点自动生成 v1 题目</li>
+</ul>
+
+<h3><span class="step-num">5</span>测试与部署</h3>
+<ul>
+  <li>本地 Docker 构建测试</li>
+  <li>拍照 → 识图 → 生成大纲 → 练习 → 刷新 全链路测试</li>
+  <li>积分/经验/成就 正确入账验证</li>
+  <li>容器重启后数据持久化验证</li>
+  <li>推送 GitHub → GHCR 镜像 → 拉取部署</li>
+</ul>
+
+<!-- ==================== 9. Risks ==================== -->
+<h2 id="risks">9. 风险与边界</h2>
+
+<table>
+<tr><th>风险</th><th>等级</th><th>应对</th></tr>
+<tr><td>AI 识图准确率不稳定（模糊/手写/排版不一）</td><td>中</td><td>用户可编辑大纲；prompt 强调"只提取能确认的内容"</td></tr>
+<tr><td>题目生成超时（120s）</td><td>低</td><td>已有超时机制；Python 线程池不阻塞其他请求</td></tr>
+<tr><td>SQLite 并发写冲突</td><td>低</td><td>WAL 模式 + 写操作加锁 + 重试</td></tr>
+<tr><td>图片上传体积大</td><td>中</td><td>前端压缩到 1080p JPEG（max 500KB/张）；限制单次 20 张</td></tr>
+<tr><td>API Key 暴露</td><td>低</td><td>Key 在服务端环境变量，不传给浏览器</td></tr>
+<tr><td>自定义 lessonId 与现有冲突</td><td>低</td><td>统一前缀 <code>custom-</code>，与现有 <code>g1up</code> / <code>chinese-g1up</code> 无交集</td></tr>
+<tr><td>无 TTS 朗读</td><td>低</td><td>MVP 跳过；后续可用浏览器 <code>speechSynthesis</code> 或 AI TTS API</td></tr>
+</table>
+
+<div class="note">
+<strong>边界约束：</strong>本方案不改动现有教材的学习路径、题目数据、音频文件。
+自定义模块是独立路由 <code>/custom/*</code>，共用积分系统但数据完全隔离。
+现有教材功能不受任何影响。
+</div>
+
+</div>
+</body>
+</html>

@@ -3,18 +3,28 @@ services:
     image: ghcr.io/pelico/chinatextbookstudyfree:latest
     container_name: china-study-free
     ports:
-      - "${PORT:-3000}:80"
+      - "${PORT:-5231}:80"
     restart: unless-stopped
     environment:
       HTTP_PROXY: ${HTTP_PROXY:-}
       HTTPS_PROXY: ${HTTPS_PROXY:-}
+      AI_API_BASE: ${AI_API_BASE:-https://aiapi.fonken.net/v1}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-gemini-3.1-flash-lite}
     volumes:
-      - /mnt/wanos/sda1-wky/docker/cnstudy/audio:/usr/share/nginx/html/audio
-      - /mnt/wanos/sda1-wky/docker/cnstudy/textbook-pages:/usr/share/nginx/html/textbook-pages
-      - /mnt/wanos/sda1-wky/docker/cnstudy/story-images:/usr/share/nginx/html/story-images
+      - cnstudy-audio:/usr/share/nginx/html/audio
+      - cnstudy-pages:/usr/share/nginx/html/textbook-pages
+      - cnstudy-stories:/usr/share/nginx/html/story-images
+      - cnstudy-custom:/data
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost/"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
+
+volumes:
+  cnstudy-audio:
+  cnstudy-pages:
+  cnstudy-stories:
+  cnstudy-custom:

@@ -586,6 +586,11 @@ start_background_download
 # ---- 启动 API 服务（处理重试请求）----
 start_api_server
 
+# ---- 启动自定义学习 API 服务（Python + SQLite）----
+mkdir -p /data/images
+python3 /app/custom_server.py &
+echo "=== 自定义学习 API 服务已启动（127.0.0.1:18081）==="
+
 # ---- 以前台模式启动 nginx（作为容器 1 号主进程，保持运行）----
 echo "=== 启动 nginx（前台模式，作为容器主进程）==="
 exec nginx -g 'daemon off;'
