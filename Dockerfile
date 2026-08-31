@@ -55,12 +55,20 @@ COPY . .
 # SKIP_ASSETS=true：仅下载预构建 data.zip (~4MB)，音频/图片用 volume 挂载
 ARG SKIP_ASSETS=false
 ARG RELEASE_URL="https://github.com/pelico/ChinaTextbookStudyFree/releases/latest/download"
+ARG DATA_ZIP_PATH=""
 RUN if [ "$SKIP_ASSETS" = "false" ]; then \
       bash scripts/download-assets.sh; \
-    else \
-      echo ">> 轻量模式：仅下载预构建 data.zip (~4MB)" && \
+    elif [ -n "$DATA_ZIP_PATH" ] && [ -f "$DATA_ZIP_PATH" ]; then \
+      echo ">> 轻量模式：使用预下载的 data.zip" && \
       mkdir -p apps/web/public/data && \
-      curl -sL "${RELEASE_URL}/data.zip" -o /tmp/data.zip && \
+      printf 'import zipfile,os\nwith zipfile.ZipFile("'$DATA_ZIP_PATH'") as z:\n    for name in z.namelist():\n        fixed=name.replace(chr(92),"/")\n        target=os.path.join("apps/web/public/data",fixed)\n        if fixed.endswith("/"):\n            os.makedirs(target,exist_ok=True)\n            continue\n        os.makedirs(os.path.dirname(target),exist_ok=True)\n        with z.open(name) as sf,open(target,"wb") as df:\n            df.write(sf.read())\n' > /tmp/extract.py && \
+      python3 /tmp/extract.py && \
+      rm /tmp/extract.py && \
+      echo ">> 音频/图片/课本原页请通过 volume 挂载（见 docker-compose.yml）"; \
+    else \
+      echo ">> 轻量模式：从 Release 下载 data.zip (~4MB)" && \
+      mkdir -p apps/web/public/data && \
+      curl -sfL "${RELEASE_URL}/data.zip" -o /tmp/data.zip && \
       printf 'import zipfile,os\nwith zipfile.ZipFile("/tmp/data.zip") as z:\n    for name in z.namelist():\n        fixed=name.replace(chr(92),"/")\n        target=os.path.join("apps/web/public/data",fixed)\n        if fixed.endswith("/"):\n            os.makedirs(target,exist_ok=True)\n            continue\n        os.makedirs(os.path.dirname(target),exist_ok=True)\n        with z.open(name) as sf,open(target,"wb") as df:\n            df.write(sf.read())\n' > /tmp/extract.py && \
       python3 /tmp/extract.py && \
       rm /tmp/extract.py /tmp/data.zip && \
