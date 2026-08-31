@@ -56,17 +56,6 @@ jobs:
             org.opencontainers.image.description=小学全科 AI 学习平台
             org.opencontainers.image.licenses=MIT
 
-      - name: Pre-download data.zip for lightweight build
-        run: |
-          mkdir -p /tmp/data-download
-          curl -sL "https://github.com/${{ github.repository }}/releases/latest/download/data.zip" -o /tmp/data-download/data.zip
-          if [ -s /tmp/data-download/data.zip ]; then
-            echo "data.zip downloaded successfully ($(du -h /tmp/data-download/data.zip | cut -f1))"
-          else
-            echo "WARNING: data.zip download failed, build will fall back to build:data"
-            rm -f /tmp/data-download/data.zip
-          fi
-
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -78,6 +67,5 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             SKIP_ASSETS=true
-            DATA_ZIP_PATH=/tmp/data-download/data.zip
           cache-from: type=gha
           cache-to: type=gha,mode=max
