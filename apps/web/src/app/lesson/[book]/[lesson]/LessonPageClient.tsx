@@ -27,5 +27,9 @@ export default function LessonPageClient({
   lesson: Lesson;
   chestSlot: ChestSlot | null;
 }) {
-  return <LessonRunner lesson={lesson} chestSlot={chestSlot} />;
+  return (
+    <div className="h-dvh flex flex-col overflow-hidden">
+      <LessonRunner lesson={lesson} chestSlot={chestSlot} />
+    </div>
+  );
 }

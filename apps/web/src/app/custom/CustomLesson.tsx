@@ -101,8 +101,8 @@ export function CustomLesson({ bookId, lessonId }: { bookId: string; lessonId: s
   if (!lesson) return null;
 
   return (
-    <div className="min-h-screen bg-bg">
-      <div className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-bg-soft bg-bg/95 backdrop-blur px-4 py-2.5">
+    <div className="h-dvh flex flex-col overflow-hidden bg-bg">
+      <div className="shrink-0 z-20 flex items-center justify-between gap-3 border-b border-bg-soft bg-bg/95 backdrop-blur px-4 py-2.5">
         <button onClick={() => navigate(`/custom/book/${bookId}/`)} className="text-sm text-text-muted hover:text-text">
           ← {kpName}
         </button>

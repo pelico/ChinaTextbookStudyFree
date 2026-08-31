@@ -1029,7 +1029,7 @@ export function LessonRunner({ lesson, chestSlot = null, backHref }: LessonRunne
   return (
     <motion.main
       animate={shakeControls}
-      className={`min-h-screen flex flex-col relative lesson-runner ${hasBackdrop ? "" : "bg-bg-soft"}`}
+      className={`h-dvh flex-1 flex flex-col relative overflow-hidden lesson-runner ${hasBackdrop ? "" : "bg-bg-soft"}`}
       style={backdropStyle}
     >
       {/* +XP 飘字层 —— fixed 定位独立于 layout，不影响滚动 */}
@@ -1324,7 +1324,7 @@ export function LessonRunner({ lesson, chestSlot = null, backHref }: LessonRunne
       </div>
 
       {/* Question area */}
-      <div className="flex-1 flex flex-col items-center justify-start px-5 py-4">
+      <div className="flex-1 flex flex-col items-center justify-start px-5 py-4 overflow-y-auto min-h-0">
         <div className="w-full max-w-md lg:max-w-2xl">
           {/* "NEW WORD" 紫色胶囊 tag —— 仿 Duolingo 题型标签 */}
           <div className="mb-3 inline-flex items-center gap-1.5 flex-wrap">
