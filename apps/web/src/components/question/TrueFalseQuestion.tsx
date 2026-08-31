@@ -8,6 +8,7 @@ import { MathText } from "@/components/MathText";
 import { TTSButton } from "@/components/TTSButton";
 import { playSfx } from "@/lib/sfx";
 import { haptic } from "@/lib/haptic";
+import { speakText, stopSpeaking } from "@/lib/speechTts";
 import { useAutoNarrate } from "@/lib/useAutoNarrate";
 import { shouldIgnoreKey } from "./keyboard";
 import type { QuestionRendererProps } from "./QuestionRenderer";
@@ -21,6 +22,7 @@ export function TrueFalseQuestion({
   isCorrect,
   onChange,
   locked = false,
+  speakLang,
 }: QuestionRendererProps) {
   const correctIsTrue = TRUE_VALUES.has(question.answer.trim());
   const cancelNarrate = useAutoNarrate([question.audio?.question], question.id);
@@ -28,6 +30,10 @@ export function TrueFalseQuestion({
   function select(label: "对" | "错") {
     if (locked || phase !== "answering") return;
     cancelNarrate();
+    if (speakLang) {
+      stopSpeaking();
+      speakText(label, { lang: speakLang, rate: 0.9 });
+    }
     playSfx("tap");
     haptic("light");
     onChange(label);

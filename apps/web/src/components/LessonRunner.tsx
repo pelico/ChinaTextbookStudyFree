@@ -53,6 +53,7 @@ import { Mascot, type MascotMood, type MascotReaction } from "./Mascot";
 import { MuteToggle, AutoNarrateToggle, useSyncMute } from "./MuteToggle";
 import { TTSButton } from "./TTSButton";
 import { SpeechTTSButton } from "./SpeechTTSButton";
+import { speakText, stopSpeaking } from "@/lib/speechTts";
 import { useAutoNarrate } from "@/lib/useAutoNarrate";
 import { uiAudio } from "@/lib/uiAudio";
 import { playTTS } from "@/lib/tts";
@@ -72,13 +73,14 @@ import type { QuestionType } from "@cstf/core";
 
 /** 仿 Duolingo 题型胶囊文案（紫色 NEW WORD tag） */
 function buildSpeakText(q: { type: QuestionType; question: string; options: string[] }): string {
-  let text = q.question;
+  let text = q.question.replace(/_{2,}/g, " ");
   if (q.type === "choice" && q.options?.length) {
     q.options.forEach((opt, i) => {
-      text += ` ${String.fromCharCode(65 + i)} ${opt}`;
+      const clean = opt.replace(/_{2,}/g, " ").replace(/^[A-D][.、]\s*/, "");
+      text += ` ${String.fromCharCode(65 + i)} ${clean}`;
     });
   }
-  return text;
+  return text.trim();
 }
 
 function questionTagLabel(type: QuestionType): string {
@@ -577,6 +579,22 @@ export function LessonRunner({ lesson, chestSlot = null, backHref, navigateFn, s
   const answeredFirst = correctCount + mistakeCount;
   const progress =
     total > 0 ? (Math.min(solved.length, total) / total) * 100 : 0;
+
+  // 自动朗读题目（自定义模块，speechSynthesis）
+  useEffect(() => {
+    if (!speakLang || !current || phase !== "answering") return;
+    stopSpeaking();
+    const text = buildSpeakText(current);
+    if (!text) return;
+    const timer = setTimeout(() => {
+      speakText(text, {
+        lang: speakLang,
+        rate: 0.9,
+      });
+    }, 300);
+    return () => { clearTimeout(timer); stopSpeaking(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current?.id, speakLang, phase]);
 
   // 进度条宽度动画（只在答对时前进：solved 才计入）
   useEffect(() => {
@@ -1391,6 +1409,7 @@ export function LessonRunner({ lesson, chestSlot = null, backHref, navigateFn, s
                 isCorrect={isCorrect}
                 onChange={setAnswer}
                 locked={locked}
+                speakLang={speakLang}
               />
             </motion.div>
           </AnimatePresence>

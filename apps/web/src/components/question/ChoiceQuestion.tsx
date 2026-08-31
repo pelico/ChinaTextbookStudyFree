@@ -8,6 +8,7 @@ import { TTSButton } from "@/components/TTSButton";
 import { playSfx } from "@/lib/sfx";
 import { haptic } from "@/lib/haptic";
 import { playTTS } from "@/lib/tts";
+import { speakText, stopSpeaking } from "@/lib/speechTts";
 import { useAutoNarrate } from "@/lib/useAutoNarrate";
 import { shouldIgnoreKey } from "./keyboard";
 import type { QuestionRendererProps } from "./QuestionRenderer";
@@ -39,6 +40,7 @@ export function ChoiceQuestion({
   isCorrect,
   onChange,
   locked = false,
+  speakLang,
 }: QuestionRendererProps) {
   const rawCorrect = question.answer.trim();
   // 先找出正确选项在原始数组中的索引
@@ -101,7 +103,15 @@ export function ChoiceQuestion({
     // 选中选项时自动朗读该选项
     const idx = letter.charCodeAt(0) - 65;
     const optAudio = shuffledAudioOptions[idx];
-    if (optAudio) void playTTS(optAudio);
+    if (speakLang) {
+      stopSpeaking();
+      const optText = shuffledOptions[idx]?.replace(/^[A-D][.、]\s*/, "").replace(/_{2,}/g, " ") || "";
+      if (optText) {
+        speakText(optText, { lang: speakLang, rate: 0.9 });
+      }
+    } else if (optAudio) {
+      void playTTS(optAudio);
+    }
     playSfx("tap");
     haptic("light");
     // 转换回原始选项的字母，保证上层判分逻辑正确

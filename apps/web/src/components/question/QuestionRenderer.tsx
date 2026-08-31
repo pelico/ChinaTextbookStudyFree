@@ -28,6 +28,8 @@ export interface QuestionRendererProps {
    * 各题型必须据此停掉键盘快捷键、点击与自动提交，避免用户在弹层前面把题判掉。
    */
   locked?: boolean;
+  /** 语音朗读语言（设置后启用 speechSynthesis 朗读选项） */
+  speakLang?: string;
 }
 
 export function QuestionRenderer(props: QuestionRendererProps) {
