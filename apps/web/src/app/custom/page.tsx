@@ -26,6 +26,6 @@ export default function CustomPage() {
   if (parts[1] === "folder-create") return <CustomFolderCreate />;
   if (parts[1] === "book" && parts.length === 3) return <CustomBook bookId={parts[2]} />;
   if (parts[1] === "book" && parts.length === 4 && parts[3] === "read") return <CustomReader bookId={parts[2]} />;
-  if (parts[1] === "book" && parts.length === 4) return <CustomLesson bookId={parts[2]} kpId={parts[3]} />;
+  if (parts[1] === "book" && parts.length === 4) return <CustomLesson bookId={parts[2]} lessonId={parts[3]} />;
   return <CustomHome />;
 }
