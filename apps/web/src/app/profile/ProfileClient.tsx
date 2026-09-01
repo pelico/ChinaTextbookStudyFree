@@ -39,6 +39,15 @@ import {
 import { ThemeModeToggle } from "@/components/ThemeModeToggle";
 import { playSfx } from "@/lib/sfx";
 import { haptic } from "@/lib/haptic";
+import {
+  getParentStatus,
+  setupParent,
+  verifyParentPassword,
+  updateParentSettings,
+  getParentSettings,
+  getParentToken,
+  clearParentToken,
+} from "@/lib/parentAuth";
 
 // ---- 资源状态类型 ----
 interface AssetsStatus {
@@ -76,6 +85,18 @@ export function ProfileClient() {
 
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => setHydrated(true), []);
+
+  // ---- 家长设置状态 ----
+  const [parentSetup, setParentSetup] = useState(false);
+  const [parentUnlocked, setParentUnlocked] = useState(false);
+  const [showParentModal, setShowParentModal] = useState(false);
+  const [parentPwd, setParentPwd] = useState("");
+  const [parentError, setParentError] = useState("");
+
+  useEffect(() => {
+    getParentStatus().then(s => setParentSetup(s.is_setup));
+    setParentUnlocked(!!getParentToken());
+  }, []);
 
   // ---- 资源状态轮询 ----
   const [assetsStatus, setAssetsStatus] = useState<AssetsStatus | null>(null);
@@ -552,7 +573,7 @@ export function ProfileClient() {
           style={{ boxShadow: "0 4px 0 0 var(--shadow-card-color)" }}
         >
           <div className="flex items-center justify-between mb-1">
-            <div className="text-base font-extrabold text-ink">家长设置 · 每日时间上限</div>
+            <div className="text-base font-extrabold text-ink">家长设置</div>
             <span className="text-[10px] text-ink-softer uppercase tracking-wider">
               防沉迷
             </span>
@@ -560,7 +581,84 @@ export function ProfileClient() {
           <div className="text-xs text-ink-light mb-3">
             达到上限后会暂停新课程，鼓励休息眼睛 · 不影响已开始的课程
           </div>
-          <div className="flex flex-wrap gap-2">
+
+          {/* 家长密码锁 */}
+          {!parentSetup ? (
+            <div className="mb-3 rounded-xl bg-amber-50 border border-amber-200 p-3">
+              <div className="text-xs text-amber-700 font-bold mb-2">
+                尚未设置家长密码，请先设置：
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={parentPwd}
+                  onChange={e => setParentPwd(e.target.value)}
+                  placeholder="设置家长密码（≥4位）"
+                  className="flex-1 h-9 px-3 rounded-xl border-2 border-bg-softer text-sm outline-none focus:border-primary"
+                />
+                <button
+                  onClick={async () => {
+                    if (parentPwd.length < 4) { setParentError("密码至少 4 位"); return; }
+                    setParentError("");
+                    const ok = await setupParent(parentPwd);
+                    if (ok) { setParentSetup(true); setParentUnlocked(true); setParentPwd(""); }
+                    else { setParentError("设置失败"); }
+                  }}
+                  className="h-9 px-4 rounded-xl bg-primary text-white text-sm font-bold"
+                >
+                  设置
+                </button>
+              </div>
+              {parentError && <div className="text-xs text-red-500 mt-1">{parentError}</div>}
+            </div>
+          ) : !parentUnlocked ? (
+            <div className="mb-3 rounded-xl bg-violet-50 border border-violet-200 p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <Lock className="w-4 h-4 text-violet-500" />
+                <span className="text-xs text-violet-700 font-bold">家长操作需验证密码</span>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={parentPwd}
+                  onChange={e => setParentPwd(e.target.value)}
+                  placeholder="输入家长密码"
+                  className="flex-1 h-9 px-3 rounded-xl border-2 border-bg-softer text-sm outline-none focus:border-violet-400"
+                  onKeyDown={async e => {
+                    if (e.key === "Enter") {
+                      const ok = await verifyParentPassword(parentPwd);
+                      if (ok) { setParentUnlocked(true); setParentPwd(""); setParentError(""); }
+                      else { setParentError("密码错误"); }
+                    }
+                  }}
+                />
+                <button
+                  onClick={async () => {
+                    const ok = await verifyParentPassword(parentPwd);
+                    if (ok) { setParentUnlocked(true); setParentPwd(""); setParentError(""); }
+                    else { setParentError("密码错误"); }
+                  }}
+                  className="h-9 px-4 rounded-xl bg-violet-500 text-white text-sm font-bold"
+                >
+                  解锁
+                </button>
+              </div>
+              {parentError && <div className="text-xs text-red-500 mt-1">{parentError}</div>}
+            </div>
+          ) : (
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-xs text-emerald-600 font-bold">✓ 已解锁家长设置</span>
+              <button
+                onClick={() => { clearParentToken(); setParentUnlocked(false); }}
+                className="text-xs text-ink-lighter hover:text-ink"
+              >
+                锁定
+              </button>
+            </div>
+          )}
+
+          {/* 时间上限按钮（需解锁） */}
+          <div className={`flex flex-wrap gap-2 ${!parentUnlocked ? "opacity-40 pointer-events-none" : ""}`}>
             {([
               { label: "不限制", min: 0 },
               { label: "20 分钟", min: 20 },
@@ -573,7 +671,12 @@ export function ProfileClient() {
                 <button
                   key={opt.min}
                   type="button"
-                  onClick={() => pickLimit(opt.min)}
+                  onClick={() => {
+                    pickLimit(opt.min);
+                    if (parentUnlocked) {
+                      updateParentSettings({ daily_limit_ms: opt.min * 60_000 });
+                    }
+                  }}
                   className={`h-9 px-4 inline-flex items-center rounded-2xl text-sm font-extrabold border-2 transition-colors ${
                     active
                       ? "bg-primary text-white border-primary"
@@ -590,6 +693,14 @@ export function ProfileClient() {
               );
             })}
           </div>
+
+          {/* 设为默认 AI Key */}
+          {parentUnlocked && (
+            <div className="mt-4 pt-4 border-t border-bg-softer">
+              <div className="text-xs text-ink-light mb-2 font-bold">默认 AI Key（服务端存储，跨设备共享）</div>
+              <DefaultAIKeySection />
+            </div>
+          )}
         </section>
 
         {/* 💾 数据 · 存档备份（E2）：导出 / 导入，BackupEnvelope v1 双端互通 */}
@@ -605,6 +716,61 @@ export function ProfileClient() {
     </AppShell>
   );
 }
+
+// ============================================================
+// 🔑 默认 AI Key（服务端存储）
+// ============================================================
+
+function DefaultAIKeySection() {
+  const [keySet, setKeySet] = useState(false);
+  const [input, setInput] = useState("");
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    getParentSettings().then(s => {
+      if (s) setKeySet(s.ai_key_set);
+    });
+  }, []);
+
+  return (
+    <div className="rounded-xl bg-bg-soft p-3">
+      {keySet ? (
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-emerald-600 font-bold">✓ 服务端已配置默认 Key</span>
+          <button
+            onClick={() => { setKeySet(false); setInput(""); }}
+            className="text-xs text-violet-500 hover:underline"
+          >
+            修改
+          </button>
+        </div>
+      ) : (
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            placeholder="粘贴 API Key（如 sk-xxx）"
+            className="flex-1 h-9 px-3 rounded-xl border-2 border-bg-softer text-sm outline-none focus:border-violet-400"
+          />
+          <button
+            onClick={async () => {
+              if (!input.trim()) { setMsg("请输入 Key"); return; }
+              const ok = await updateParentSettings({ ai_api_key: input.trim() });
+              if (ok) { setKeySet(true); setInput(""); setMsg("已保存"); setTimeout(() => setMsg(""), 2000); }
+              else { setMsg("保存失败"); }
+            }}
+            className="h-9 px-4 rounded-xl bg-violet-500 text-white text-sm font-bold"
+          >
+            保存
+          </button>
+        </div>
+      )}
+      {msg && <div className="text-xs text-violet-500 mt-1">{msg}</div>}
+    </div>
+  );
+}
+
 
 // ============================================================
 // 💾 数据 · 存档备份（E2）

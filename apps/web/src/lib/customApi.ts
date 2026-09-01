@@ -186,3 +186,47 @@ export interface QuestionSet {
   questions: any[];
   generated_at: string;
 }
+
+// ============================================================
+// Progress sync
+// ============================================================
+
+const DEVICE_ID_KEY = "csf-device-id";
+
+export function getDeviceId(): string {
+  if (typeof window === "undefined") return "unknown";
+  let id = localStorage.getItem(DEVICE_ID_KEY);
+  if (!id) {
+    id = `dev-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    localStorage.setItem(DEVICE_ID_KEY, id);
+  }
+  return id;
+}
+
+export async function syncProgressUp(progress: Record<string, any>): Promise<boolean> {
+  try {
+    const res = await fetch("/api/custom/sync/progress", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        device_id: getDeviceId(),
+        device_name: navigator.userAgent.includes("Mobile") ? "手机" : "电脑",
+        progress,
+      }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function syncProgressDown(): Promise<Record<string, any> | null> {
+  try {
+    const res = await fetch("/api/custom/sync/progress");
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.progress || null;
+  } catch {
+    return null;
+  }
+}

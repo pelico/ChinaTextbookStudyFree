@@ -5,6 +5,7 @@ import {
   apiGet, navigate, getTextStatus, generateOutlineFromTexts,
   type CustomBook, type TextStatus,
 } from "@/lib/customApi";
+import { requireParentAuth } from "@/lib/parentAuth";
 
 const subjectLabels: Record<string, string> = {
   math: "数学", chinese: "语文", english: "英语", science: "科学",
@@ -37,6 +38,8 @@ export function CustomBook({ bookId }: { bookId: string }) {
   useEffect(() => { load(); }, [load]);
 
   async function handleGenerateOutline() {
+    const ok = await requireParentAuth("生成大纲");
+    if (!ok) return;
     setGenerating(true);
     setGenError("");
     try {

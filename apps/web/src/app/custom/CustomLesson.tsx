@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { apiGet, apiPost, navigate, type CustomBook, type QuestionSet } from "@/lib/customApi";
 import type { Lesson, Question } from "@/types";
+import { requireParentAuth } from "@/lib/parentAuth";
 
 const LessonRunner = dynamic(
   () => import("@/components/LessonRunner").then(m => ({ default: m.LessonRunner })),
@@ -63,6 +64,8 @@ export function CustomLesson({ bookId, lessonId }: { bookId: string; lessonId: s
   useEffect(() => { load(); }, [load]);
 
   async function handleRefresh() {
+    const ok = await requireParentAuth("换一套题");
+    if (!ok) return;
     setRefreshing(true);
     setError("");
     try {

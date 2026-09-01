@@ -9,6 +9,7 @@ import {
   speakText, stopSpeaking, pauseSpeaking, resumeSpeaking,
   isSpeechSupported, type SpeakOptions,
 } from "@/lib/speechTts";
+import { requireParentAuth } from "@/lib/parentAuth";
 
 export function CustomReader({ bookId }: { bookId: string }) {
   const [data, setData] = useState<BookReadData | null>(null);
@@ -125,6 +126,8 @@ export function CustomReader({ bookId }: { bookId: string }) {
   }
 
   async function handleExtract() {
+    const ok = await requireParentAuth("重新识别文字");
+    if (!ok) return;
     setExtracting(true);
     setError("");
     setEditing(false);

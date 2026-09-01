@@ -1806,3 +1806,91 @@ export const useProgressStore = create<ProgressState>()(
     },
   ),
 );
+
+// ============================================================
+// Server sync: startup pull + periodic push + anti-addiction override
+// ============================================================
+let _syncTimer: ReturnType<typeof setInterval> | null = null;
+let _antiAddictionTimer: ReturnType<typeof setInterval> | null = null;
+
+export async function initServerSync() {
+  if (typeof window === "undefined") return;
+
+  // 1. 拉取服务端防沉迷设置，覆盖本地
+  try {
+    const res = await fetch("/api/custom/parent/public-settings");
+    if (res.ok) {
+      const s = await res.json();
+      if (s.daily_limit_ms !== undefined) {
+        useProgressStore.setState({ dailyTimeLimitMs: s.daily_limit_ms });
+      }
+      if (s.session_limit_ms !== undefined) {
+        useProgressStore.setState({ sessionTimeLimitMs: s.session_limit_ms });
+      }
+    }
+  } catch {}
+
+  // 2. 拉取服务端进度并合并
+  try {
+    const res = await fetch("/api/custom/sync/progress");
+    if (res.ok) {
+      const { progress } = await res.json();
+      if (progress) {
+        const local = useProgressStore.getState();
+        const merged = mergeProgressState(progress, local);
+        useProgressStore.setState(merged);
+      }
+    }
+  } catch {}
+
+  // 3. 首次上报
+  pushProgressToServer();
+
+  // 4. 定时上报（每 60 秒）
+  if (_syncTimer) clearInterval(_syncTimer);
+  _syncTimer = setInterval(pushProgressToServer, 60_000);
+
+  // 5. 每 30 秒同步防沉迷设置（防止改本地绕过）
+  if (_antiAddictionTimer) clearInterval(_antiAddictionTimer);
+  _antiAddictionTimer = setInterval(async () => {
+    try {
+      const res = await fetch("/api/custom/parent/public-settings");
+      if (res.ok) {
+        const s = await res.json();
+        useProgressStore.setState({
+          dailyTimeLimitMs: s.daily_limit_ms ?? 0,
+          sessionTimeLimitMs: s.session_limit_ms ?? 0,
+        });
+      }
+    } catch {}
+  }, 30_000);
+}
+
+function mergeProgressState(server: Record<string, any>, local: any): Partial<any> {
+  const merged: Record<string, any> = {};
+  for (const key of ["xp", "gems", "streak", "lifetimeGems", "streakFreezes"]) {
+    merged[key] = Math.max(server[key] ?? 0, (local as any)[key] ?? 0);
+  }
+  for (const key of ["completedLessons", "mistakesBank", "unlockedAchievements",
+                      "xpHistory", "lessonHistory", "claimedQuests", "claimedChests",
+                      "completedReadings", "perfectedLessons"]) {
+    merged[key] = { ...(server[key] ?? {}), ...((local as any)[key] ?? {}) };
+  }
+  return merged;
+}
+
+async function pushProgressToServer() {
+  try {
+    const state = useProgressStore.getState() as any;
+    const deviceId = localStorage.getItem("csf-device-id") || "unknown";
+    const res = await fetch("/api/custom/sync/progress", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        device_id: deviceId,
+        device_name: navigator.userAgent.includes("Mobile") ? "手机" : "电脑",
+        progress: state,
+      }),
+    });
+  } catch {}
+}

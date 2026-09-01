@@ -154,6 +154,41 @@ def init_db():
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_pt_book ON page_texts(book_id);")
 
+    # 家长设置 + 进度同步表
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS parent_settings (
+        id              INTEGER PRIMARY KEY DEFAULT 1,
+        password_hash   TEXT,
+        password_salt   TEXT,
+        is_setup        INTEGER DEFAULT 0,
+        ai_api_key      TEXT,
+        ai_base_url     TEXT DEFAULT 'https://aiapi.fonken.net/v1',
+        ai_model        TEXT DEFAULT 'gemini-3.1-flash-lite',
+        daily_limit_ms  INTEGER DEFAULT 0,
+        session_limit_ms INTEGER DEFAULT 0,
+        updated_at      TEXT NOT NULL
+    );
+    """)
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS progress_sync (
+        device_id       TEXT PRIMARY KEY,
+        device_name     TEXT,
+        progress_json   TEXT NOT NULL,
+        last_sync_at    TEXT NOT NULL,
+        xp              INTEGER DEFAULT 0,
+        gems            INTEGER DEFAULT 0
+    );
+    """)
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS audit_log (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        device_id       TEXT,
+        action          TEXT NOT NULL,
+        detail          TEXT,
+        created_at      TEXT NOT NULL
+    );
+    """)
+
     conn.commit()
     conn.close()
 
@@ -163,15 +198,78 @@ def now_iso():
 
 
 # ============================================================
+# Parent auth & settings helpers
+# ============================================================
+import hashlib, secrets
+
+_active_tokens = {}  # token -> expiry_ts
+
+def hash_password(password, salt):
+    return hashlib.sha256((password + salt).encode()).hexdigest()
+
+def create_token():
+    token = secrets.token_hex(16)
+    _active_tokens[token] = time.time() + 1800  # 30 min
+    return token
+
+def verify_token(token):
+    if not token:
+        return False
+    exp = _active_tokens.get(token)
+    if not exp:
+        return False
+    if time.time() > exp:
+        _active_tokens.pop(token, None)
+        return False
+    return True
+
+def get_parent_settings():
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT * FROM parent_settings WHERE id = 1").fetchone()
+        if not row:
+            return None
+        return dict(row)
+    finally:
+        conn.close()
+
+def get_default_ai_key():
+    """从 parent_settings 表读取默认 AI Key"""
+    s = get_parent_settings()
+    if s and s.get("ai_api_key"):
+        return s["ai_api_key"].strip()
+    return None
+
+
+def merge_progress(server_state, client_state):
+    """跨设备进度合并：取最优值"""
+    merged = dict(client_state)
+    for key in ("xp", "gems", "streak", "lifetimeGems", "streakFreezes"):
+        sv = server_state.get(key, 0) if server_state else 0
+        cv = client_state.get(key, 0)
+        merged[key] = max(sv, cv)
+    for key in ("completedLessons", "mistakesBank", "unlockedAchievements",
+                "xpHistory", "lessonHistory", "claimedQuests", "claimedChests",
+                "completedReadings"):
+        sv = server_state.get(key, {}) if server_state else {}
+        cv = client_state.get(key, {})
+        merged[key] = {**sv, **cv}
+    # 今日数据取客户端值（本地实时更准）
+    for key in ("todayXp", "todayTimeMs", "dailyLessons", "dailyReviews", "dailyReadings"):
+        merged[key] = client_state.get(key, 0)
+    return merged
+
+
+# ============================================================
 # AI API
 # ============================================================
 def call_ai(messages, timeout=120, api_key=None):
     """OpenAI 兼容 API 调用，返回 content 字符串。
-    api_key 优先从参数取（前端传入），否则用环境变量。
+    api_key 三层回退：header 传入 → DB 默认 → 环境变量。
     """
-    key = api_key or AI_KEY
+    key = api_key or get_default_ai_key() or AI_KEY
     if not key:
-        raise RuntimeError("未配置 AI API Key，请在试卷页面填写后在自定义学习页使用")
+        raise RuntimeError("未配置 AI API Key，请在家长设置中配置默认 Key")
 
     url = AI_BASE.rstrip("/") + "/chat/completions"
     body = json.dumps({
@@ -1268,6 +1366,62 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                 self._send_json({"versions": versions})
                 return
 
+            # /parent/status — 是否已设密码
+            if parts == ["parent", "status"]:
+                s = get_parent_settings()
+                self._send_json({"is_setup": bool(s and s.get("is_setup"))})
+                return
+
+            # /parent/settings — 获取设置（不含密码，需 token）
+            if parts == ["parent", "settings"]:
+                token = self.headers.get("X-Parent-Auth", "")
+                if not verify_token(token):
+                    self._send_error("需要家长授权", 403)
+                    return
+                s = get_parent_settings() or {}
+                self._send_json({
+                    "is_setup": bool(s.get("is_setup")),
+                    "ai_key_set": bool(s.get("ai_api_key")),
+                    "ai_base_url": s.get("ai_base_url", "https://aiapi.fonken.net/v1"),
+                    "ai_model": s.get("ai_model", "gemini-3.1-flash-lite"),
+                    "daily_limit_ms": s.get("daily_limit_ms", 0),
+                    "session_limit_ms": s.get("session_limit_ms", 0),
+                })
+                return
+
+            # /parent/public-settings — 获取防沉迷参数（无需 token，前端启动时覆盖 localStorage）
+            if parts == ["parent", "public-settings"]:
+                s = get_parent_settings() or {}
+                self._send_json({
+                    "daily_limit_ms": s.get("daily_limit_ms", 0),
+                    "session_limit_ms": s.get("session_limit_ms", 0),
+                })
+                return
+
+            # /sync/progress — 拉取合并后的进度
+            if parts == ["sync", "progress"]:
+                device_id = self.headers.get("X-Device-Id", "")
+                conn = get_db()
+                try:
+                    # 合并所有设备的进度
+                    rows = conn.execute(
+                        "SELECT progress_json, xp, gems FROM progress_sync ORDER BY last_sync_at"
+                    ).fetchall()
+                    if not rows:
+                        self._send_json({"progress": None})
+                        return
+                    merged = None
+                    for r in rows:
+                        state = json.loads(r["progress_json"])
+                        if merged is None:
+                            merged = state
+                        else:
+                            merged = merge_progress(merged, state)
+                    self._send_json({"progress": merged})
+                finally:
+                    conn.close()
+                return
+
             self._send_error("未知路径", 404)
 
         except Exception as e:
@@ -1374,6 +1528,114 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
             if len(parts) == 3 and parts[0] == "lessons" and parts[2] == "refresh":
                 result = generate_questions_for_kp(parts[1], api_key=self._ai_key())
                 self._send_json(result)
+                return
+
+            # /parent/setup — 首次设置密码 + 默认配置
+            if parts == ["parent", "setup"]:
+                body = self._read_body()
+                data = json.loads(body)
+                password = data.get("password", "")
+                if len(password) < 4:
+                    self._send_error("密码至少 4 位", 400)
+                    return
+                salt = secrets.token_hex(8)
+                pwd_hash = hash_password(password, salt)
+                now = now_iso()
+                conn = get_db()
+                try:
+                    conn.execute("""
+                        INSERT OR REPLACE INTO parent_settings
+                        (id, password_hash, password_salt, is_setup,
+                         ai_api_key, ai_base_url, ai_model,
+                         daily_limit_ms, session_limit_ms, updated_at)
+                        VALUES (1, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        pwd_hash, salt,
+                        data.get("ai_api_key", ""),
+                        data.get("ai_base_url", "https://aiapi.fonken.net/v1"),
+                        data.get("ai_model", "gemini-3.1-flash-lite"),
+                        data.get("daily_limit_ms", 0),
+                        data.get("session_limit_ms", 0),
+                        now,
+                    ))
+                    conn.commit()
+                finally:
+                    conn.close()
+                token = create_token()
+                self._send_json({"ok": True, "token": token})
+                return
+
+            # /parent/verify — 验证密码，返回 token
+            if parts == ["parent", "verify"]:
+                body = self._read_body()
+                data = json.loads(body)
+                password = data.get("password", "")
+                s = get_parent_settings()
+                if not s or not s.get("is_setup"):
+                    self._send_error("尚未设置家长密码", 400)
+                    return
+                pwd_hash = hash_password(password, s["password_salt"])
+                if pwd_hash != s["password_hash"]:
+                    self._send_error("密码错误", 403)
+                    return
+                token = create_token()
+                self._send_json({"ok": True, "token": token})
+                return
+
+            # /parent/settings — 修改设置（需 token）
+            if parts == ["parent", "settings"]:
+                token = self.headers.get("X-Parent-Auth", "")
+                if not verify_token(token):
+                    self._send_error("需要家长授权", 403)
+                    return
+                body = self._read_body()
+                data = json.loads(body)
+                s = get_parent_settings() or {}
+                now = now_iso()
+                conn = get_db()
+                try:
+                    updates = []
+                    params = []
+                    for field in ("ai_api_key", "ai_base_url", "ai_model",
+                                  "daily_limit_ms", "session_limit_ms"):
+                        if field in data:
+                            updates.append(f"{field} = ?")
+                            params.append(data[field])
+                    if updates:
+                        updates.append("updated_at = ?")
+                        params.append(now)
+                        params.append(1)  # id
+                        conn.execute(
+                            f"UPDATE parent_settings SET {', '.join(updates)} WHERE id = ?",
+                            params
+                        )
+                        conn.commit()
+                finally:
+                    conn.close()
+                self._send_json({"ok": True})
+                return
+
+            # /sync/progress — 上报进度
+            if parts == ["sync", "progress"]:
+                body = self._read_body()
+                data = json.loads(body)
+                device_id = data.get("device_id", "unknown")
+                device_name = data.get("device_name", "")
+                progress = data.get("progress", {})
+                xp = progress.get("xp", 0)
+                gems = progress.get("gems", 0)
+                now = now_iso()
+                conn = get_db()
+                try:
+                    conn.execute("""
+                        INSERT OR REPLACE INTO progress_sync
+                        (device_id, device_name, progress_json, last_sync_at, xp, gems)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (device_id, device_name, json.dumps(progress), now, xp, gems))
+                    conn.commit()
+                finally:
+                    conn.close()
+                self._send_json({"ok": True})
                 return
 
             self._send_error("未知路径", 404)
