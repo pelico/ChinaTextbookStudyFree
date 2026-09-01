@@ -1686,7 +1686,8 @@ export const useProgressStore = create<ProgressState>()(
       //            （reading:{kind}:{rawId}，双端同一 key 空间）
       //            + freezesMigrated（护盾补发一次性开关）
       //            + lastReviewHeartDate（复习补心按天账本）
-      version: 12,
+      //   v12 → v13：修复 mistakesBank 被跨设备同步误转为 object 的问题
+      version: 13,
       migrate: (persistedState: unknown, fromVersion: number) => {
         const state = (persistedState as Partial<ProgressState>) ?? {};
         const starterOwned = Object.fromEntries(
