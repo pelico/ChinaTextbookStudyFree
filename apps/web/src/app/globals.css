@@ -281,7 +281,9 @@ button:focus-visible,
 .theme-dark .bg-bg {
   background-color: var(--app-card) !important;
 }
-.theme-dark .bg-white\/90 {
+.theme-dark .bg-white\/90,
+.theme-dark .bg-bg\/95,
+.theme-dark .bg-bg\/90 {
   background-color: color-mix(in srgb, var(--app-card) 90%, transparent) !important;
 }
 .theme-dark .bg-bg-soft {
@@ -290,9 +292,8 @@ button:focus-visible,
 .theme-dark .bg-bg-softer {
   background-color: var(--app-bg-softer) !important;
 }
-.theme-dark .border-bg-softer {
-  border-color: var(--app-border) !important;
-}
+.theme-dark .border-bg-soft,
+.theme-dark .border-bg-softer,
 .theme-dark .border-bg {
   border-color: var(--app-border) !important;
 }
