@@ -170,8 +170,19 @@ def init_db():
     );
     """)
     conn.execute("""
+    CREATE TABLE IF NOT EXISTS kids (
+        id              TEXT PRIMARY KEY,
+        name            TEXT NOT NULL,
+        avatar          TEXT DEFAULT 'default',
+        sort_order      INTEGER DEFAULT 0,
+        created_at      TEXT NOT NULL
+    );
+    """)
+    conn.execute("""
     CREATE TABLE IF NOT EXISTS progress_sync (
-        device_id       TEXT PRIMARY KEY,
+        id              TEXT PRIMARY KEY,
+        kid_id          TEXT NOT NULL DEFAULT 'default',
+        device_id       TEXT NOT NULL,
         device_name     TEXT,
         progress_json   TEXT NOT NULL,
         last_sync_at    TEXT NOT NULL,
@@ -188,6 +199,18 @@ def init_db():
         created_at      TEXT NOT NULL
     );
     """)
+
+    # Migration: old progress_sync may not have kid_id column
+    cols_ps = {r[1] for r in conn.execute("PRAGMA table_info(progress_sync)")}
+    if "kid_id" not in cols_ps:
+        conn.execute("ALTER TABLE progress_sync ADD COLUMN kid_id TEXT NOT NULL DEFAULT 'default'")
+    if "id" not in cols_ps:
+        # Very old table had device_id as PK, add id column
+        conn.execute("ALTER TABLE progress_sync ADD COLUMN id TEXT")
+        conn.execute("UPDATE progress_sync SET id = 'default:' || device_id WHERE id IS NULL")
+
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_progress_kid ON progress_sync(kid_id)")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_progress_kid_dev ON progress_sync(kid_id, device_id)")
 
     conn.commit()
     conn.close()
@@ -239,6 +262,60 @@ def get_default_ai_key():
     if s and s.get("ai_api_key"):
         return s["ai_api_key"].strip()
     return None
+
+
+# ============================================================
+# Kids (student profiles) CRUD
+# ============================================================
+def list_kids():
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT id, name, avatar, sort_order, created_at FROM kids ORDER BY sort_order, created_at"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+def create_kid(name, avatar="default"):
+    kid_id = f"kid-{uuid.uuid4().hex[:8]}"
+    now = now_iso()
+    conn = get_db()
+    try:
+        conn.execute(
+            "INSERT INTO kids (id, name, avatar, sort_order, created_at) VALUES (?, ?, ?, ?, ?)",
+            (kid_id, name, avatar, int(time.time()) % 1000, now)
+        )
+        conn.commit()
+        return {"id": kid_id, "name": name, "avatar": avatar, "sort_order": 0, "created_at": now}
+    finally:
+        conn.close()
+
+def update_kid(kid_id, name=None, avatar=None):
+    conn = get_db()
+    try:
+        updates, params = [], []
+        if name is not None:
+            updates.append("name = ?")
+            params.append(name)
+        if avatar is not None:
+            updates.append("avatar = ?")
+            params.append(avatar)
+        if updates:
+            params.append(kid_id)
+            conn.execute(f"UPDATE kids SET {', '.join(updates)} WHERE id = ?", params)
+            conn.commit()
+    finally:
+        conn.close()
+
+def delete_kid(kid_id):
+    conn = get_db()
+    try:
+        conn.execute("DELETE FROM progress_sync WHERE kid_id = ?", (kid_id,))
+        conn.execute("DELETE FROM kids WHERE id = ?", (kid_id,))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def merge_progress(server_state, client_state):
@@ -1398,14 +1475,19 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                 })
                 return
 
-            # /sync/progress — 拉取合并后的进度
+            # /kids — 列出所有学生档案
+            if parts == ["kids"]:
+                self._send_json({"kids": list_kids()})
+                return
+
+            # /sync/progress — 拉取合并后的进度（按 kid_id 隔离）
             if parts == ["sync", "progress"]:
-                device_id = self.headers.get("X-Device-Id", "")
+                kid_id = self.headers.get("X-Kid-Id", "default")
                 conn = get_db()
                 try:
-                    # 合并所有设备的进度
                     rows = conn.execute(
-                        "SELECT progress_json, xp, gems FROM progress_sync ORDER BY last_sync_at"
+                        "SELECT progress_json FROM progress_sync WHERE kid_id = ? ORDER BY last_sync_at",
+                        (kid_id,)
                     ).fetchall()
                     if not rows:
                         self._send_json({"progress": None})
@@ -1615,23 +1697,50 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                 self._send_json({"ok": True})
                 return
 
-            # /sync/progress — 上报进度
+            # /kids — 创建学生档案
+            if parts == ["kids"]:
+                token = self.headers.get("X-Parent-Auth", "")
+                if not verify_token(token):
+                    self._send_error("需要家长授权", 403)
+                    return
+                body = self._read_body()
+                data = json.loads(body)
+                kid = create_kid(data.get("name", "未命名"), data.get("avatar", "default"))
+                self._send_json(kid)
+                return
+
+            # /kids/:id — 更新或删除学生档案
+            if len(parts) == 2 and parts[0] == "kids":
+                token = self.headers.get("X-Parent-Auth", "")
+                if not verify_token(token):
+                    self._send_error("需要家长授权", 403)
+                    return
+                kid_id = parts[1]
+                body = self._read_body()
+                data = json.loads(body)
+                update_kid(kid_id, data.get("name"), data.get("avatar"))
+                self._send_json({"ok": True})
+                return
+
+            # /sync/progress — 上报进度（含 kid_id）
             if parts == ["sync", "progress"]:
                 body = self._read_body()
                 data = json.loads(body)
                 device_id = data.get("device_id", "unknown")
+                kid_id = data.get("kid_id", "default")
                 device_name = data.get("device_name", "")
                 progress = data.get("progress", {})
                 xp = progress.get("xp", 0)
                 gems = progress.get("gems", 0)
                 now = now_iso()
+                row_id = f"{kid_id}:{device_id}"
                 conn = get_db()
                 try:
                     conn.execute("""
                         INSERT OR REPLACE INTO progress_sync
-                        (device_id, device_name, progress_json, last_sync_at, xp, gems)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    """, (device_id, device_name, json.dumps(progress), now, xp, gems))
+                        (id, kid_id, device_id, device_name, progress_json, last_sync_at, xp, gems)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (row_id, kid_id, device_id, device_name, json.dumps(progress), now, xp, gems))
                     conn.commit()
                 finally:
                     conn.close()
@@ -1655,6 +1764,16 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
             # /books/:id
             if len(parts) == 2 and parts[0] == "books":
                 delete_book(parts[1])
+                self._send_json({"ok": True})
+                return
+
+            # /kids/:id — 删除学生档案
+            if len(parts) == 2 and parts[0] == "kids":
+                token = self.headers.get("X-Parent-Auth", "")
+                if not verify_token(token):
+                    self._send_error("需要家长授权", 403)
+                    return
+                delete_kid(parts[1])
                 self._send_json({"ok": True})
                 return
 

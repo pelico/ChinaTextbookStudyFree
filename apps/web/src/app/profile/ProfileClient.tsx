@@ -48,6 +48,9 @@ import {
   getParentToken,
   clearParentToken,
 } from "@/lib/parentAuth";
+import {
+  listKids, createKid, deleteKid, type Kid,
+} from "@/lib/kidProfile";
 
 // ---- 资源状态类型 ----
 interface AssetsStatus {
@@ -701,6 +704,14 @@ export function ProfileClient() {
               <DefaultAIKeySection />
             </div>
           )}
+
+          {/* 学生档案管理 */}
+          {parentUnlocked && (
+            <div className="mt-4 pt-4 border-t border-bg-softer">
+              <div className="text-xs text-ink-light mb-2 font-bold">学生档案（多孩子独立进度）</div>
+              <KidsManager onKidsChanged={() => {}} />
+            </div>
+          )}
         </section>
 
         {/* 💾 数据 · 存档备份（E2）：导出 / 导入，BackupEnvelope v1 双端互通 */}
@@ -716,6 +727,78 @@ export function ProfileClient() {
     </AppShell>
   );
 }
+
+// ============================================================
+// 👶 学生档案管理
+// ============================================================
+
+const KID_AVATARS = ["🦊", "🐼", "🐱", "🐰", "🐯", "🦁", "🐨", "🐸"];
+
+function KidsManager({ onKidsChanged }: { onKidsChanged: () => void }) {
+  const [kids, setKids] = useState<Kid[]>([]);
+  const [newName, setNewName] = useState("");
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => { loadKids(); }, []);
+
+  async function loadKids() {
+    const k = await listKids();
+    setKids(k);
+    onKidsChanged();
+  }
+
+  async function handleCreate() {
+    if (!newName.trim()) { setMsg("请输入名字"); return; }
+    const ok = await createKid(newName.trim());
+    if (ok) { setNewName(""); setMsg("已创建"); setTimeout(() => setMsg(""), 2000); loadKids(); }
+    else { setMsg("创建失败"); }
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm("确定删除？该学生的同步进度也会清除（本地数据保留）")) return;
+    await deleteKid(id);
+    loadKids();
+  }
+
+  return (
+    <div className="rounded-xl bg-bg-soft p-3">
+      {kids.length > 0 && (
+        <div className="space-y-1 mb-3">
+          {kids.map((kid, i) => (
+            <div key={kid.id} className="flex items-center gap-2 p-2 rounded-lg bg-white">
+              <span className="text-xl">{KID_AVATARS[(kid.sort_order || i) % KID_AVATARS.length]}</span>
+              <span className="flex-1 text-sm font-bold text-ink">{kid.name}</span>
+              <button
+                onClick={() => handleDelete(kid.id)}
+                className="text-xs text-red-400 hover:text-red-600"
+              >
+                删除
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={newName}
+          onChange={e => setNewName(e.target.value)}
+          placeholder="学生姓名"
+          className="flex-1 h-9 px-3 rounded-xl border-2 border-bg-softer text-sm outline-none focus:border-violet-400"
+          onKeyDown={e => { if (e.key === "Enter") handleCreate(); }}
+        />
+        <button
+          onClick={handleCreate}
+          className="h-9 px-4 rounded-xl bg-violet-500 text-white text-sm font-bold"
+        >
+          添加
+        </button>
+      </div>
+      {msg && <div className="text-xs text-violet-500 mt-1">{msg}</div>}
+    </div>
+  );
+}
+
 
 // ============================================================
 // 🔑 默认 AI Key（服务端存储）

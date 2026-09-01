@@ -8,6 +8,7 @@ import { DailyRewardWatcher } from "@/components/DailyRewardWatcher";
 import { AchievementWatcher } from "@/components/AchievementWatcher";
 import { LeagueWatcher } from "@/components/LeagueWatcher";
 import { ServerSyncInit } from "@/components/ServerSyncInit";
+import { KidPicker } from "@/components/KidPicker";
 
 const nunito = Nunito({
   subsets: ["latin"],
@@ -87,6 +88,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <AchievementWatcher />
             <LeagueWatcher />
             <ServerSyncInit />
+            <KidPicker />
             {children}
             <BottomNav />
           </ToastProvider>

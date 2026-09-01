@@ -1652,7 +1652,9 @@ export const useProgressStore = create<ProgressState>()(
       },
     }),
     {
-      name: "csf-progress-v1",
+      name: typeof window !== "undefined"
+        ? `csf-progress-v1-${localStorage.getItem("csf-active-kid") || "default"}`
+        : "csf-progress-v1-default",
       storage: createJSONStorage(() => localStorage),
       // 版本迁移：
       //   v1 → v2：新增 hearts / dailyGoal / freezes / activeLesson
@@ -1809,12 +1811,15 @@ export const useProgressStore = create<ProgressState>()(
 
 // ============================================================
 // Server sync: startup pull + periodic push + anti-addiction override
+// Supports multi-kid isolation via kid_id
 // ============================================================
 let _syncTimer: ReturnType<typeof setInterval> | null = null;
 let _antiAddictionTimer: ReturnType<typeof setInterval> | null = null;
 
 export async function initServerSync() {
   if (typeof window === "undefined") return;
+
+  const kidId = localStorage.getItem("csf-active-kid") || "default";
 
   // 1. 拉取服务端防沉迷设置，覆盖本地
   try {
@@ -1830,9 +1835,11 @@ export async function initServerSync() {
     }
   } catch {}
 
-  // 2. 拉取服务端进度并合并
+  // 2. 拉取服务端进度并合并（按 kid_id）
   try {
-    const res = await fetch("/api/custom/sync/progress");
+    const res = await fetch("/api/custom/sync/progress", {
+      headers: { "X-Kid-Id": kidId },
+    });
     if (res.ok) {
       const { progress } = await res.json();
       if (progress) {
@@ -1864,6 +1871,12 @@ export async function initServerSync() {
       }
     } catch {}
   }, 30_000);
+
+  // 6. 监听 kid 切换事件
+  window.addEventListener("kid-changed", () => {
+    // Reload to rehydrate from new kid's localStorage key
+    window.location.reload();
+  });
 }
 
 function mergeProgressState(server: Record<string, any>, local: any): Partial<any> {
@@ -1883,11 +1896,13 @@ async function pushProgressToServer() {
   try {
     const state = useProgressStore.getState() as any;
     const deviceId = localStorage.getItem("csf-device-id") || "unknown";
-    const res = await fetch("/api/custom/sync/progress", {
+    const kidId = localStorage.getItem("csf-active-kid") || "default";
+    await fetch("/api/custom/sync/progress", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         device_id: deviceId,
+        kid_id: kidId,
         device_name: navigator.userAgent.includes("Mobile") ? "手机" : "电脑",
         progress: state,
       }),
