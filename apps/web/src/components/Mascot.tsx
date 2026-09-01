@@ -2,16 +2,7 @@
 
 /**
  * 乌萨奇 — 吉祥物
- * viewBox 0 -15 120 135（顶部留出长耳空间）
- *
- * 特征（对齐 chiikawa 原作）：
- *   - 高耸直立的长耳朵
- *   - 弯弯的长眉毛，弧线围绕眼睛
- *   - 小圆点眼睛
- *   - 粉色腮红（常驻）
- *   - 突出的下嘴唇（噘嘴感）
- *   - 细小的手脚
- *   - 黄色圆润身体
+ * viewBox 0 -18 120 138
  */
 
 import { motion, useAnimation, useReducedMotion } from "framer-motion";
@@ -31,12 +22,11 @@ export interface MascotProps {
   skinOverride?: string | null;
 }
 
-const CREAM = "#EFD9A8";
-const SHADE = "#D4BE86";
-const EAR_INNER = "#EEAABB";
-const INK = "#3B2B1F";
-const BLUSH = "#FF8A9B";
-const MOUTH_C = "#8A6A4A";
+const CREAM = "#F8E9C4";
+const STROKE = "#2C2018";
+const EAR_INNER = "#F7B8C4";
+const BLUSH = "#FF9EAA";
+const MOUTH_C = "#2C2018";
 
 export function Mascot({
   mood = "happy",
@@ -137,90 +127,56 @@ export function Mascot({
         animate={controls}
         width={size}
         height={size}
-        viewBox="0 -15 120 135"
+        viewBox="0 -18 120 138"
         xmlns="http://www.w3.org/2000/svg"
         aria-label="乌萨奇"
         style={{ display: "block" }}
       >
-        {/* ===== 长耳朵（高耸直立、靠中间） ===== */}
         {/* 左耳 */}
-        <path
-          d="M 45 26 Q 35 -2 44 -14 Q 54 -10 52 26 Z"
-          fill={CREAM}
-          stroke={SHADE}
-          strokeWidth="1.5"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M 46 24 Q 38 0 45 -10 Q 51 -7 49 24 Z"
-          fill={EAR_INNER}
-          opacity="0.6"
-        />
+        <path d="M42 24 Q38 -8 48 -16 Q56 -12 54 24 Z" fill={CREAM} stroke={STROKE} strokeWidth="1.6" strokeLinejoin="round" />
+        <path d="M44 22 Q41 -4 49 -11 Q54 -8 52 22 Z" fill={EAR_INNER} opacity="0.7" />
         {/* 右耳 */}
-        <path
-          d="M 75 26 Q 85 -2 76 -14 Q 66 -10 68 26 Z"
-          fill={CREAM}
-          stroke={SHADE}
-          strokeWidth="1.5"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M 74 24 Q 82 0 75 -10 Q 69 -7 71 24 Z"
-          fill={EAR_INNER}
-          opacity="0.6"
-        />
+        <path d="M78 24 Q82 -8 72 -16 Q64 -12 66 24 Z" fill={CREAM} stroke={STROKE} strokeWidth="1.6" strokeLinejoin="round" />
+        <path d="M76 22 Q79 -4 71 -11 Q66 -8 68 22 Z" fill={EAR_INNER} opacity="0.7" />
 
-        {/* ===== 细手臂 ===== */}
+        {/* 小手 */}
         <motion.ellipse
-          cx="26"
-          cy="82"
-          rx="5"
-          ry="11"
-          fill={CREAM}
-          stroke={SHADE}
-          strokeWidth="1.5"
-          style={{ originX: "60px", originY: "82px" } as React.CSSProperties}
+          cx="32" cy="86" rx="4" ry="8"
+          fill={CREAM} stroke={STROKE} strokeWidth="1.6"
+          style={{ originX: "60px", originY: "86px" } as React.CSSProperties}
           animate={armControls}
-          transform={mood === "wave" ? "rotate(-40 26 82)" : undefined}
+          transform={mood === "wave" ? "rotate(-40 32 86)" : undefined}
         />
-        <ellipse
-          cx="94"
-          cy="82"
-          rx="5"
-          ry="11"
-          fill={CREAM}
-          stroke={SHADE}
-          strokeWidth="1.5"
-        />
+        <ellipse cx="88" cy="86" rx="4" ry="8" fill={CREAM} stroke={STROKE} strokeWidth="1.6" />
 
-        {/* ===== 细脚 ===== */}
-        <ellipse cx="50" cy="110" rx="6" ry="4" fill={CREAM} stroke={SHADE} strokeWidth="1.5" />
-        <ellipse cx="70" cy="110" rx="6" ry="4" fill={CREAM} stroke={SHADE} strokeWidth="1.5" />
+        {/* 小脚 */}
+        <ellipse cx="46" cy="112" rx="5.5" ry="3.8" fill={CREAM} stroke={STROKE} strokeWidth="1.6" />
+        <ellipse cx="74" cy="112" rx="5.5" ry="3.8" fill={CREAM} stroke={STROKE} strokeWidth="1.6" />
 
-        {/* ===== 身体 + 头 ===== */}
-        <ellipse cx="60" cy="84" rx="28" ry="24" fill={CREAM} stroke={SHADE} strokeWidth="1.5" />
-        <ellipse cx="60" cy="56" rx="33" ry="35" fill={CREAM} stroke={SHADE} strokeWidth="1.5" />
-        {/* 腹部淡影 */}
-        <ellipse cx="60" cy="88" rx="15" ry="12" fill={SHADE} opacity={0.25} />
+        {/* 身体 + 头 */}
+        <ellipse cx="60" cy="90" rx="24" ry="20" fill={CREAM} stroke={STROKE} strokeWidth="1.6" />
+        <ellipse cx="60" cy="54" rx="38" ry="39" fill={CREAM} stroke={STROKE} strokeWidth="1.6" />
 
-        {/* ===== 腮红（常驻） ===== */}
-        <ellipse cx="34" cy="62" rx="5.5" ry="4" fill={BLUSH} opacity={mood === "embarrassed" ? 0.85 : 0.5} />
-        <ellipse cx="86" cy="62" rx="5.5" ry="4" fill={BLUSH} opacity={mood === "embarrassed" ? 0.85 : 0.5} />
+        {/* 腮红 + 三道短线 */}
+        <ellipse cx="30" cy="62" rx="6" ry="4.2" fill={BLUSH} opacity={mood === "embarrassed" ? 0.8 : 0.55} />
+        <path d="M27 60 L30 63 M30 59 L33 62 M33 60 L36 63" stroke={STROKE} strokeWidth="1" strokeLinecap="round" />
+        <ellipse cx="90" cy="62" rx="6" ry="4.2" fill={BLUSH} opacity={mood === "embarrassed" ? 0.8 : 0.55} />
+        <path d="M87 60 L90 63 M90 59 L93 62 M93 60 L96 63" stroke={STROKE} strokeWidth="1" strokeLinecap="round" />
 
-        {/* ===== 弯弯眉毛（弧线围绕眼睛上方） ===== */}
+        {/* 眉毛 */}
         <Eyebrows mood={mood} />
 
-        {/* ===== 眼睛 ===== */}
+        {/* 眼睛 */}
         {blinkClose && (mood === "happy" || mood === "think" || mood === "wave") ? (
           <>
-            <path d="M 42 54 Q 48 58 54 54" fill="none" stroke={INK} strokeWidth="2" strokeLinecap="round" />
-            <path d="M 66 54 Q 72 58 78 54" fill="none" stroke={INK} strokeWidth="2" strokeLinecap="round" />
+            <path d="M44 54 Q48 57 52 54" fill="none" stroke={STROKE} strokeWidth="2" strokeLinecap="round" />
+            <path d="M68 54 Q72 57 76 54" fill="none" stroke={STROKE} strokeWidth="2" strokeLinecap="round" />
           </>
         ) : (
           <Eyes mood={mood} />
         )}
 
-        {/* ===== 嘴（突出下唇 / 噘嘴） ===== */}
+        {/* 嘴 */}
         <Mouth mood={mood} />
 
         {/* 汗滴 */}
@@ -236,151 +192,135 @@ export function Mascot({
           />
         )}
 
-        {/* 皮肤叠加层 */}
         <MascotSkinOverlay skinId={skinId} />
       </motion.svg>
     </div>
   );
 }
 
-/** 夸张弯弯眉毛 — 斜弧线围绕脸型 */
 function Eyebrows({ mood }: { mood: MascotMood }) {
-  const sw = 2;
-  const sc = INK;
+  const sw = 2.2;
+  const sc = STROKE;
   const lc = "round";
   switch (mood) {
     case "sad":
       return (
         <>
-          {/* 八字眉 — 内高外低 */}
-          <path d="M 50 46 Q 38 52 24 55" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
-          <path d="M 70 46 Q 82 52 96 55" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
+          <path d="M 48 37 Q 41 42 34 46" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
+          <path d="M 72 37 Q 79 42 86 46" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
         </>
       );
     case "proud":
       return (
         <>
-          {/* 挑眉 — 内低外高 */}
-          <path d="M 48 48 Q 34 38 22 42" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
-          <path d="M 72 48 Q 86 38 98 42" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
+          <path d="M 34 42 Q 41 36 48 38" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
+          <path d="M 72 38 Q 79 36 86 42" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
         </>
       );
     case "surprise":
       return (
         <>
-          {/* 高扬眉 */}
-          <path d="M 48 46 Q 32 32 20 40" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
-          <path d="M 72 46 Q 88 32 100 40" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
+          <path d="M 34 42 Q 41 34 48 35" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
+          <path d="M 72 35 Q 79 34 86 42" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
         </>
       );
     case "think":
       return (
         <>
-          {/* 一高一低 */}
-          <path d="M 48 47 Q 34 41 22 45" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
-          <path d="M 72 45 Q 86 37 98 41" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
+          <path d="M 34 44 Q 41 38 48 38" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
+          <path d="M 72 36 Q 79 34 86 42" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
         </>
       );
     default:
       return (
         <>
-          {/* 夸张斜弧线围绕脸型 — 从内眼上方斜向外下沿脸轮廓 */}
-          <path d="M 48 47 Q 32 39 20 48" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
-          <path d="M 72 47 Q 88 39 100 48" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
+          <path d="M 34 44 Q 41 37 48 37" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
+          <path d="M 72 37 Q 79 37 86 44" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
         </>
       );
   }
 }
 
-/** 眼睛 — 小圆点 */
 function Eyes({ mood }: { mood: MascotMood }) {
-  const c = INK;
+  const c = STROKE;
   switch (mood) {
     case "cheer":
       return (
         <>
-          <path d="M 42 54 Q 48 48 54 54" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" />
-          <path d="M 66 54 Q 72 48 78 54" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" />
+          <path d="M44 54 Q48 48 52 54" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" />
+          <path d="M68 54 Q72 48 76 54" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" />
         </>
       );
     case "sad":
       return (
         <>
-          <circle cx="48" cy="56" r="2.5" fill={c} />
-          <circle cx="72" cy="56" r="2.5" fill={c} />
+          <circle cx="48" cy="56" r="2.8" fill={c} />
+          <circle cx="72" cy="56" r="2.8" fill={c} />
         </>
       );
     case "think":
       return (
         <>
-          <circle cx="48" cy="54" r="3" fill={c} />
-          <circle cx="49" cy="53" r="0.8" fill="#FFFFFF" />
-          <path d="M 66 54 Q 72 52 78 54" fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round" />
+          <circle cx="48" cy="54" r="3.6" fill={c} />
+          <circle cx="49.4" cy="52.6" r="1" fill="#FFFFFF" />
+          <path d="M68 54 Q72 52 76 54" fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round" />
         </>
       );
     case "surprise":
       return (
         <>
-          <circle cx="48" cy="54" r="5" fill={c} />
-          <circle cx="50" cy="52" r="1.3" fill="#FFFFFF" />
-          <circle cx="72" cy="54" r="5" fill={c} />
-          <circle cx="74" cy="52" r="1.3" fill="#FFFFFF" />
+          <circle cx="48" cy="54" r="5.5" fill={c} />
+          <circle cx="50" cy="52" r="1.5" fill="#FFFFFF" />
+          <circle cx="72" cy="54" r="5.5" fill={c} />
+          <circle cx="74" cy="52" r="1.5" fill="#FFFFFF" />
         </>
       );
     case "proud":
       return (
         <>
-          <circle cx="48" cy="54" r="3" fill={c} />
-          <circle cx="49.5" cy="52.5" r="1.1" fill="#FFFFFF" />
-          <circle cx="72" cy="54" r="3" fill={c} />
-          <circle cx="73.5" cy="52.5" r="1.1" fill="#FFFFFF" />
+          <circle cx="48" cy="54" r="3.6" fill={c} />
+          <circle cx="49.4" cy="52.6" r="1" fill="#FFFFFF" />
+          <circle cx="72" cy="54" r="3.6" fill={c} />
+          <circle cx="73.4" cy="52.6" r="1" fill="#FFFFFF" />
         </>
       );
     case "embarrassed":
       return (
         <>
-          <circle cx="48" cy="56" r="1.8" fill={c} />
-          <circle cx="72" cy="56" r="1.8" fill={c} />
+          <circle cx="48" cy="56" r="2" fill={c} />
+          <circle cx="72" cy="56" r="2" fill={c} />
         </>
       );
     default:
       return (
         <>
-          <circle cx="48" cy="54" r="3" fill={c} />
-          <circle cx="49" cy="53" r="0.8" fill="#FFFFFF" />
-          <circle cx="72" cy="54" r="3" fill={c} />
-          <circle cx="73" cy="53" r="0.8" fill="#FFFFFF" />
+          <circle cx="48" cy="54" r="3.6" fill={c} />
+          <circle cx="49.4" cy="52.6" r="1" fill="#FFFFFF" />
+          <circle cx="72" cy="54" r="3.6" fill={c} />
+          <circle cx="73.4" cy="52.6" r="1" fill="#FFFFFF" />
         </>
       );
   }
 }
 
-/** 嘴 — 三瓣嘴（三条弯弯线条组成） */
 function Mouth({ mood }: { mood: MascotMood }) {
   const c = MOUTH_C;
-  const sw = 2;
-  const lc = "round";
   switch (mood) {
     case "sad":
       return (
-        <path d="M 54 72 Q 60 76 66 72" fill="none" stroke={c} strokeWidth={sw} strokeLinecap={lc} />
+        <path d="M 53 72 C 53 66.5 59 66.5 60 71 C 61 66.5 67 66.5 67 72" fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
       );
     case "surprise":
       return (
-        <ellipse cx="60" cy="72" rx="3.5" ry="4.5" fill="#D97A6C" stroke={c} strokeWidth="1.8" />
+        <ellipse cx="60" cy="69" rx="4" ry="5" fill="#D97A6C" stroke={c} strokeWidth="1.6" />
       );
     case "cheer":
       return (
-        <path d="M 52 68 Q 60 78 68 68" fill="none" stroke={c} strokeWidth={sw} strokeLinecap={lc} />
+        <path d="M 50 64 Q 60 76 70 64" fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
       );
     default:
-      // 三瓣嘴：左弧 + 中凹 + 右弧（三条弯弯线条）
       return (
-        <>
-          <path d="M 53 69 Q 57 73 60 71" fill="none" stroke={c} strokeWidth={sw} strokeLinecap={lc} />
-          <path d="M 60 71 Q 60 75 60 73" fill="none" stroke={c} strokeWidth={sw} strokeLinecap={lc} />
-          <path d="M 60 73 Q 63 73 67 69" fill="none" stroke={c} strokeWidth={sw} strokeLinecap={lc} />
-        </>
+        <path d="M 53 66 C 53 71.5 59 71.5 60 67 C 61 71.5 67 71.5 67 66" fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
       );
   }
 }

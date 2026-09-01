@@ -103,136 +103,130 @@ function paintBrandBackground(ctx: CanvasRenderingContext2D) {
 /** 乌萨奇简笔（兔子）：奶油黄团子 + 长耳朵 + 点眼睛 + 小微笑（几何对齐 Mascot.tsx） */
 function paintUsagi(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number) {
   const s = size / 100;
-  const cream = "#EFD9A8";
-  const shade = "#D4BE86";
-  const earInner = "#EEAABB";
-  const ink = "#3B2B1F";
-  const blush = "#FF8A9B";
-  const mouthC = "#8A6A4A";
+  const cream = "#F8E9C4";
+  const stroke = "#2C2018";
+  const earInner = "#F7B8C4";
+  const blush = "#FF9EAA";
   ctx.save();
   ctx.translate(cx, cy);
-
-  // 左耳朵（高耸直立、靠中间）
-  ctx.fillStyle = cream;
-  ctx.strokeStyle = shade;
-  ctx.lineWidth = 1.5 * s;
   ctx.lineJoin = "round";
+
+  // 左耳
+  ctx.fillStyle = cream;
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 1.6 * s;
   ctx.beginPath();
-  ctx.moveTo(-15 * s, -30 * s);
-  ctx.quadraticCurveTo(-25 * s, -64 * s, -16 * s, -76 * s);
-  ctx.quadraticCurveTo(-6 * s, -70 * s, -8 * s, -30 * s);
+  ctx.moveTo(-18 * s, -30 * s);
+  ctx.quadraticCurveTo(-22 * s, -62 * s, -12 * s, -70 * s);
+  ctx.quadraticCurveTo(-4 * s, -66 * s, -6 * s, -30 * s);
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
-  // 左耳内侧
   ctx.fillStyle = earInner;
-  ctx.globalAlpha = 0.6;
+  ctx.globalAlpha = 0.7;
   ctx.beginPath();
-  ctx.moveTo(-14 * s, -32 * s);
-  ctx.quadraticCurveTo(-21 * s, -60 * s, -15 * s, -72 * s);
-  ctx.quadraticCurveTo(-9 * s, -66 * s, -11 * s, -32 * s);
+  ctx.moveTo(-16 * s, -32 * s);
+  ctx.quadraticCurveTo(-19 * s, -58 * s, -11 * s, -65 * s);
+  ctx.quadraticCurveTo(-6 * s, -62 * s, -8 * s, -32 * s);
   ctx.closePath();
   ctx.fill();
   ctx.globalAlpha = 1;
 
-  // 右耳朵
+  // 右耳
   ctx.fillStyle = cream;
   ctx.beginPath();
-  ctx.moveTo(15 * s, -30 * s);
-  ctx.quadraticCurveTo(25 * s, -64 * s, 16 * s, -76 * s);
-  ctx.quadraticCurveTo(6 * s, -70 * s, 8 * s, -30 * s);
+  ctx.moveTo(18 * s, -30 * s);
+  ctx.quadraticCurveTo(22 * s, -62 * s, 12 * s, -70 * s);
+  ctx.quadraticCurveTo(4 * s, -66 * s, 6 * s, -30 * s);
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
-  // 右耳内侧
   ctx.fillStyle = earInner;
-  ctx.globalAlpha = 0.6;
+  ctx.globalAlpha = 0.7;
   ctx.beginPath();
-  ctx.moveTo(14 * s, -32 * s);
-  ctx.quadraticCurveTo(21 * s, -60 * s, 15 * s, -72 * s);
-  ctx.quadraticCurveTo(9 * s, -66 * s, 11 * s, -32 * s);
+  ctx.moveTo(16 * s, -32 * s);
+  ctx.quadraticCurveTo(19 * s, -58 * s, 11 * s, -65 * s);
+  ctx.quadraticCurveTo(6 * s, -62 * s, 8 * s, -32 * s);
   ctx.closePath();
   ctx.fill();
   ctx.globalAlpha = 1;
 
-  // 细手臂
+  // 小手
   ctx.fillStyle = cream;
-  ctx.strokeStyle = shade;
-  ctx.lineWidth = 1.5 * s;
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 1.6 * s;
   ctx.beginPath();
-  ctx.ellipse(-34 * s, 22 * s, 5 * s, 11 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
+  ctx.ellipse(-28 * s, 32 * s, 4 * s, 8 * s, 0, 0, Math.PI * 2);
+  ctx.fill(); ctx.stroke();
   ctx.beginPath();
-  ctx.ellipse(34 * s, 22 * s, 5 * s, 11 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
+  ctx.ellipse(28 * s, 32 * s, 4 * s, 8 * s, 0, 0, Math.PI * 2);
+  ctx.fill(); ctx.stroke();
 
-  // 细脚
+  // 小脚
   ctx.beginPath();
-  ctx.ellipse(-10 * s, 50 * s, 6 * s, 4 * s, 0, 0, Math.PI * 2);
-  ctx.ellipse(10 * s, 50 * s, 6 * s, 4 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
+  ctx.ellipse(-14 * s, 58 * s, 5.5 * s, 3.8 * s, 0, 0, Math.PI * 2);
+  ctx.ellipse(14 * s, 58 * s, 5.5 * s, 3.8 * s, 0, 0, Math.PI * 2);
+  ctx.fill(); ctx.stroke();
 
-  // 身体
+  // 身体 + 头
   ctx.beginPath();
-  ctx.ellipse(0, 24 * s, 28 * s, 24 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-  // 头
+  ctx.ellipse(0, 36 * s, 24 * s, 20 * s, 0, 0, Math.PI * 2);
+  ctx.fill(); ctx.stroke();
   ctx.beginPath();
-  ctx.ellipse(0, -4 * s, 33 * s, 35 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
+  ctx.ellipse(0, 0, 38 * s, 39 * s, 0, 0, Math.PI * 2);
+  ctx.fill(); ctx.stroke();
 
-  // 腮红（常驻）
+  // 腮红 + 三道短线
   ctx.fillStyle = blush;
-  ctx.globalAlpha = 0.5;
+  ctx.globalAlpha = 0.55;
   ctx.beginPath();
-  ctx.ellipse(-26 * s, 2 * s, 5.5 * s, 4 * s, 0, 0, Math.PI * 2);
-  ctx.ellipse(26 * s, 2 * s, 5.5 * s, 4 * s, 0, 0, Math.PI * 2);
+  ctx.ellipse(-30 * s, 8 * s, 6 * s, 4.2 * s, 0, 0, Math.PI * 2);
+  ctx.ellipse(30 * s, 8 * s, 6 * s, 4.2 * s, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.globalAlpha = 1;
-
-  // 夸张弯弯眉毛（斜弧线围绕脸型）
-  ctx.strokeStyle = ink;
-  ctx.lineWidth = 2 * s;
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 1 * s;
   ctx.lineCap = "round";
   ctx.beginPath();
-  ctx.moveTo(-12 * s, -7 * s);
-  ctx.quadraticCurveTo(-28 * s, -15 * s, -40 * s, -6 * s);
-  ctx.moveTo(12 * s, -7 * s);
-  ctx.quadraticCurveTo(28 * s, -15 * s, 40 * s, -6 * s);
+  ctx.moveTo(-33 * s, 6 * s); ctx.lineTo(-30 * s, 9 * s);
+  ctx.moveTo(-30 * s, 5 * s); ctx.lineTo(-27 * s, 8 * s);
+  ctx.moveTo(-27 * s, 6 * s); ctx.lineTo(-24 * s, 9 * s);
+  ctx.moveTo(27 * s, 6 * s); ctx.lineTo(30 * s, 9 * s);
+  ctx.moveTo(30 * s, 5 * s); ctx.lineTo(33 * s, 8 * s);
+  ctx.moveTo(33 * s, 6 * s); ctx.lineTo(36 * s, 9 * s);
   ctx.stroke();
 
-  // 眼睛（小黑点）
-  ctx.fillStyle = ink;
+  // 眉毛
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 2.2 * s;
   ctx.beginPath();
-  ctx.arc(-12 * s, 0, 3 * s, 0, Math.PI * 2);
-  ctx.arc(12 * s, 0, 3 * s, 0, Math.PI * 2);
+  ctx.moveTo(-26 * s, -10 * s);
+  ctx.quadraticCurveTo(-19 * s, -17 * s, -12 * s, -17 * s);
+  ctx.moveTo(12 * s, -17 * s);
+  ctx.quadraticCurveTo(19 * s, -17 * s, 26 * s, -10 * s);
+  ctx.stroke();
+
+  // 眼睛
+  ctx.fillStyle = stroke;
+  ctx.beginPath();
+  ctx.arc(-12 * s, 0, 3.6 * s, 0, Math.PI * 2);
+  ctx.arc(12 * s, 0, 3.6 * s, 0, Math.PI * 2);
   ctx.fill();
-  // 高光
   ctx.fillStyle = "#FFFFFF";
   ctx.beginPath();
-  ctx.arc(-11 * s, -1 * s, 0.8 * s, 0, Math.PI * 2);
-  ctx.arc(13 * s, -1 * s, 0.8 * s, 0, Math.PI * 2);
+  ctx.arc(-10.6 * s, -1.4 * s, 1 * s, 0, Math.PI * 2);
+  ctx.arc(13.4 * s, -1.4 * s, 1 * s, 0, Math.PI * 2);
   ctx.fill();
 
-  // 嘴（三瓣嘴：左弧 + 中凹 + 右弧）
-  ctx.strokeStyle = mouthC;
-  ctx.lineWidth = 2 * s;
+  // 嘴（ω 形）
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 1.8 * s;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
   ctx.beginPath();
-  ctx.moveTo(-7 * s, 9 * s);
-  ctx.quadraticCurveTo(-3 * s, 13 * s, 0, 11 * s);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(0, 11 * s);
-  ctx.quadraticCurveTo(0, 15 * s, 0, 13 * s);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(0, 13 * s);
-  ctx.quadraticCurveTo(3 * s, 13 * s, 7 * s, 9 * s);
+  ctx.moveTo(-7 * s, 12 * s);
+  ctx.bezierCurveTo(-7 * s, 17.5 * s, -1 * s, 17.5 * s, 0, 13 * s);
+  ctx.bezierCurveTo(1 * s, 17.5 * s, 7 * s, 17.5 * s, 7 * s, 12 * s);
   ctx.stroke();
 
   ctx.restore();
