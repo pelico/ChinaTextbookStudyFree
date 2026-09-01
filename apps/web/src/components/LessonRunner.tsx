@@ -301,13 +301,8 @@ export function LessonRunner({ lesson, chestSlot = null, backHref, navigateFn, s
 
   const backdropStyle = useMemo<React.CSSProperties | undefined>(() => {
     if (!hasBackdrop) return undefined;
-    // 有皮肤背景时，暗色模式叠加一层暗色遮罩保证可读性
-    if (isDark) {
-      return {
-        background: backdropItem.data.background,
-        filter: "brightness(0.5) saturate(0.8)",
-      };
-    }
+    // 暗色模式不使用皮肤背景，让 CSS .bg-bg-soft 暗色 token 接管
+    if (isDark) return undefined;
     return { background: backdropItem.data.background };
   }, [hasBackdrop, isDark, backdropItem]);
   const prefersReduced = useReducedMotion();
@@ -1063,7 +1058,7 @@ export function LessonRunner({ lesson, chestSlot = null, backHref, navigateFn, s
   return (
     <motion.main
       animate={shakeControls}
-      className={`h-dvh flex-1 flex flex-col relative overflow-hidden lesson-runner ${hasBackdrop ? "" : "bg-bg-soft"}`}
+      className={`h-dvh flex-1 flex flex-col relative overflow-hidden lesson-runner ${hasBackdrop && !isDark ? "" : "bg-bg-soft"}`}
       style={backdropStyle}
     >
       {/* +XP 飘字层 —— fixed 定位独立于 layout，不影响滚动 */}

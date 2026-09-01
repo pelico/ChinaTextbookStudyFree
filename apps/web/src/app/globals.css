@@ -344,6 +344,7 @@ button:focus-visible,
 /* ============================================================
  * 答题页面文字颜色强制深蓝（兼容暗色模式异常场景）
  * 确保无论背景是否正确切换，题目文字都能看清
+ * 暗色模式下恢复高对比度白色文字
  * ============================================================ */
 .lesson-runner .text-ink {
   color: #235390 !important;
@@ -353,4 +354,13 @@ button:focus-visible,
 }
 .lesson-runner .text-ink-softer {
   color: #7a9ab5 !important;
+}
+.theme-dark .lesson-runner .text-ink {
+  color: var(--app-ink) !important;
+}
+.theme-dark .lesson-runner .text-ink-light {
+  color: var(--app-ink-light) !important;
+}
+.theme-dark .lesson-runner .text-ink-softer {
+  color: var(--app-ink-softer) !important;
 }
