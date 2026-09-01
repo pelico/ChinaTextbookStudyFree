@@ -344,9 +344,9 @@ export function CustomReader({ bookId }: { bookId: string }) {
                 {sentences.map((s, i) => (
                   <span
                     key={i}
-                    className={`block cursor-pointer rounded px-1 -mx-1 transition-colors ${
+                    className={`block cursor-pointer rounded px-1.5 -mx-1.5 transition-colors ${
                       i === highlightIdx
-                        ? "bg-violet-500/20 text-violet-200"
+                        ? "bg-violet-500/45 text-white font-medium shadow-sm"
                         : "hover:bg-bg-soft/50"
                     }`}
                     onClick={() => {
