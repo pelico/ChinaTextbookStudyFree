@@ -1763,6 +1763,7 @@ export const useProgressStore = create<ProgressState>()(
 
         return {
           ...state,
+          mistakesBank: Array.isArray(state.mistakesBank) ? state.mistakesBank : [],
           hearts: state.hearts ?? MAX_HEARTS,
           nextHeartAt: state.nextHeartAt ?? null,
           lastReviewHeartDate: state.lastReviewHeartDate ?? "",
@@ -1894,11 +1895,23 @@ function mergeProgressState(server: Record<string, any>, local: any): Partial<an
   for (const key of ["xp", "gems", "streak", "lifetimeGems", "streakFreezes"]) {
     merged[key] = Math.max(server[key] ?? 0, (local as any)[key] ?? 0);
   }
-  for (const key of ["completedLessons", "mistakesBank", "unlockedAchievements",
+  // Object-type keys: merge via spread
+  for (const key of ["completedLessons", "unlockedAchievements",
                       "xpHistory", "lessonHistory", "claimedQuests", "claimedChests",
                       "completedReadings", "perfectedLessons"]) {
     merged[key] = { ...(server[key] ?? {}), ...((local as any)[key] ?? {}) };
   }
+  // Array-type key: mistakesBank — concat and deduplicate by lessonId+questionId
+  const localMistakes = Array.isArray((local as any).mistakesBank) ? (local as any).mistakesBank : [];
+  const serverMistakes = Array.isArray(server.mistakesBank) ? server.mistakesBank : [];
+  const seen = new Set<string>();
+  const mergedMistakes = [...localMistakes, ...serverMistakes].filter(m => {
+    const k = `${m.lessonId}:${m.questionId}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  merged.mistakesBank = mergedMistakes;
   return merged;
 }
 
