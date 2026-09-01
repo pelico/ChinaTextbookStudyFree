@@ -309,6 +309,16 @@ button:focus-visible,
 .theme-dark .option-card {
   background-color: var(--app-card);
   border-color: var(--app-border);
+  color: #7ec4f0 !important;
+}
+.theme-dark .option-card-selected {
+  color: #4fc4f6 !important;
+}
+.theme-dark .option-card-correct {
+  color: #6fd956 !important;
+}
+.theme-dark .option-card-wrong {
+  color: #ff6b6b !important;
 }
 .theme-dark .btn-chunky-ghost {
   background-color: var(--app-card);
