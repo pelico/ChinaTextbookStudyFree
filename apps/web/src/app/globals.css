@@ -329,6 +329,16 @@ button:focus-visible,
   background-color: var(--app-bg-softer);
   color: var(--app-ink-softer);
 }
+.theme-dark .btn-refresh {
+  background-color: rgba(139, 92, 246, 0.25) !important;
+  color: #c4b5fd !important;
+}
+.theme-dark .btn-refresh:hover {
+  background-color: rgba(139, 92, 246, 0.35) !important;
+}
+.theme-dark .btn-refresh .border-violet-400 {
+  border-color: #c4b5fd !important;
+}
 
 /* ============================================================
  * 答题页面文字颜色强制深蓝（兼容暗色模式异常场景）

@@ -114,7 +114,7 @@ export function CustomLesson({ bookId, lessonId }: { bookId: string; lessonId: s
         <button
           onClick={handleRefresh}
           disabled={refreshing}
-          className="flex items-center gap-1.5 rounded-lg bg-violet-500/15 px-3 py-1.5 text-sm text-violet-300 hover:bg-violet-500/25 disabled:opacity-50 transition-colors"
+          className="btn-refresh flex items-center gap-1.5 rounded-lg bg-violet-500/15 px-3 py-1.5 text-sm text-violet-300 hover:bg-violet-500/25 disabled:opacity-50 transition-colors"
         >
           {refreshing ? (
             <>
