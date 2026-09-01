@@ -132,7 +132,17 @@ export function CustomReader({ bookId }: { bookId: string }) {
       const hasText = data?.has_text;
       await extractBookText(bookId, hasText);
       if (pollRef.current) clearInterval(pollRef.current);
+      let pollCount = 0;
+      const MAX_POLLS = 120; // 6分钟超时
       pollRef.current = setInterval(async () => {
+        pollCount++;
+        if (pollCount > MAX_POLLS) {
+          if (pollRef.current) clearInterval(pollRef.current);
+          pollRef.current = null;
+          setExtracting(false);
+          setError("识别超时，请检查 AI API Key 是否正确配置");
+          return;
+        }
         try {
           const status = await getExtractStatus(bookId);
           if (status.status === "done") {

@@ -165,10 +165,13 @@ def now_iso():
 # ============================================================
 # AI API
 # ============================================================
-def call_ai(messages, timeout=120):
-    """OpenAI 兼容 API 调用，返回 content 字符串"""
-    if not AI_KEY:
-        raise RuntimeError("AI_API_KEY 未设置，请在 .env 中配置")
+def call_ai(messages, timeout=120, api_key=None):
+    """OpenAI 兼容 API 调用，返回 content 字符串。
+    api_key 优先从参数取（前端传入），否则用环境变量。
+    """
+    key = api_key or AI_KEY
+    if not key:
+        raise RuntimeError("未配置 AI API Key，请在试卷页面填写后在自定义学习页使用")
 
     url = AI_BASE.rstrip("/") + "/chat/completions"
     body = json.dumps({
@@ -181,7 +184,7 @@ def call_ai(messages, timeout=120):
 
     req = urllib.request.Request(url, data=body, headers={
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {AI_KEY}",
+        "Authorization": f"Bearer {key}",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
         "Accept": "application/json",
     })
@@ -200,7 +203,7 @@ def call_ai(messages, timeout=120):
         raise RuntimeError(f"AI 接口连接失败: {e.reason}")
 
 
-def call_ai_vision(images_b64, text_prompt, timeout=120):
+def call_ai_vision(images_b64, text_prompt, timeout=120, api_key=None):
     """带图片的 Vision API 调用"""
     content = [{"type": "text", "text": text_prompt}]
     for img in images_b64:
@@ -208,7 +211,7 @@ def call_ai_vision(images_b64, text_prompt, timeout=120):
             img = f"data:image/jpeg;base64,{img}"
         content.append({"type": "image_url", "image_url": {"url": img}})
 
-    return call_ai([{"role": "user", "content": content}], timeout=timeout)
+    return call_ai([{"role": "user", "content": content}], timeout=timeout, api_key=api_key)
 
 
 def parse_json_response(text):
@@ -474,7 +477,7 @@ EXTRACT_TEXT_PROMPT = """请识别这张教材图片的全部文字内容。
 6. 如果有图片中的标注文字（如地图上的地名、图表中的数据），可以提取"""
 
 
-def extract_texts_for_book(book_id, force=False):
+def extract_texts_for_book(book_id, force=False, api_key=None):
     """批量提取书本所有页面的文字内容"""
     conn = get_db()
     try:
@@ -512,7 +515,7 @@ def extract_texts_for_book(book_id, force=False):
             images_b64 = [read_image_as_b64(img_path)]
 
             try:
-                raw_resp = call_ai_vision(images_b64, EXTRACT_TEXT_PROMPT, timeout=120)
+                raw_resp = call_ai_vision(images_b64, EXTRACT_TEXT_PROMPT, timeout=120, api_key=api_key)
                 text = raw_resp.strip()
 
                 conn.execute(
@@ -645,7 +648,7 @@ TEXT_OUTLINE_PROMPT = """以下是教材的逐页文字内容。请分析这些�
 }}"""
 
 
-def generate_outline_from_texts(book_id):
+def generate_outline_from_texts(book_id, api_key=None):
     """基于已提取/修正的页面文字生成大纲（纯文本 AI 调用，不使用图片）"""
     page_texts = get_all_page_texts(book_id)
     if not page_texts:
@@ -660,7 +663,7 @@ def generate_outline_from_texts(book_id):
     raw_resp = call_ai([
         {"role": "system", "content": OUTLINE_SYSTEM},
         {"role": "user", "content": prompt},
-    ], timeout=180)
+    ], timeout=180, api_key=api_key)
 
     outline_data = parse_json_response(raw_resp)
     units_data = outline_data.get("units", [])
@@ -981,8 +984,8 @@ def get_kp_info(kp_id):
         conn.close()
 
 
-def get_or_generate_questions(kp_id):
-    """获取当前激活题目集；无则自动生成 v1"""
+def get_or_generate_questions(kp_id, api_key=None):
+    """获取或生成题目（如已有 active 版本则直接返回）"""
     conn = get_db()
     try:
         existing = conn.execute(
@@ -999,10 +1002,10 @@ def get_or_generate_questions(kp_id):
         conn.close()
 
     # 无题目，生成 v1
-    return generate_questions_for_kp(kp_id, version=1)
+    return generate_questions_for_kp(kp_id, version=1, api_key=api_key)
 
 
-def generate_questions_for_kp(kp_id, version=None):
+def generate_questions_for_kp(kp_id, version=None, api_key=None):
     """AI 生成题目并存入 SQLite"""
     kp = get_kp_info(kp_id)
     if not kp:
@@ -1053,7 +1056,7 @@ def generate_questions_for_kp(kp_id, version=None):
     raw_resp = call_ai([
         {"role": "system", "content": QUESTION_SYSTEM},
         {"role": "user", "content": user_prompt},
-    ], timeout=120)
+    ], timeout=120, api_key=api_key)
 
     questions = parse_json_response(raw_resp)
 
@@ -1150,6 +1153,10 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
         if length == 0:
             return b""
         return self.rfile.read(length)
+
+    def _ai_key(self):
+        """从请求头读取前端传入的 AI Key，回退到环境变量"""
+        return self.headers.get("X-AI-Key", "").strip() or None
 
     def do_OPTIONS(self):
         self._send_json({"ok": True})
@@ -1325,9 +1332,10 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                 # 启动后台线程
                 _extract_jobs[job_key] = {"status": "processing", "message": "正在识别..."}
 
+                ai_key = self._ai_key()
                 def _do_extract():
                     try:
-                        result = extract_texts_for_book(book_id, force=force)
+                        result = extract_texts_for_book(book_id, force=force, api_key=ai_key)
                         _extract_jobs[job_key] = {"status": "done", "result": result}
                     except Exception as e:
                         _extract_jobs[job_key] = {"status": "error", "message": str(e)}
@@ -1352,19 +1360,19 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
             # /books/:id/generate-outline — 从文字内容生成大纲
             if len(parts) == 3 and parts[0] == "books" and parts[2] == "generate-outline":
                 book_id = parts[1]
-                result = generate_outline_from_texts(book_id)
+                result = generate_outline_from_texts(book_id, api_key=self._ai_key())
                 self._send_json(result)
                 return
 
             # /lessons/:lessonId/questions
             if len(parts) == 3 and parts[0] == "lessons" and parts[2] == "questions":
-                result = get_or_generate_questions(parts[1])
+                result = get_or_generate_questions(parts[1], api_key=self._ai_key())
                 self._send_json(result)
                 return
 
             # /lessons/:lessonId/refresh
             if len(parts) == 3 and parts[0] == "lessons" and parts[2] == "refresh":
-                result = generate_questions_for_kp(parts[1])
+                result = generate_questions_for_kp(parts[1], api_key=self._ai_key())
                 self._send_json(result)
                 return
 

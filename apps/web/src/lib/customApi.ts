@@ -5,8 +5,22 @@ export function navigate(path: string) {
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
+function getAIKey(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    const raw = localStorage.getItem("csf-worksheet-ai-config");
+    if (raw) return (JSON.parse(raw).apiKey || "").trim();
+  } catch {}
+  return "";
+}
+
+function authHeaders(): Record<string, string> {
+  const key = getAIKey();
+  return key ? { "X-AI-Key": key } : {};
+}
+
 export async function apiGet<T = any>(path: string): Promise<T> {
-  const res = await fetch(`/api/custom/${path}`);
+  const res = await fetch(`/api/custom/${path}`, { headers: authHeaders() });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "请求失败");
   return data;
@@ -15,7 +29,7 @@ export async function apiGet<T = any>(path: string): Promise<T> {
 export async function apiPost<T = any>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(`/api/custom/${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json();
@@ -24,7 +38,10 @@ export async function apiPost<T = any>(path: string, body?: unknown): Promise<T>
 }
 
 export async function apiDelete(path: string): Promise<void> {
-  const res = await fetch(`/api/custom/${path}`, { method: "DELETE" });
+  const res = await fetch(`/api/custom/${path}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
   if (!res.ok) throw new Error((await res.json()).error || "删除失败");
 }
 
