@@ -260,7 +260,7 @@ function LeagueBoard({
               >
                 {/* 名次 */}
                 <RankBadge rank={row.rank} />
-                {/* 头像：用户 = 聪聪绿片；bot = 昵称首字圆片 */}
+                {/* 头像：用户 = 乌萨奇绿片；bot = 昵称首字圆片 */}
                 <div
                   className="w-9 h-9 rounded-full flex items-center justify-center text-white font-extrabold text-sm shrink-0"
                   style={{

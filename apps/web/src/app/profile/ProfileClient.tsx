@@ -296,7 +296,7 @@ export function ProfileClient() {
           <DailyQuestsPanel />
         </div>
 
-        {/* 顶部：聪聪 + 问候 + 每日目标环 */}
+        {/* 顶部：乌萨奇 + 问候 + 每日目标环 */}
         <div className="flex items-center gap-6 mb-8">
           <motion.div
             initial={{ x: -40, opacity: 0 }}
@@ -358,7 +358,7 @@ export function ProfileClient() {
           <div className="flex-1">
             <div className="text-base font-extrabold text-ink">美妆商店</div>
             <div className="text-sm text-ink-light">
-              累计获得 <span className="font-extrabold text-secondary-dark">{hydrated ? lifetimeGems : 0}</span> 颗宝石 · 去给聪聪换装吧
+              累计获得 <span className="font-extrabold text-secondary-dark">{hydrated ? lifetimeGems : 0}</span> 颗宝石 · 去给乌萨奇换装吧
             </div>
           </div>
           <div className="text-ink-softer text-xl">›</div>

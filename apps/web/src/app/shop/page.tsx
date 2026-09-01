@@ -59,7 +59,7 @@ const TABS: Array<{
   label: string;
   Icon: React.ComponentType<{ className?: string }>;
 }> = [
-  { id: "mascot_skin", label: "聪聪皮肤", Icon: Panda },
+  { id: "mascot_skin", label: "乌萨奇皮肤", Icon: Panda },
   { id: "ui_theme", label: "界面主题", Icon: Palette },
   { id: "lesson_backdrop", label: "课堂背景", Icon: Picture },
 ];

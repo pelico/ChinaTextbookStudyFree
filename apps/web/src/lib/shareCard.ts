@@ -4,7 +4,7 @@
  * shareCard.ts —— 分享卡纯本地渲染（E2）
  *
  * 两款版式（canvas 绘制，零网络依赖）：
- *   1. 连胜卡  renderStreakCard：品牌绿底 + 聪聪简笔 + 大火焰数字
+ *   1. 连胜卡  renderStreakCard：品牌绿底 + 乌萨奇简笔 + 大火焰数字
  *      + 本周 7 格日历 + slogan
  *   2. 徽章卡  renderBadgeCard：星星/奖杯徽章 + 课程名或成就名
  *      （结算三星幕、成就领取时刻共用）
@@ -100,66 +100,88 @@ function paintBrandBackground(ctx: CanvasRenderingContext2D) {
   }
 }
 
-/** 聪聪简笔（熊猫）：白团子 + 黑耳黑眼圈 + 小黑鼻（几何对齐 Mascot.tsx） */
-function paintPanda(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number) {
-  const s = size / 100; // 以 100 为基准的比例
-  const black = "#2E2E2E";
-  const white = "#FBFBFB";
+/** 乌萨奇简笔（兔子）：奶油黄团子 + 长耳朵 + 点眼睛 + 小微笑（几何对齐 Mascot.tsx） */
+function paintUsagi(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number) {
+  const s = size / 100;
+  const cream = "#F5E6C8";
+  const shade = "#E8D5A8";
+  const earInner = "#F4C2C2";
+  const eye = "#2E2E2E";
+  const mouth = "#5A4A3A";
   ctx.save();
   ctx.translate(cx, cy);
 
-  // 耳朵
-  ctx.fillStyle = black;
+  // 左耳朵（长尖耳）
+  ctx.fillStyle = cream;
+  ctx.strokeStyle = shade;
+  ctx.lineWidth = 1.5 * s;
   ctx.beginPath();
-  ctx.arc(-24 * s, -34 * s, 13 * s, 0, Math.PI * 2);
-  ctx.arc(24 * s, -34 * s, 13 * s, 0, Math.PI * 2);
+  ctx.moveTo(-22 * s, -34 * s);
+  ctx.quadraticCurveTo(-32 * s, -62 * s, -22 * s, -67 * s);
+  ctx.quadraticCurveTo(-12 * s, -64 * s, -16 * s, -34 * s);
+  ctx.closePath();
   ctx.fill();
-  // 头（白团子）
-  ctx.fillStyle = white;
+  ctx.stroke();
+  // 左耳内侧
+  ctx.fillStyle = earInner;
+  ctx.globalAlpha = 0.7;
   ctx.beginPath();
-  ctx.ellipse(0, 0, 40 * s, 37 * s, 0, 0, Math.PI * 2);
+  ctx.moveTo(-22 * s, -37 * s);
+  ctx.quadraticCurveTo(-28 * s, -57 * s, -22 * s, -62 * s);
+  ctx.quadraticCurveTo(-18 * s, -58 * s, -20 * s, -37 * s);
+  ctx.closePath();
   ctx.fill();
-  // 黑眼圈
-  ctx.fillStyle = black;
+  ctx.globalAlpha = 1;
+
+  // 右耳朵
+  ctx.fillStyle = cream;
   ctx.beginPath();
-  ctx.ellipse(-16 * s, -2 * s, 12 * s, 15 * s, -0.15, 0, Math.PI * 2);
+  ctx.moveTo(22 * s, -34 * s);
+  ctx.quadraticCurveTo(32 * s, -62 * s, 22 * s, -67 * s);
+  ctx.quadraticCurveTo(12 * s, -64 * s, 16 * s, -34 * s);
+  ctx.closePath();
   ctx.fill();
+  ctx.stroke();
+  // 右耳内侧
+  ctx.fillStyle = earInner;
+  ctx.globalAlpha = 0.7;
   ctx.beginPath();
-  ctx.ellipse(16 * s, -2 * s, 12 * s, 15 * s, 0.15, 0, Math.PI * 2);
+  ctx.moveTo(22 * s, -37 * s);
+  ctx.quadraticCurveTo(28 * s, -57 * s, 22 * s, -62 * s);
+  ctx.quadraticCurveTo(18 * s, -58 * s, 20 * s, -37 * s);
+  ctx.closePath();
   ctx.fill();
-  // 白眼窝
-  ctx.fillStyle = white;
+  ctx.globalAlpha = 1;
+
+  // 头（圆润团子）
+  ctx.fillStyle = cream;
+  ctx.strokeStyle = shade;
+  ctx.lineWidth = 1.5 * s;
   ctx.beginPath();
-  ctx.arc(-15 * s, -4 * s, 8.5 * s, 0, Math.PI * 2);
-  ctx.arc(15 * s, -4 * s, 8.5 * s, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, 36 * s, 34 * s, 0, 0, Math.PI * 2);
   ctx.fill();
-  // 眼珠
-  ctx.fillStyle = "#3A3A3A";
+  ctx.stroke();
+
+  // 眼睛
+  ctx.fillStyle = eye;
   ctx.beginPath();
-  ctx.arc(-15 * s, -4 * s, 5 * s, 0, Math.PI * 2);
-  ctx.arc(15 * s, -4 * s, 5 * s, 0, Math.PI * 2);
+  ctx.arc(-14 * s, -2 * s, 4 * s, 0, Math.PI * 2);
+  ctx.arc(14 * s, -2 * s, 4 * s, 0, Math.PI * 2);
   ctx.fill();
   // 高光
   ctx.fillStyle = "#FFFFFF";
   ctx.beginPath();
-  ctx.arc(-13.5 * s, -5.5 * s, 1.6 * s, 0, Math.PI * 2);
-  ctx.arc(16.5 * s, -5.5 * s, 1.6 * s, 0, Math.PI * 2);
+  ctx.arc(-12.5 * s, -3.5 * s, 1.2 * s, 0, Math.PI * 2);
+  ctx.arc(15.5 * s, -3.5 * s, 1.2 * s, 0, Math.PI * 2);
   ctx.fill();
-  // 鼻子
-  ctx.fillStyle = black;
-  ctx.beginPath();
-  ctx.ellipse(0, 12 * s, 6 * s, 4.5 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-  // 嘴（微笑两瓣）
-  ctx.strokeStyle = black;
-  ctx.lineWidth = 2 * s;
+
+  // 嘴（小微笑）
+  ctx.strokeStyle = mouth;
+  ctx.lineWidth = 2.5 * s;
   ctx.lineCap = "round";
   ctx.beginPath();
-  ctx.moveTo(0, 16 * s);
-  ctx.lineTo(0, 20 * s);
-  ctx.quadraticCurveTo(4 * s, 24 * s, 8 * s, 22 * s);
-  ctx.moveTo(0, 20 * s);
-  ctx.quadraticCurveTo(-4 * s, 24 * s, -8 * s, 22 * s);
+  ctx.moveTo(-6 * s, 12 * s);
+  ctx.quadraticCurveTo(0, 18 * s, 6 * s, 12 * s);
   ctx.stroke();
 
   ctx.restore();
@@ -279,8 +301,8 @@ export async function renderStreakCard(input: StreakCardInput): Promise<Blob> {
   const { canvas, ctx } = makeCanvas();
   paintBrandBackground(ctx);
 
-  // 聪聪
-  paintPanda(ctx, W / 2, 240, 200);
+  // 乌萨奇
+  paintUsagi(ctx, W / 2, 240, 200);
 
   // 大火焰 + 连胜数字
   paintFlame(ctx, W / 2, 560, 260);
@@ -337,8 +359,8 @@ export async function renderBadgeCard(input: BadgeCardInput): Promise<Blob> {
   const { canvas, ctx } = makeCanvas();
   paintBrandBackground(ctx);
 
-  // 聪聪
-  paintPanda(ctx, W / 2, 230, 190);
+  // 乌萨奇
+  paintUsagi(ctx, W / 2, 230, 190);
 
   // 顶部小标题胶囊
   ctx.font = `800 40px ${FONT}`;

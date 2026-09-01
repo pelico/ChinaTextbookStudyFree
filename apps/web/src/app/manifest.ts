@@ -6,7 +6,7 @@ export const dynamic = "force-static";
 /**
  * PWA Web App Manifest（critic-7）
  *
- * 图标：聪聪熊猫 SVG（maskable + any），路径见 public/icons/。
+ * 图标：乌萨奇 SVG（maskable + any），路径见 public/icons/。
  * iOS 主屏图标由 layout.tsx 的 apple-touch-icon（PNG）负责。
  */
 export default function manifest(): MetadataRoute.Manifest {

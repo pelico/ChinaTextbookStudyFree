@@ -2001,7 +2001,7 @@ function StreakAct({
         )}
       </AnimatePresence>
 
-      {/* 📤 连胜分享卡（E2）：品牌绿底 + 聪聪 + 大火焰数字 + 本周日历 */}
+      {/* 📤 连胜分享卡（E2）：品牌绿底 + 乌萨奇 + 大火焰数字 + 本周日历 */}
       <ShareCardButton
         makeBlob={() =>
           renderStreakCard({

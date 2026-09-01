@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * SpeechBubble — 聪聪对话气泡
+ * SpeechBubble — 乌萨奇对话气泡
  *
  * 白底圆角，带一个指向左下的小三角，spring 弹入，随后自然静止。
  * 父组件通过 key 变化触发重挂载 + 动画。

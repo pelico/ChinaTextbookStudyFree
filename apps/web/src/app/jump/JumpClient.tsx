@@ -264,7 +264,7 @@ export function JumpClient() {
     return (
       <main className="min-h-screen bg-bg-soft flex flex-col items-center justify-center gap-4">
         <Mascot mood="think" size={100} />
-        <div className="text-sm font-extrabold text-ink-light">聪聪正在出题…</div>
+        <div className="text-sm font-extrabold text-ink-light">乌萨奇正在出题…</div>
       </main>
     );
   }
