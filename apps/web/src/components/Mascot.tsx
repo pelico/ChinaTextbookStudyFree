@@ -243,7 +243,7 @@ export function Mascot({
   );
 }
 
-/** 弯弯眉毛 — 弧线围绕眼睛上方 */
+/** 夸张弯弯眉毛 — 斜弧线围绕脸型 */
 function Eyebrows({ mood }: { mood: MascotMood }) {
   const sw = 2;
   const sc = INK;
@@ -252,39 +252,41 @@ function Eyebrows({ mood }: { mood: MascotMood }) {
     case "sad":
       return (
         <>
-          {/* 八字眉 */}
-          <path d="M 56 48 Q 50 52 40 50" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
-          <path d="M 64 48 Q 70 52 80 50" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
+          {/* 八字眉 — 内高外低 */}
+          <path d="M 50 46 Q 38 52 24 55" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
+          <path d="M 70 46 Q 82 52 96 55" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
         </>
       );
     case "proud":
       return (
         <>
-          {/* 挑眉 */}
-          <path d="M 40 46 Q 46 42 56 46" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
-          <path d="M 64 46 Q 70 42 80 46" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
+          {/* 挑眉 — 内低外高 */}
+          <path d="M 48 48 Q 34 38 22 42" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
+          <path d="M 72 48 Q 86 38 98 42" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
         </>
       );
     case "surprise":
       return (
         <>
-          <path d="M 38 44 Q 48 40 58 44" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
-          <path d="M 62 44 Q 72 40 82 44" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
+          {/* 高扬眉 */}
+          <path d="M 48 46 Q 32 32 20 40" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
+          <path d="M 72 46 Q 88 32 100 40" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
         </>
       );
     case "think":
       return (
         <>
-          <path d="M 40 48 Q 48 46 56 48" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
-          <path d="M 64 46 Q 72 44 80 46" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
+          {/* 一高一低 */}
+          <path d="M 48 47 Q 34 41 22 45" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
+          <path d="M 72 45 Q 86 37 98 41" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
         </>
       );
     default:
       return (
         <>
-          {/* 弯弯弧线围绕眼睛上方 */}
-          <path d="M 40 48 Q 48 44 56 48" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
-          <path d="M 64 48 Q 72 44 80 48" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
+          {/* 夸张斜弧线围绕脸型 — 从内眼上方斜向外下沿脸轮廓 */}
+          <path d="M 48 47 Q 32 39 20 48" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
+          <path d="M 72 47 Q 88 39 100 48" fill="none" stroke={sc} strokeWidth={sw} strokeLinecap={lc} />
         </>
       );
   }
@@ -353,13 +355,15 @@ function Eyes({ mood }: { mood: MascotMood }) {
   }
 }
 
-/** 嘴 — 突出下唇 / 噘嘴 */
+/** 嘴 — 三瓣嘴（三条弯弯线条组成） */
 function Mouth({ mood }: { mood: MascotMood }) {
   const c = MOUTH_C;
+  const sw = 2;
+  const lc = "round";
   switch (mood) {
     case "sad":
       return (
-        <path d="M 54 72 Q 60 76 66 72" fill="none" stroke={c} strokeWidth="2.2" strokeLinecap="round" />
+        <path d="M 54 72 Q 60 76 66 72" fill="none" stroke={c} strokeWidth={sw} strokeLinecap={lc} />
       );
     case "surprise":
       return (
@@ -367,21 +371,15 @@ function Mouth({ mood }: { mood: MascotMood }) {
       );
     case "cheer":
       return (
-        <path d="M 52 68 Q 60 76 68 68" fill="none" stroke={c} strokeWidth="2.2" strokeLinecap="round" />
-      );
-    case "proud":
-      return (
-        <>
-          <path d="M 54 70 Q 60 74 66 70" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" />
-          <ellipse cx="60" cy="73" rx="3" ry="2" fill="#E8A99A" opacity="0.6" />
-        </>
+        <path d="M 52 68 Q 60 78 68 68" fill="none" stroke={c} strokeWidth={sw} strokeLinecap={lc} />
       );
     default:
-      // 噘嘴：短横线 + 突出下唇
+      // 三瓣嘴：左弧 + 中凹 + 右弧（三条弯弯线条）
       return (
         <>
-          <path d="M 56 70 Q 60 72 64 70" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" />
-          <ellipse cx="60" cy="73" rx="4" ry="2.5" fill="#E8A99A" opacity="0.5" />
+          <path d="M 53 69 Q 57 73 60 71" fill="none" stroke={c} strokeWidth={sw} strokeLinecap={lc} />
+          <path d="M 60 71 Q 60 75 60 73" fill="none" stroke={c} strokeWidth={sw} strokeLinecap={lc} />
+          <path d="M 60 73 Q 63 73 67 69" fill="none" stroke={c} strokeWidth={sw} strokeLinecap={lc} />
         </>
       );
   }

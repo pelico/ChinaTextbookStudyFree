@@ -195,15 +195,15 @@ function paintUsagi(ctx: CanvasRenderingContext2D, cx: number, cy: number, size:
   ctx.fill();
   ctx.globalAlpha = 1;
 
-  // 弯弯眉毛（弧线围绕眼睛上方）
+  // 夸张弯弯眉毛（斜弧线围绕脸型）
   ctx.strokeStyle = ink;
   ctx.lineWidth = 2 * s;
   ctx.lineCap = "round";
   ctx.beginPath();
-  ctx.moveTo(-20 * s, -6 * s);
-  ctx.quadraticCurveTo(-12 * s, -10 * s, -4 * s, -6 * s);
-  ctx.moveTo(4 * s, -6 * s);
-  ctx.quadraticCurveTo(12 * s, -10 * s, 20 * s, -6 * s);
+  ctx.moveTo(-12 * s, -7 * s);
+  ctx.quadraticCurveTo(-28 * s, -15 * s, -40 * s, -6 * s);
+  ctx.moveTo(12 * s, -7 * s);
+  ctx.quadraticCurveTo(28 * s, -15 * s, 40 * s, -6 * s);
   ctx.stroke();
 
   // 眼睛（小黑点）
@@ -219,20 +219,21 @@ function paintUsagi(ctx: CanvasRenderingContext2D, cx: number, cy: number, size:
   ctx.arc(13 * s, -1 * s, 0.8 * s, 0, Math.PI * 2);
   ctx.fill();
 
-  // 嘴（噘嘴：短横线 + 突出下唇）
+  // 嘴（三瓣嘴：左弧 + 中凹 + 右弧）
   ctx.strokeStyle = mouthC;
   ctx.lineWidth = 2 * s;
   ctx.beginPath();
-  ctx.moveTo(-4 * s, 10 * s);
-  ctx.quadraticCurveTo(0, 12 * s, 4 * s, 10 * s);
+  ctx.moveTo(-7 * s, 9 * s);
+  ctx.quadraticCurveTo(-3 * s, 13 * s, 0, 11 * s);
   ctx.stroke();
-  // 下唇
-  ctx.fillStyle = "#E8A99A";
-  ctx.globalAlpha = 0.5;
   ctx.beginPath();
-  ctx.ellipse(0, 13 * s, 4 * s, 2.5 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.globalAlpha = 1;
+  ctx.moveTo(0, 11 * s);
+  ctx.quadraticCurveTo(0, 15 * s, 0, 13 * s);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(0, 13 * s);
+  ctx.quadraticCurveTo(3 * s, 13 * s, 7 * s, 9 * s);
+  ctx.stroke();
 
   ctx.restore();
 }
