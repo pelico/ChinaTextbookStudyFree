@@ -29,8 +29,8 @@ export function KidPicker() {
     }
   }
 
-  // No kids configured yet — don't show picker
-  if (loaded && kids.length === 0) return null;
+  // Not loaded yet or no kids configured — don't show picker
+  if (!loaded || kids.length === 0) return null;
 
   const currentKid = kids.find(k => k.id === activeKid);
   if (!currentKid && activeKid === "default") {

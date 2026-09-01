@@ -1652,9 +1652,19 @@ export const useProgressStore = create<ProgressState>()(
       },
     }),
     {
-      name: typeof window !== "undefined"
-        ? `csf-progress-v1-${localStorage.getItem("csf-active-kid") || "default"}`
-        : "csf-progress-v1-default",
+      name: (() => {
+        if (typeof window === "undefined") return "csf-progress-v1-default";
+        const kidId = localStorage.getItem("csf-active-kid") || "default";
+        const newKey = `csf-progress-v1-${kidId}`;
+        // One-time migration: copy old data from csf-progress-v1 to new key
+        if (newKey !== "csf-progress-v1" && !localStorage.getItem(newKey)) {
+          const oldData = localStorage.getItem("csf-progress-v1");
+          if (oldData) {
+            localStorage.setItem(newKey, oldData);
+          }
+        }
+        return newKey;
+      })(),
       storage: createJSONStorage(() => localStorage),
       // 版本迁移：
       //   v1 → v2：新增 hearts / dailyGoal / freezes / activeLesson
