@@ -27,7 +27,7 @@
 
 ## 📸 功能预览
 
-### Web 端
+### Web 端（支持手机浏览器添加到主屏幕，体验类原生 App）
 
 <table>
   <tr>
@@ -46,25 +46,6 @@
     <td></td>
   </tr>
 </table>
-
-### iOS 端
-
-<table>
-  <tr>
-    <td align="center"><img src="docs/screenshots/ios/home.jpg" width="180" /><br/><b>学习路径</b></td>
-    <td align="center"><img src="docs/screenshots/ios/feedback.jpg" width="180" /><br/><b>答题反馈</b></td>
-    <td align="center"><img src="docs/screenshots/ios/shop.jpg" width="180" /><br/><b>商店</b></td>
-    <td align="center"><img src="docs/screenshots/ios/profile.jpg" width="180" /><br/><b>我的</b></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/screenshots/ios/reader.jpg" width="180" /><br/><b>课文听读</b></td>
-    <td align="center"><img src="docs/screenshots/ios/review.jpg" width="180" /><br/><b>错题本</b></td>
-    <td align="center"><img src="docs/screenshots/ios/profile-quests.jpg" width="180" /><br/><b>每日任务 · 周报</b></td>
-    <td align="center"><img src="docs/screenshots/ios/dark.jpg" width="180" /><br/><b>深色模式</b></td>
-  </tr>
-</table>
-
-> 全部 12 张界面截图与说明见 [`docs/ios-ux-gallery.html`](docs/ios-ux-gallery.html)（本地打开即可，支持点击放大）。
 
 ---
 
@@ -130,65 +111,9 @@ npm install
 npm run dev
 ```
 
-访问 http://localhost:3000 即可。
+访问 http://localhost:3000 即可。手机端用浏览器打开后「添加到主屏幕」即可获得类原生 App 体验。
 
-### 4. 运行 iOS 端
-
-需要 macOS + Xcode 16+ + [XcodeGen](https://github.com/yonaskolb/XcodeGen)：
-
-```bash
-brew install xcodegen      # 首次安装
-cd apps/mobile
-xcodegen generate          # 生成 .xcodeproj
-open ChinaTextbookStudy.xcodeproj
-```
-
-在 Xcode 里选 iPhone / iPad 模拟器，Cmd+R 即可运行。App 内置一本数学书（一年级上册 + 第一节课的 TTS 音频）作为离线种子，无需网络就能体验完整流程。
-
-**iOS 端特点：**
-- SwiftUI 原生（非 React Native），支持 iPhone + iPad（iPad 自动分栏布局）
-- 域逻辑（SRS / 判分 / 成就 / 宝箱 / 吉祥物）从 `packages/core` 逐文件对译为 Swift
-- 音频：Opus 预转码为 AAC m4a，`AVAudioPlayer` 播放，无第三方解码依赖
-- 数据按书从 GitHub Release 按需下载（首启不需要下完全部 44 本的 ~843MB）
-- 38 个单元测试 + 11 个 UI 测试（答题闭环、退出确认、标签导航、装扮购买、每日任务）
-
-**统一设计系统（`DesignSystem/`）**
-
-全端共用一套令牌，没有任何页面掉回原生系统控件：
-
-| 令牌 | 内容 |
-|------|------|
-| `DuoColors` | 品牌色 + 语义色（`bg` / `surface` / `border` / `ink`…），**浅色为主、深色为可选**，同一份代码自动适配 |
-| `DuoFont` | 圆体字号角色（display / title / heading / body / caption…），根部统一 `.fontDesign(.rounded)` |
-| `DuoLayout` | `Space` / `Radius` / `Motion` 三组令牌，全局共用一套动效曲线 |
-| `DuoButtonStyle`·`DuoCardStyle` | 标志性的立体「下沿」按压质感 |
-
-**学习体验**
-- 路径即首页：当前节点呼吸动效 + 真实单元进度环，点击弹出开始气泡
-- 答错回炉重练：进度条只在答对时前进，且必定走满；错题自动进入 SRS 错题本
-- 爱心耗尽拦截、退出二次确认、答错震屏与抖卡、每次点选都有触感与音效
-- 结算页连胜与每日达标庆祝；错题复习不扣爱心且奖励经验值
-- 课文/故事支持「朗读全文」逐句高亮跟随，读完奖励经验值
-- 吉祥物「聪聪」（熊猫）以 SwiftUI Canvas 绘制，含呼吸、眨眼与情绪反应
-
-**装扮系统（earn → spend → express 闭环）**
-- 用学习赚来的宝石购买皮肤 / 主题 / 课程背景，购买即装备
-- **皮肤**：11 款配饰（学士帽、圆框眼镜、皇冠、法师帽、宇航员头盔、DJ 耳机…）直接画在聪聪身上，全局生效
-- **主题**：10 套配色通过 `DuoColors.themeOverride` 重绘全局品牌色；深色系主题（暗夜模式 / 曜石黑）自动切换深色外观
-- **课程背景**：8 款渐变作用于答题页，按对比度需要自动降低强度，保证题目始终可读
-- 商店里的每个格子都是**实时预览**：皮肤格是戴着该配饰的聪聪本人，主题格是该主题的真实配色
-
-**留存机制**
-- **每日任务**：每天 3 个不同类型的任务（赚经验 / 完成小课 / 复习错题 / 读课文），
-  由日期做种子确定性生成——同一天任何时候打开都是同一组，且不需要服务端；
-  完成后可领取宝石奖励
-- **本周报告**：近 7 天经验值柱状图 + 与上周的增减对比，作为离线版的「和自己比」
-- **连胜提醒**：可选的本地通知，每晚 20:00 提醒保住连胜；当天已学习则自动顺延到
-  次日，绝不打扰。默认关闭，在设置里开启时才申请系统授权
-
-更多上架相关细节见 [`apps/mobile/APPSTORE.md`](apps/mobile/APPSTORE.md)。
-
-### 5. （可选）运行数据生成 Pipeline
+### 4. （可选）运行数据生成 Pipeline
 
 如需从教材 PDF 重新生成题库数据：
 
@@ -251,25 +176,10 @@ ChinaStudyFree/
 │   ├── passages/                   #   课文听读源 JSON（语文/英语）
 │   └── stories/                    #   课外故事源 JSON（语文/英语）
 │
-├── packages/core/                  # TypeScript 共享域逻辑（Web 端运行时 + iOS 翻译蓝本）
+├── packages/core/                  # TypeScript 共享域逻辑（Web 端运行时）
 │
 └── apps/
-    ├── mobile/                         # iOS SwiftUI 端（iPhone + iPad）
-    │   ├── project.yml                 #   XcodeGen 项目定义
-    │   ├── ChinaTextbookStudy/
-    │   │   ├── App/                    #   SwiftUI @main + NavigationStack/SplitView + 路由
-    │   │   ├── DesignSystem/           #   DuoColors / DuoFont / DuoLayout / Button / Card / Effects
-    │   │   ├── Models/                 #   CoreTypes.swift（对译 packages/core/types.ts）
-    │   │   ├── Domain/                 #   SRS / Grade / Achievements / Chest / Cosmetics / MascotTriggers
-    │   │   ├── Services/               #   DataLoader / AssetDownloader / AudioPlayer / Haptic / SFX
-    │   │   ├── Stores/                 #   ProgressStore / SettingsStore（持久化）
-    │   │   ├── Features/               #   Onboarding / Home / Lesson / Review / Reading /
-    │   │   │                           #   Stories / Shop / Profile / Settings / Achievements
-    │   │   └── Components/             #   PathMapView / MascotView / BottomTabBar / 反馈与庆祝件
-    │   ├── ChinaTextbookStudyTests/    #   38 个单元测试（域逻辑 + 每日任务）
-    │   └── ChinaTextbookStudyUITests/  #   11 个 UI 测试（答题闭环 / 导航 / 装扮 / 任务）
-    │
-    └── web/                            # Next.js 前端（原 frontend/）
+    └── web/                            # Next.js 前端
         ├── scripts/
         │   └── build-data.ts           #   output/ + data/ → public/data/ 构建
         ├── src/
@@ -327,8 +237,6 @@ ChinaStudyFree/
 - [x] 全站 TTS 语音朗读（71,500+ 音频）
 - [x] 课文听读（语文 / 英语，779 篇）
 - [x] 课外故事阅读（语文 188 篇 + 英语 96 篇，含 AI 配图）
-- [x] iOS 端（SwiftUI，iPhone + iPad）
-- [x] iOS 统一设计系统与游戏化学习体验（浅色为主 + 可选深色）
 - [x] 装扮系统闭环（皮肤 / 主题 / 课程背景购买后全局生效）
 - [x] 留存机制（每日任务 / 本周报告 / 连胜提醒推送）
 - [ ] 道德与法治内容

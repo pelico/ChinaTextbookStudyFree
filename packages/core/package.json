@@ -2,7 +2,7 @@
   "name": "@cstf/core",
   "version": "0.1.0",
   "private": true,
-  "description": "Platform-agnostic shared core for ChinaTextbookStudyFree (web + iOS/macOS/RN). Pure TypeScript, no DOM/Next/RN dependencies.",
+  "description": "Platform-agnostic shared core for ChinaTextbookStudyFree (web). Pure TypeScript, no DOM/Next dependencies.",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",

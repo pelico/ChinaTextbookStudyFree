@@ -1656,11 +1656,18 @@ export const useProgressStore = create<ProgressState>()(
         if (typeof window === "undefined") return "csf-progress-v1-default";
         const kidId = localStorage.getItem("csf-active-kid") || "default";
         const newKey = `csf-progress-v1-${kidId}`;
-        // One-time migration: copy old data from csf-progress-v1 to new key
-        if (newKey !== "csf-progress-v1" && !localStorage.getItem(newKey)) {
+        // One-time migration: only for "default" kid, copy old data from
+        // the pre-kid-system key (csf-progress-v1) to csf-progress-v1-default,
+        // then delete the old key so it never gets copied to new kids.
+        if (
+          kidId === "default" &&
+          newKey !== "csf-progress-v1" &&
+          !localStorage.getItem(newKey)
+        ) {
           const oldData = localStorage.getItem("csf-progress-v1");
           if (oldData) {
             localStorage.setItem(newKey, oldData);
+            localStorage.removeItem("csf-progress-v1");
           }
         }
         return newKey;
