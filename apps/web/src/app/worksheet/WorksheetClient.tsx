@@ -590,7 +590,7 @@ function PrintPreview({
                             <div className="grid grid-cols-2 gap-x-6 gap-y-1 mt-1.5 ml-4">
                               {q.options.map((opt, oi) => (
                                 <div key={oi}>
-                                  {"ABCD"[oi]}. {opt}
+                                  {"ABCD"[oi]}. {opt.replace(/^[A-Da-d][.、．]\s*/, "")}
                                 </div>
                               ))}
                             </div>

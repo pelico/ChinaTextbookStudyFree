@@ -163,7 +163,7 @@ export function ChoiceQuestion({
       <div className="space-y-3">
         {shuffledOptions.map((opt, idx) => {
           const letter = String.fromCharCode(65 + idx); // A B C D
-          const display = /^[A-D][.、]/.test(opt) ? opt.replace(/^[A-D][.、]\s*/, "") : opt;
+          const display = /^[A-Da-d][.、．]/.test(opt) ? opt.replace(/^[A-Da-d][.、．]\s*/, "") : opt;
           const selected = displayAnswer === letter;
           const isThisCorrect = letter === correctLetter;
 
