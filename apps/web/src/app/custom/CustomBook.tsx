@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   apiGet, navigate, getTextStatus, generateOutlineFromTexts,
   type CustomBook, type TextStatus,
 } from "@/lib/customApi";
 import { requireParentAuth } from "@/lib/parentAuth";
+import { useProgressStore } from "@/store/progress";
 import { ArrowLeft } from "@/components/icons";
 
 const subjectLabels: Record<string, string> = {
@@ -37,6 +38,26 @@ export function CustomBook({ bookId }: { bookId: string }) {
   }, [bookId]);
 
   useEffect(() => { load(); }, [load]);
+
+  const completedLessons = useProgressStore(s => s.completedLessons);
+
+  const kpStatuses = useMemo(() => {
+    const statuses: Record<string, "completed" | "current" | "locked"> = {};
+    if (!book?.units) return statuses;
+    const allKps = book.units.flatMap(u => u.knowledge_points);
+    let foundCurrent = false;
+    for (const kp of allKps) {
+      if (completedLessons[kp.id]) {
+        statuses[kp.id] = "completed";
+      } else if (!foundCurrent) {
+        statuses[kp.id] = "current";
+        foundCurrent = true;
+      } else {
+        statuses[kp.id] = "locked";
+      }
+    }
+    return statuses;
+  }, [book, completedLessons]);
 
   async function handleGenerateOutline() {
     const ok = await requireParentAuth("生成大纲");
@@ -165,27 +186,63 @@ export function CustomBook({ bookId }: { bookId: string }) {
                 </div>
 
                 <div className="ml-9 space-y-2">
-                  {unit.knowledge_points.map((kp, idx) => (
-                    <div
-                      key={kp.id}
-                      className="flex items-center gap-3 rounded-xl border-2 border-bg-softer bg-white p-3.5 hover:border-primary/20 cursor-pointer transition-colors"
-                      onClick={() => navigate(`/custom/book/${bookId}/${kp.id}/`)}
-                    >
-                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary-dark text-sm font-bold">
-                        {idx + 1}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-bold text-ink text-sm truncate">{kp.name}</h3>
-                        {kp.description && (
-                          <p className="text-xs text-ink-light truncate">{kp.description}</p>
+                  {unit.knowledge_points.map((kp, idx) => {
+                    const status = kpStatuses[kp.id] || "locked";
+                    const isLocked = status === "locked";
+                    const isCompleted = status === "completed";
+                    const isCurrent = status === "current";
+                    const result = completedLessons[kp.id];
+                    return (
+                      <div
+                        key={kp.id}
+                        className={`flex items-center gap-3 rounded-xl border-2 p-3.5 transition-colors ${
+                          isLocked
+                            ? "border-bg-softer bg-bg-softer/50 cursor-not-allowed opacity-60"
+                            : isCompleted
+                            ? "border-gold/30 bg-gold/5 hover:border-gold/40 cursor-pointer"
+                            : "border-bg-softer bg-white hover:border-primary/20 cursor-pointer"
+                        }`}
+                        onClick={() => !isLocked && navigate(`/custom/book/${bookId}/${kp.id}/`)}
+                      >
+                        <div className={`flex h-9 w-9 items-center justify-center rounded-lg text-sm font-bold ${
+                          isLocked
+                            ? "bg-bg-softer text-ink-softer"
+                            : isCompleted
+                            ? "bg-gold/15 text-gold"
+                            : "bg-primary/10 text-primary-dark"
+                        }`}>
+                          {isLocked ? "🔒" : isCompleted ? "✓" : idx + 1}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3 className={`font-bold text-sm truncate ${
+                            isLocked ? "text-ink-softer" : "text-ink"
+                          }`}>{kp.name}</h3>
+                          {kp.description && (
+                            <p className="text-xs text-ink-light truncate">{kp.description}</p>
+                          )}
+                        </div>
+                        {isCompleted && result && (
+                          <div className="flex items-center gap-0.5 text-xs">
+                            {[1,2,3].map(s => (
+                              <span key={s} className={s <= result.stars ? "text-gold" : "text-bg-softer"}>★</span>
+                            ))}
+                          </div>
                         )}
+                        {isCurrent && (
+                          <span className="text-xs font-extrabold text-primary animate-pulse">开始</span>
+                        )}
+                        {isLocked && (
+                          <span className="text-xs text-ink-softer">未解锁</span>
+                        )}
+                        {!isLocked && !isCompleted && !isCurrent && (
+                          <div className="text-xs text-warning/70 whitespace-nowrap">
+                            {difficultyStars(kp.difficulty)}
+                          </div>
+                        )}
+                        {!isLocked && <span className="text-ink-softer">→</span>}
                       </div>
-                      <div className="text-xs text-warning/70 whitespace-nowrap">
-                        {difficultyStars(kp.difficulty)}
-                      </div>
-                      <span className="text-ink-softer">→</span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ))}
