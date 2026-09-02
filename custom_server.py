@@ -237,8 +237,8 @@ def init_db():
         sort_idx     INTEGER DEFAULT 0,
         created_at   TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_exam_pages ON exam_pages(exam_id);
     """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_exam_pages ON exam_pages(exam_id);")
 
     conn.commit()
     conn.close()
