@@ -97,7 +97,9 @@ export function CustomReader({ bookId }: { bookId: string }) {
     if (data && pageIdx < data.pages.length - 1) setPageIdx(pageIdx + 1);
   }
 
-  function handleStartEdit() {
+  async function handleStartEdit() {
+    const ok = await requireParentAuth("编辑文字");
+    if (!ok) return;
     handleStop();
     setEditText(page?.text_content || "");
     setEditing(true);
