@@ -187,4 +187,63 @@ export interface QuestionSet {
   generated_at: string;
 }
 
+// ============================================================
+// Exam (真题库)
+// ============================================================
+
+export type ExamDifficulty = "normal" | "mid_final" | "advanced" | "olympiad";
+
+export const DIFFICULTY_LABELS: Record<ExamDifficulty, string> = {
+  normal: "普通练习",
+  mid_final: "期中期末",
+  advanced: "提高拓展",
+  olympiad: "竞赛奥赛",
+};
+
+export interface Exam {
+  id: string;
+  title: string;
+  subject: string;
+  grade: number;
+  semester: string;
+  difficulty: string;
+  text_content: string | null;
+  total_pages: number;
+  has_text: boolean;
+  text_len: number;
+  created_at: string;
+}
+
+export async function listExams(): Promise<Exam[]> {
+  const data = await apiGet<{ exams: Exam[] }>("exams");
+  return data.exams || [];
+}
+
+export async function getExam(examId: string): Promise<Exam> {
+  return apiGet<Exam>(`exams/${examId}`);
+}
+
+export async function createExam(
+  title: string, subject: string, grade: number,
+  semester: string, difficulty: string, images: string[]
+): Promise<Exam> {
+  return apiPost<Exam>("exams", { title, subject, grade, semester, difficulty, images });
+}
+
+export async function deleteExam(examId: string): Promise<void> {
+  await apiDelete(`exams/${examId}`);
+}
+
+export async function updateExamText(examId: string, text: string): Promise<{ success: boolean }> {
+  return apiPost(`exams/${examId}/text`, { text });
+}
+
+export async function extractExamText(examId: string): Promise<{ status: string; message?: string }> {
+  return apiPost(`exams/${examId}/extract-text`);
+}
+
+export async function getExamExtractStatus(examId: string): Promise<{ status: string; message?: string; result?: { total: number; extracted: number } }> {
+  return apiGet(`exams/${examId}/extract-status`);
+}
+
 

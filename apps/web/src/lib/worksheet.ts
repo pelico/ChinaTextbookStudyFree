@@ -30,6 +30,7 @@ export interface WorksheetConfig {
   };
   difficultyMax: number;
   includeAnswerKey: boolean;
+  examReference?: string;
 }
 
 export interface AIConfig {
@@ -169,14 +170,14 @@ function buildUserPrompt(
 
 知识点范围：
 ${unitTexts}
-
+${config.examReference ? `\n\n参考真题试卷内容（请模仿其题型风格、难度和出题角度，但不要直接复制原题）：\n${config.examReference}\n` : ""}
 请生成以下题目：
 ${parts.join("\n")}
 
 要求：
 - 题目覆盖以上知识点
 - 难度不超过 ${config.difficultyMax} 级
-- 只输出 JSON 数组，不要包含 markdown 代码块标记或任何其他文字`;
+${config.examReference ? "- 参考真题的风格和难度，但生成全新题目，不要直接复制原题\n" : ""}- 只输出 JSON 数组，不要包含 markdown 代码块标记或任何其他文字`;
 }
 
 // ============================================================

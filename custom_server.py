@@ -10,6 +10,7 @@ import http.server
 import json
 import os
 import re
+import shutil
 import sqlite3
 import base64
 import subprocess
@@ -211,6 +212,22 @@ def init_db():
 
     conn.execute("CREATE INDEX IF NOT EXISTS idx_progress_kid ON progress_sync(kid_id)")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_progress_kid_dev ON progress_sync(kid_id, device_id)")
+
+    # 真题库
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS exams (
+        id           TEXT PRIMARY KEY,
+        title        TEXT NOT NULL,
+        subject      TEXT NOT NULL,
+        grade        INTEGER NOT NULL,
+        semester     TEXT NOT NULL,
+        difficulty   TEXT DEFAULT 'normal',
+        text_content TEXT,
+        total_pages  INTEGER DEFAULT 0,
+        created_at   TEXT NOT NULL,
+        updated_at   TEXT NOT NULL
+    );
+    """)
 
     conn.commit()
     conn.close()
@@ -1293,6 +1310,146 @@ def list_question_versions(kp_id):
 
 
 # ============================================================
+# Exam (真题库) Logic
+# ============================================================
+
+_exam_extract_jobs = {}  # exam_id -> {status, message, result}
+
+
+def list_exams():
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT id, title, subject, grade, semester, difficulty, "
+            "total_pages, LENGTH(text_content) as text_len, "
+            "text_content IS NOT NULL as has_text, created_at "
+            "FROM exams ORDER BY created_at DESC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_exam(exam_id):
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT * FROM exams WHERE id = ?", (exam_id,)
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def create_exam(title, subject, grade, semester, difficulty, images_b64):
+    exam_id = f"exam-{subject}-g{grade}{semester}-{uuid.uuid4().hex[:6]}"
+    now = now_iso()
+
+    images_b64 = process_uploads(images_b64)
+
+    book_img_dir = os.path.join(IMAGES_DIR, exam_id)
+    os.makedirs(book_img_dir, exist_ok=True)
+    saved = []
+    for i, img_b64 in enumerate(images_b64):
+        raw = img_b64.split(",", 1)[-1] if "," in img_b64 else img_b64
+        fname = f"page_{i+1:03d}.jpg"
+        with open(os.path.join(book_img_dir, fname), "wb") as f:
+            f.write(base64.b64decode(raw))
+        saved.append(fname)
+
+    conn = get_db()
+    try:
+        conn.execute(
+            "INSERT INTO exams (id, title, subject, grade, semester, difficulty, "
+            "text_content, total_pages, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)",
+            (exam_id, title, subject, grade, semester, difficulty,
+             len(saved), now, now)
+        )
+        for i, fname in enumerate(saved):
+            conn.execute(
+                "INSERT INTO page_images (id, book_id, filename, page_number, sort_idx) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (f"{exam_id}-{i}", exam_id, fname, i + 1, i)
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return get_exam(exam_id)
+
+
+def delete_exam(exam_id):
+    img_dir = os.path.join(IMAGES_DIR, exam_id)
+    if os.path.isdir(img_dir):
+        shutil.rmtree(img_dir, ignore_errors=True)
+    conn = get_db()
+    try:
+        conn.execute("DELETE FROM page_images WHERE book_id = ?", (exam_id,))
+        conn.execute("DELETE FROM page_texts WHERE book_id = ?", (exam_id,))
+        conn.execute("DELETE FROM exams WHERE id = ?", (exam_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def update_exam_text(exam_id, text):
+    now = now_iso()
+    conn = get_db()
+    try:
+        conn.execute(
+            "UPDATE exams SET text_content = ?, updated_at = ? WHERE id = ?",
+            (text, now, exam_id)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"success": True}
+
+
+def extract_exam_text(exam_id, api_key=None):
+    """OCR all pages of an exam and combine into one text field."""
+    exam = get_exam(exam_id)
+    if not exam:
+        raise RuntimeError("试卷不存在")
+
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT filename, page_number FROM page_images "
+            "WHERE book_id = ? ORDER BY page_number", (exam_id,)
+        ).fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        raise RuntimeError("没有页面图片")
+
+    all_text = []
+    for row in rows:
+        img_path = os.path.join(IMAGES_DIR, exam_id, row["filename"])
+        if not os.path.exists(img_path):
+            continue
+        with open(img_path, "rb") as f:
+            img_b64 = base64.b64encode(f.read()).decode()
+
+        prompt = (
+            "请提取这张试卷图片中的所有文字内容，保持原始格式和题号。"
+            "只输出文字内容，不要添加任何解释说明。"
+            "如果有图片或表格，用文字描述其内容。"
+        )
+        resp = call_ai_vision([img_b64], prompt, api_key=api_key)
+        page_text = resp.strip() if resp else ""
+        if page_text:
+            all_text.append(f"--- 第{row['page_number']}页 ---\n{page_text}")
+
+    combined = "\n\n".join(all_text)
+    update_exam_text(exam_id, combined)
+
+    return {"total": len(rows), "extracted": len(all_text)}
+
+
+# ============================================================
 # HTTP Handler
 # ============================================================
 class CustomHandler(http.server.BaseHTTPRequestHandler):
@@ -1502,6 +1659,26 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                     self._send_json({"progress": merged})
                 finally:
                     conn.close()
+                return
+
+            # /exams — 列出所有真题
+            if parts == ["exams"]:
+                self._send_json({"exams": list_exams()})
+                return
+
+            # /exams/:id — 获取真题详情
+            if len(parts) == 2 and parts[0] == "exams":
+                exam = get_exam(parts[1])
+                if exam:
+                    self._send_json(exam)
+                else:
+                    self._send_error("试卷不存在", 404)
+                return
+
+            # /exams/:id/extract-status — 查询 OCR 任务状态
+            if len(parts) == 3 and parts[0] == "exams" and parts[2] == "extract-status":
+                job = _exam_extract_jobs.get(parts[1], {"status": "idle"})
+                self._send_json(job)
                 return
 
             self._send_error("未知路径", 404)
@@ -1747,6 +1924,50 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                 self._send_json({"ok": True})
                 return
 
+            # /exams — 创建真题
+            if parts == ["exams"]:
+                body = self._read_body()
+                data = json.loads(body)
+                title = data.get("title", "真题试卷")
+                subject = data.get("subject", "math")
+                grade = data.get("grade", 1)
+                semester = data.get("semester", "up")
+                difficulty = data.get("difficulty", "normal")
+                images = data.get("images", [])
+                if not images:
+                    self._send_error("请上传至少一张试卷照片", 400)
+                    return
+                exam = create_exam(title, subject, grade, semester, difficulty, images)
+                self._send_json(exam)
+                return
+
+            # /exams/:id/text — 更新真题文本
+            if len(parts) == 3 and parts[0] == "exams" and parts[2] == "text":
+                body = self._read_body()
+                data = json.loads(body)
+                result = update_exam_text(parts[1], data.get("text", ""))
+                self._send_json(result)
+                return
+
+            # /exams/:id/extract-text — 异步 OCR 提取文字
+            if len(parts) == 3 and parts[0] == "exams" and parts[2] == "extract-text":
+                exam_id = parts[1]
+                if exam_id in _exam_extract_jobs and _exam_extract_jobs[exam_id].get("status") == "processing":
+                    self._send_json({"status": "processing", "message": "正在识别中..."})
+                    return
+                _exam_extract_jobs[exam_id] = {"status": "processing", "message": "正在识别..."}
+                ai_key = self._ai_key()
+                def _do_extract_exam():
+                    try:
+                        result = extract_exam_text(exam_id, api_key=ai_key)
+                        _exam_extract_jobs[exam_id] = {"status": "done", "result": result}
+                    except Exception as e:
+                        _exam_extract_jobs[exam_id] = {"status": "error", "message": str(e)}
+                t = _threading.Thread(target=_do_extract_exam, daemon=True)
+                t.start()
+                self._send_json({"status": "started", "message": "识别任务已启动"})
+                return
+
             self._send_error("未知路径", 404)
 
         except RuntimeError as e:
@@ -1774,6 +1995,12 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                     self._send_error("需要家长授权", 403)
                     return
                 delete_kid(parts[1])
+                self._send_json({"ok": True})
+                return
+
+            # /exams/:id — 删除真题
+            if len(parts) == 2 and parts[0] == "exams":
+                delete_exam(parts[1])
                 self._send_json({"ok": True})
                 return
 

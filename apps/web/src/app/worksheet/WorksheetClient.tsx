@@ -15,7 +15,7 @@ import {
 } from "@/lib/worksheet";
 import type { SubjectId, Outline } from "@cstf/core";
 import { ArrowLeft } from "@/components/icons";
-import { apiGet, type CustomBook } from "@/lib/customApi";
+import { apiGet, type CustomBook, listExams, getExam, type Exam, DIFFICULTY_LABELS } from "@/lib/customApi";
 
 const SUBJECT_LIST: SubjectId[] = ["chinese", "math", "english", "science"];
 
@@ -50,6 +50,8 @@ export function WorksheetClient({ books }: Props) {
   const [error, setError] = useState("");
   const [questions, setQuestions] = useState<WorksheetQuestion[]>([]);
   const [showPreview, setShowPreview] = useState(false);
+  const [exams, setExams] = useState<Exam[]>([]);
+  const [selectedExamId, setSelectedExamId] = useState<string>("");
 
   // Fetch custom books and convert to BookInfo format
   useEffect(() => {
@@ -81,6 +83,14 @@ export function WorksheetClient({ books }: Props) {
         setCustomBooks(converted);
       } catch {
         // Custom books API not available, skip silently
+      }
+    })();
+    (async () => {
+      try {
+        const data = await listExams();
+        setExams(data.filter(e => e.has_text));
+      } catch {
+        // Exams API not available, skip silently
       }
     })();
   }, []);
@@ -143,6 +153,18 @@ export function WorksheetClient({ books }: Props) {
     setGenerating(true);
     setError("");
 
+    let examReference: string | undefined;
+    if (selectedExamId) {
+      try {
+        const exam = await getExam(selectedExamId);
+        if (exam.text_content) {
+          examReference = exam.text_content;
+        }
+      } catch {
+        // If we can't load the exam, continue without reference
+      }
+    }
+
     const config: WorksheetConfig = {
       subject: selectedSubject,
       bookId: selectedBook.id,
@@ -151,6 +173,7 @@ export function WorksheetClient({ books }: Props) {
       questionTypes,
       difficultyMax,
       includeAnswerKey,
+      examReference,
     };
 
     try {
@@ -162,7 +185,7 @@ export function WorksheetClient({ books }: Props) {
     } finally {
       setGenerating(false);
     }
-  }, [selectedBook, aiConfig, selectedUnits, selectedBookUnits, questionTypes, difficultyMax, includeAnswerKey, selectedSubject]);
+  }, [selectedBook, aiConfig, selectedUnits, selectedBookUnits, questionTypes, difficultyMax, includeAnswerKey, selectedSubject, selectedExamId]);
 
   if (showPreview && questions.length > 0) {
     return (
@@ -361,6 +384,27 @@ export function WorksheetClient({ books }: Props) {
             </span>
           </div>
         </Section>
+
+        {/* Step 7: 参考真题 */}
+        {exams.length > 0 && (
+          <Section step={7} title="参考真题（可选）">
+            <p className="text-xs text-ink-light mb-2">
+              选择一份真题试卷，AI 将模仿其题型风格和难度出题
+            </p>
+            <select
+              value={selectedExamId}
+              onChange={e => setSelectedExamId(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border-2 border-bg-softer text-sm text-ink bg-white focus:border-primary focus:outline-none"
+            >
+              <option value="">不使用参考真题</option>
+              {exams.map(exam => (
+                <option key={exam.id} value={exam.id}>
+                  {exam.title}（{SUBJECT_LABELS[exam.subject as SubjectId] || exam.subject} · {exam.grade}年级 · {DIFFICULTY_LABELS[exam.difficulty as keyof typeof DIFFICULTY_LABELS] || exam.difficulty}）
+                </option>
+              ))}
+            </select>
+          </Section>
+        )}
 
         {/* AI 设置 */}
         <div className="bg-white rounded-2xl border-2 border-bg-softer p-4 space-y-3">
