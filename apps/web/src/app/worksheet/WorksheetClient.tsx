@@ -662,6 +662,9 @@ const PRINT_CSS = `
     --app-ink-light: #777777 !important;
     --app-ink-softer: #AFAFAF !important;
     background: white !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
   }
   html.worksheet-print-mode body {
     background: white !important;
@@ -717,8 +720,11 @@ const PRINT_CSS = `
     margin-bottom: 0 !important;
     padding-bottom: 0 !important;
   }
-  /* 防止内容溢出导致空白页 */
   html.worksheet-print-mode .answer-key:last-child {
+    margin-bottom: 0 !important;
+  }
+  /* 消除试卷容器末尾可能的空白页 */
+  html.worksheet-print-mode .worksheet-page > *:last-child {
     margin-bottom: 0 !important;
   }
   @page {
