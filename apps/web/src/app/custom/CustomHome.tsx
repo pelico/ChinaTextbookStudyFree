@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { apiGet, navigate, apiDelete, type CustomBook } from "@/lib/customApi";
+import { requireParentAuth } from "@/lib/parentAuth";
 import { ArrowLeft } from "@/components/icons";
 
 const subjectLabels: Record<string, string> = {
@@ -28,6 +29,8 @@ export function CustomHome() {
   }
 
   async function handleDelete(id: string, title: string) {
+    const ok = await requireParentAuth("删除课本");
+    if (!ok) return;
     if (!confirm(`确定删除「${title}」？所有题目将一并删除。`)) return;
     try {
       await apiDelete(`books/${id}`);
