@@ -305,6 +305,7 @@ export interface BookInfo {
   textbookName: string;
   subjectName: string;
   outline: Outline;
+  isCustom?: boolean;
 }
 
 export function groupBySubject(books: BookInfo[]) {

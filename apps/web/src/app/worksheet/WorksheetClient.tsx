@@ -13,8 +13,9 @@ import {
   saveAIConfig,
   generateWorksheet,
 } from "@/lib/worksheet";
-import type { SubjectId } from "@cstf/core";
+import type { SubjectId, Outline } from "@cstf/core";
 import { ArrowLeft } from "@/components/icons";
+import { apiGet, type CustomBook } from "@/lib/customApi";
 
 const SUBJECT_LIST: SubjectId[] = ["chinese", "math", "english", "science"];
 
@@ -30,6 +31,7 @@ interface Props {
 }
 
 export function WorksheetClient({ books }: Props) {
+  const [customBooks, setCustomBooks] = useState<BookInfo[]>([]);
   const [selectedSubject, setSelectedSubject] = useState<SubjectId>("science");
   const [selectedGrade, setSelectedGrade] = useState<number>(2);
   const [selectedBookId, setSelectedBookId] = useState<string>("");
@@ -49,14 +51,40 @@ export function WorksheetClient({ books }: Props) {
   const [questions, setQuestions] = useState<WorksheetQuestion[]>([]);
   const [showPreview, setShowPreview] = useState(false);
 
+  // Fetch custom books and convert to BookInfo format
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await apiGet<{ books: CustomBook[] }>("books");
+        const converted: BookInfo[] = (data.books || [])
+          .filter(b => b.units && b.units.length > 0)
+          .map(b => ({
+            id: `custom-${b.id}`,
+            subject: b.subject as SubjectId,
+            grade: b.grade,
+            semester: b.semester as "up" | "down",
+            textbookName: b.title,
+            subjectName: SUBJECT_LABELS[b.subject as SubjectId] || b.subject,
+            outline: { textbook: b.title, units: b.units! } as Outline,
+            isCustom: true,
+          }));
+        setCustomBooks(converted);
+      } catch {
+        // Custom books API not available, skip silently
+      }
+    })();
+  }, []);
+
+  const allBooks = useMemo(() => [...books, ...customBooks], [books, customBooks]);
+
   const grades = useMemo(() => {
-    const set = new Set(books.filter(b => b.subject === selectedSubject).map(b => b.grade));
+    const set = new Set(allBooks.filter(b => b.subject === selectedSubject).map(b => b.grade));
     return Array.from(set).sort((a, b) => a - b);
-  }, [books, selectedSubject]);
+  }, [allBooks, selectedSubject]);
 
   const availableBooks = useMemo(
-    () => books.filter(b => b.subject === selectedSubject && b.grade === selectedGrade),
-    [books, selectedSubject, selectedGrade],
+    () => allBooks.filter(b => b.subject === selectedSubject && b.grade === selectedGrade),
+    [allBooks, selectedSubject, selectedGrade],
   );
 
   const selectedBook = useMemo(
@@ -217,13 +245,16 @@ export function WorksheetClient({ books }: Props) {
                     setSelectedBookId(b.id);
                     setSelectedUnits(new Set());
                   }}
-                  className={`px-4 py-2.5 rounded-xl border-2 text-sm font-bold transition-all ${
+                  className={`px-4 py-2.5 rounded-xl border-2 text-sm font-bold transition-all flex items-center gap-1.5 ${
                     (selectedBookId || availableBooks[0]?.id) === b.id
                       ? "border-primary bg-primary/10 text-primary-dark"
                       : "border-bg-softer bg-white text-ink-softer hover:border-ink/20"
                   }`}
                 >
                   {b.textbookName}
+                  {b.isCustom && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary/20 text-secondary-dark font-extrabold">自定义</span>
+                  )}
                 </button>
               ))}
             </div>
