@@ -55,14 +55,20 @@ export function CustomHome() {
       <div className="max-w-3xl mx-auto px-4 py-6 space-y-6 md:px-6">
         <div className="grid grid-cols-2 gap-3">
           <button
-            onClick={() => navigate("/custom/create/")}
+            onClick={async () => {
+              const ok = await requireParentAuth("拍照上传");
+              if (ok) navigate("/custom/create/");
+            }}
             className="flex flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-primary/40 bg-primary/10 px-4 py-6 text-primary-dark hover:bg-primary/20 transition-colors"
           >
             <span className="text-2xl">📷</span>
             <span className="font-bold text-sm">拍照上传</span>
           </button>
           <button
-            onClick={() => navigate("/custom/folder-create/")}
+            onClick={async () => {
+              const ok = await requireParentAuth("从文件夹创建");
+              if (ok) navigate("/custom/folder-create/");
+            }}
             className="flex flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-secondary/40 bg-secondary/10 px-4 py-6 text-secondary-dark hover:bg-secondary/20 transition-colors"
           >
             <span className="text-2xl">📁</span>
