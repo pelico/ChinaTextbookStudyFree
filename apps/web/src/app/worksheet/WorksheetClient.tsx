@@ -56,8 +56,18 @@ export function WorksheetClient({ books }: Props) {
     (async () => {
       try {
         const data = await apiGet<{ books: CustomBook[] }>("books");
-        const converted: BookInfo[] = (data.books || [])
-          .filter(b => b.units && b.units.length > 0)
+        const booksWithOutlines = await Promise.all(
+          (data.books || []).map(async (b) => {
+            try {
+              const detail = await apiGet<CustomBook>(`books/${b.id}`);
+              return detail;
+            } catch {
+              return null;
+            }
+          })
+        );
+        const converted: BookInfo[] = booksWithOutlines
+          .filter((b): b is CustomBook => b !== null && !!b.units && b.units.length > 0)
           .map(b => ({
             id: `custom-${b.id}`,
             subject: b.subject as SubjectId,
