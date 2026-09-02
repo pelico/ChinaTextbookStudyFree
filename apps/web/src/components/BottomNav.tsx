@@ -169,7 +169,7 @@ export function BottomNav() {
         代替旧版全局 body pb-16 —— 导航隐藏时占位也随之消失 */}
     <div
       aria-hidden="true"
-      className="md:hidden"
+      className="no-print md:hidden"
       style={{ height: "calc(3.5rem + max(env(safe-area-inset-bottom), 0px))" }}
     />
     <nav

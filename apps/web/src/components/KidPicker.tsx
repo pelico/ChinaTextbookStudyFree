@@ -88,7 +88,7 @@ export function KidPicker() {
   return (
     <button
       onClick={() => setShowPicker(true)}
-      className="fixed right-4 z-50 h-12 w-12 rounded-full bg-primary text-white shadow-lg flex items-center justify-center text-xl hover:scale-105 transition-transform bottom-4 md:bottom-4"
+      className="no-print fixed right-4 z-50 h-12 w-12 rounded-full bg-primary text-white shadow-lg flex items-center justify-center text-xl hover:scale-105 transition-transform"
       style={{ bottom: "calc(3.5rem + max(env(safe-area-inset-bottom), 0px) + 0.5rem)" }}
       title="切换学习者"
     >

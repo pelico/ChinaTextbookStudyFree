@@ -99,7 +99,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       {/* viewport */}
       <div
-        className="fixed left-1/2 -translate-x-1/2 z-[200] flex flex-col items-center gap-2 pointer-events-none"
+        className="no-print fixed left-1/2 -translate-x-1/2 z-[200] flex flex-col items-center gap-2 pointer-events-none"
         style={{
           bottom: "calc(env(safe-area-inset-bottom, 0px) + 80px)",
         }}
