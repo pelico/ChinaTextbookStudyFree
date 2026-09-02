@@ -228,6 +228,17 @@ def init_db():
         updated_at   TEXT NOT NULL
     );
     """)
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS exam_pages (
+        id           TEXT PRIMARY KEY,
+        exam_id      TEXT NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+        filename     TEXT NOT NULL,
+        page_number  INTEGER,
+        sort_idx     INTEGER DEFAULT 0,
+        created_at   TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_exam_pages ON exam_pages(exam_id);
+    """)
 
     conn.commit()
     conn.close()
@@ -1368,7 +1379,7 @@ def create_exam(title, subject, grade, semester, difficulty, images_b64):
         )
         for i, fname in enumerate(saved):
             conn.execute(
-                "INSERT INTO page_images (id, book_id, filename, page_number, sort_idx, created_at) "
+                "INSERT INTO exam_pages (id, exam_id, filename, page_number, sort_idx, created_at) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (f"{exam_id}-{i}", exam_id, fname, i + 1, i, now)
             )
@@ -1385,8 +1396,7 @@ def delete_exam(exam_id):
         shutil.rmtree(img_dir, ignore_errors=True)
     conn = get_db()
     try:
-        conn.execute("DELETE FROM page_images WHERE book_id = ?", (exam_id,))
-        conn.execute("DELETE FROM page_texts WHERE book_id = ?", (exam_id,))
+        conn.execute("DELETE FROM exam_pages WHERE exam_id = ?", (exam_id,))
         conn.execute("DELETE FROM exams WHERE id = ?", (exam_id,))
         conn.commit()
     finally:
@@ -1416,8 +1426,8 @@ def extract_exam_text(exam_id, api_key=None):
     conn = get_db()
     try:
         rows = conn.execute(
-            "SELECT filename, page_number FROM page_images "
-            "WHERE book_id = ? ORDER BY page_number", (exam_id,)
+            "SELECT filename, page_number FROM exam_pages "
+            "WHERE exam_id = ? ORDER BY page_number", (exam_id,)
         ).fetchall()
     finally:
         conn.close()
