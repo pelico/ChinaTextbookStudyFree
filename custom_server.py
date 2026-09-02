@@ -1368,9 +1368,9 @@ def create_exam(title, subject, grade, semester, difficulty, images_b64):
         )
         for i, fname in enumerate(saved):
             conn.execute(
-                "INSERT INTO page_images (id, book_id, filename, page_number, sort_idx) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (f"{exam_id}-{i}", exam_id, fname, i + 1, i)
+                "INSERT INTO page_images (id, book_id, filename, page_number, sort_idx, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (f"{exam_id}-{i}", exam_id, fname, i + 1, i, now)
             )
         conn.commit()
     finally:
