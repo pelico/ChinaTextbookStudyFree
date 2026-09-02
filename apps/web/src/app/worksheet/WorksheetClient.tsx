@@ -489,10 +489,12 @@ function PrintPreview({
   onBack: () => void;
 }) {
   // 打印模式：给 html 加类，便于全局 CSS 隐藏导航等元素
+  // 同时暂时移除 theme-dark，确保打印输出始终是白底黑字
   useEffect(() => {
-    document.documentElement.classList.add("worksheet-print-mode");
+    const html = document.documentElement;
+    html.classList.add("worksheet-print-mode");
     return () => {
-      document.documentElement.classList.remove("worksheet-print-mode");
+      html.classList.remove("worksheet-print-mode");
     };
   }, []);
 
@@ -638,7 +640,7 @@ function PrintPreview({
         )}
       </div>
 
-      <style dangerouslySetInnerHTML={{ __html: PRINT_CSS }} />
+      <style dangerouslySetInnerHTML={{ __html: PRINT_CSS }} className="no-print" />
     </>
   );
 }
@@ -649,25 +651,34 @@ function renderQuestionText(q: WorksheetQuestion): string {
 
 const PRINT_CSS = `
 @media print {
-  /* 基于 html.worksheet-print-mode 隐藏所有非试卷内容 */
+  /* 强制覆盖暗色模式：白底黑字 */
   html.worksheet-print-mode,
+  html.worksheet-print-mode.theme-dark {
+    color-scheme: light !important;
+    --app-bg: #FFFFFF !important;
+    --app-bg-soft: #F7F7F7 !important;
+    --app-bg-softer: #E5E5E5 !important;
+    --app-ink: #4B4B4B !important;
+    --app-ink-light: #777777 !important;
+    --app-ink-softer: #AFAFAF !important;
+    background: white !important;
+  }
   html.worksheet-print-mode body {
     background: white !important;
+    color: #4B4B4B !important;
     margin: 0 !important;
     padding: 0 !important;
-    min-height: auto !important;
+    min-height: 0 !important;
     height: auto !important;
+    max-height: none !important;
     overflow: visible !important;
   }
-  /* 隐藏底部导航栏 */
-  html.worksheet-print-mode nav[aria-label="主导航"] {
-    display: none !important;
-  }
-  /* 隐藏 sticky 操作栏 */
+  /* 隐藏所有非试卷元素 */
+  html.worksheet-print-mode nav[aria-label="主导航"],
   html.worksheet-print-mode .no-print {
     display: none !important;
   }
-  /* 试卷容器：打印时占满可打印区域，不加额外高度 */
+  /* 试卷容器 */
   html.worksheet-print-mode .worksheet-page {
     max-width: none !important;
     width: 100% !important;
@@ -675,9 +686,11 @@ const PRINT_CSS = `
     margin: 0 !important;
     min-height: 0 !important;
     height: auto !important;
+    max-height: none !important;
     box-shadow: none !important;
     border: none !important;
     background: white !important;
+    color: black !important;
   }
   /* 移除所有外层容器的边距和最小高度 */
   html.worksheet-print-mode main,
@@ -686,14 +699,27 @@ const PRINT_CSS = `
   html.worksheet-print-mode .pb-20 {
     min-height: 0 !important;
     height: auto !important;
+    max-height: none !important;
     padding: 0 !important;
     margin: 0 !important;
     background: white !important;
+  }
+  /* 确保所有文字在白底上可见 */
+  html.worksheet-print-mode * {
+    color: black !important;
+  }
+  html.worksheet-print-mode .text-primary,
+  html.worksheet-print-mode .text-danger {
+    color: #4B4B4B !important;
   }
   /* 避免 section 底部 margin 造成空白页 */
   html.worksheet-print-mode section:last-child {
     margin-bottom: 0 !important;
     padding-bottom: 0 !important;
+  }
+  /* 防止内容溢出导致空白页 */
+  html.worksheet-print-mode .answer-key:last-child {
+    margin-bottom: 0 !important;
   }
   @page {
     size: A4;
