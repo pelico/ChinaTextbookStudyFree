@@ -284,6 +284,19 @@ export function WorksheetClient({ books }: Props) {
       </header>
 
       <div className="max-w-3xl mx-auto px-4 py-6 space-y-6 md:px-6">
+        {/* 真题库入口 */}
+        <Link
+          href="/custom/exams"
+          className="flex items-center gap-3 rounded-2xl border-2 border-warning/30 bg-warning/10 px-4 py-3.5 hover:bg-warning/20 transition-colors"
+        >
+          <span className="text-2xl">📝</span>
+          <div className="flex-1 min-w-0">
+            <p className="font-extrabold text-sm text-ink">真题库</p>
+            <p className="text-xs text-ink-light">上传真题试卷，AI 仿照结构出题</p>
+          </div>
+          <span className="text-ink-softer">→</span>
+        </Link>
+
         {/* 出题模式 */}
         <div className="bg-white rounded-2xl border-2 border-bg-softer p-4">
           <div className="grid grid-cols-2 gap-3">

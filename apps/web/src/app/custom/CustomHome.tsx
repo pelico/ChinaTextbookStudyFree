@@ -76,18 +76,6 @@ export function CustomHome() {
           </button>
         </div>
 
-        <button
-          onClick={() => navigate("/custom/exams")}
-          className="w-full flex items-center gap-3 rounded-2xl border-2 border-warning/30 bg-warning/10 px-4 py-3.5 text-warning hover:bg-warning/20 transition-colors"
-        >
-          <span className="text-2xl">📝</span>
-          <div className="text-left flex-1">
-            <p className="font-extrabold text-sm text-ink">真题库</p>
-            <p className="text-xs text-ink-light">上传真题试卷，AI 仿照风格出题</p>
-          </div>
-          <span className="text-ink-softer">→</span>
-        </button>
-
         {loading && (
           <div className="flex items-center justify-center py-12">
             <div className="animate-spin rounded-full h-8 w-8 border-4 border-primary border-t-transparent" />

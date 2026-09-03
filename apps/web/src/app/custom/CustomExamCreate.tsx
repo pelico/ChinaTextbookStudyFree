@@ -83,7 +83,7 @@ export function CustomExamCreate() {
     <main className="min-h-screen bg-bg-soft pb-20 md:pb-8">
       <header className="sticky top-0 z-30 bg-white border-b border-bg-softer px-4 py-3 md:px-6">
         <div className="flex items-center gap-3 max-w-3xl mx-auto">
-          <button onClick={() => navigate("/custom/exams")} className="text-ink-softer hover:text-ink transition-colors">
+          <button onClick={() => window.location.assign("/custom/exams")} className="text-ink-softer hover:text-ink transition-colors">
             <ArrowLeft className="w-5 h-5" />
           </button>
           <h1 className="text-lg font-extrabold text-ink">上传真题</h1>
