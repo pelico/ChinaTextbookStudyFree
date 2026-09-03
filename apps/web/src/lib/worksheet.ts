@@ -7,7 +7,7 @@ import type { Outline, SubjectId, Unit } from "@cstf/core";
 // ============================================================
 
 export interface WorksheetQuestion {
-  type: "true_false" | "choice" | "fill_blank_text" | "short_answer";
+  type: string; // 题型标识，如 true_false / choice / fill_blank_text / calculation / application 等
   score: number;
   difficulty: number;
   knowledge_point: string;
@@ -15,9 +15,28 @@ export interface WorksheetQuestion {
   options: string[];
   answer: string;
   explanation: string;
+  section_index?: number; // 属于第几大题（真题仿真模式用）
 }
 
+export interface ExamStructureSection {
+  name: string;          // 大题名称，如"一、填空题"
+  type: string;          // 题型标识（英文）
+  count: number;         // 小题数量
+  score_each: number;    // 每小题分值（0 表示分值不固定）
+  total_score: number;   // 该大题总分
+  description?: string;  // 题型说明
+}
+
+export interface ExamStructure {
+  total_score: number;
+  duration_minutes: number;
+  sections: ExamStructureSection[];
+}
+
+export type WorksheetMode = "unit_practice" | "exam_simulation";
+
 export interface WorksheetConfig {
+  mode: WorksheetMode;
   subject: SubjectId;
   bookId: string;
   textbookName: string;
@@ -30,7 +49,8 @@ export interface WorksheetConfig {
   };
   difficultyMax: number;
   includeAnswerKey: boolean;
-  examReference?: string;
+  examReference?: string;       // 真题文本内容（风格参考）
+  examStructure?: ExamStructure; // 真题结构（真题仿真模式用）
 }
 
 export interface AIConfig {
@@ -71,6 +91,15 @@ export const QUESTION_TYPE_LABELS: Record<string, string> = {
   choice: "选择题",
   fill_blank_text: "填空题",
   short_answer: "简答题",
+  calculation: "计算题",
+  application: "应用题",
+  word_problem: "解决问题",
+  reading_comprehension: "阅读理解",
+  cloze: "完形填空",
+  composition: "作文",
+  matching: "连线题",
+  fill_in_the_blanks: "选词填空",
+  sentence: "句子练习",
 };
 
 export const SUBJECT_LABELS: Record<SubjectId, string> = {
@@ -84,7 +113,43 @@ export const SUBJECT_LABELS: Record<SubjectId, string> = {
 // AI Prompt 构建
 // ============================================================
 
-function buildSystemPrompt(): string {
+function buildSystemPrompt(mode: WorksheetMode): string {
+  if (mode === "exam_simulation") {
+    return `你是一位资深的中国小学教师，擅长模仿真实考试试卷的风格和难度出题。
+
+要求：
+1. 严格按照给定的试卷结构（大题顺序、题型、题数、分值）生成题目
+2. 题目内容必须符合中国小学课程标准，适合对应年级学生的认知水平
+3. 题目用词简洁清晰，小学生能独立理解题意
+4. 每道题必须有明确的标准答案和解析
+5. 选择题必须提供4个选项（A/B/C/D）
+6. 判断题答案为"对"或"错"
+7. 填空题用"____"表示空缺处
+8. 计算题、应用题等需要写出解题过程
+9. 允许综合题——一道题可以考察多个知识点
+10. 整体难度要与真题相当，有梯度变化
+
+输出格式为 JSON 数组，每个元素代表一道题，不要包含任何其他文字：
+[
+  {
+    "section_index": 0,
+    "type": "fill_blank",
+    "score": 2,
+    "difficulty": 1,
+    "knowledge_point": "知识点名称",
+    "question": "题目内容",
+    "options": [],
+    "answer": "答案",
+    "explanation": "解析说明"
+  }
+]
+
+注意：
+- section_index 从 0 开始，对应试卷结构中的大题索引
+- 每道题的 type 字段与大题的 type 保持一致
+- 严格按大题顺序和题数生成，不能多也不能少`;
+  }
+
   return `你是一位资深的中国小学教师，擅长根据课程标准和知识点设计练习试卷。
 
 要求：
@@ -155,22 +220,48 @@ function buildUserPrompt(
   }).join("\n\n");
 
   const parts: string[] = [];
-  if (config.questionTypes.true_false > 0)
-    parts.push(`判断题 ${config.questionTypes.true_false} 道（每道2分）`);
-  if (config.questionTypes.choice > 0)
-    parts.push(`选择题 ${config.questionTypes.choice} 道（每道5分，4个选项）`);
-  if (config.questionTypes.fill_blank_text > 0)
-    parts.push(`填空题 ${config.questionTypes.fill_blank_text} 道（每空2分）`);
-  if (config.questionTypes.short_answer > 0)
-    parts.push(`简答题 ${config.questionTypes.short_answer} 道（每道8分）`);
+  if (config.mode === "unit_practice") {
+    if (config.questionTypes.true_false > 0)
+      parts.push(`判断题 ${config.questionTypes.true_false} 道（每道2分）`);
+    if (config.questionTypes.choice > 0)
+      parts.push(`选择题 ${config.questionTypes.choice} 道（每道5分，4个选项）`);
+    if (config.questionTypes.fill_blank_text > 0)
+      parts.push(`填空题 ${config.questionTypes.fill_blank_text} 道（每空2分）`);
+    if (config.questionTypes.short_answer > 0)
+      parts.push(`简答题 ${config.questionTypes.short_answer} 道（每道8分）`);
+  }
 
-  return `学科：${subjectLabel}
+  let prompt = `学科：${subjectLabel}
 教材：${config.textbookName}
 单元：${config.unitNumbers.length === 0 ? "全部单元" : config.unitNumbers.map(n => `第${n}单元`).join("、")}
 
-知识点范围：
+知识点范围（主要考察范围，真题仿真模式下允许跨单元综合题）：
 ${unitTexts}
-${config.examReference ? `\n\n参考真题试卷内容（请模仿其题型风格、难度和出题角度，但不要直接复制原题）：\n${config.examReference}\n` : ""}
+`;
+
+  if (config.mode === "exam_simulation" && config.examStructure) {
+    const sectionsText = config.examStructure.sections
+      .map((s, i) => `  ${i + 1}. ${s.name}（type: ${s.type}）：${s.count} 小题，每小题${s.score_each}分，共${s.total_score}分${s.description ? ` — ${s.description}` : ""}`)
+      .join("\n");
+
+    prompt += `
+试卷结构（必须严格遵守，按顺序生成，题数和分值不能变）：
+${sectionsText}
+
+总分：${config.examStructure.total_score} 分
+考试时长：${config.examStructure.duration_minutes} 分钟
+`;
+  }
+
+  if (config.examReference) {
+    prompt += `
+参考真题试卷内容（请模仿其题型风格、难度和出题角度，但不要直接复制原题）：
+${config.examReference}
+`;
+  }
+
+  if (config.mode === "unit_practice") {
+    prompt += `
 请生成以下题目：
 ${parts.join("\n")}
 
@@ -178,6 +269,17 @@ ${parts.join("\n")}
 - 题目覆盖以上知识点
 - 难度不超过 ${config.difficultyMax} 级
 ${config.examReference ? "- 参考真题的风格和难度，但生成全新题目，不要直接复制原题\n" : ""}- 只输出 JSON 数组，不要包含 markdown 代码块标记或任何其他文字`;
+  } else {
+    prompt += `
+要求：
+- 严格按照上面的试卷结构生成题目，大题顺序、题型、题数、分值都不能变
+- 每道题的 section_index 对应大题的索引（从 0 开始）
+- 知识点以上面列出的范围为主，但允许出综合题，适当结合其他相关知识
+- 整体难度与真题相当，要有梯度，从易到难
+${config.examReference ? "- 参考真题的出题风格和难度水平，但生成全新题目，绝对不能直接复制原题\n" : ""}- 只输出 JSON 数组，不要包含 markdown 代码块标记或任何其他文字`;
+  }
+
+  return prompt;
 }
 
 // ============================================================
@@ -189,7 +291,7 @@ export async function generateWorksheet(
   aiConfig: AIConfig,
   units: Unit[],
 ): Promise<WorksheetQuestion[]> {
-  const system = buildSystemPrompt();
+  const system = buildSystemPrompt(config.mode);
   const user = buildUserPrompt(config, units);
 
   const baseUrl = aiConfig.baseURL.replace(/\/+$/, "");
@@ -199,7 +301,7 @@ export async function generateWorksheet(
     : baseUrl + "/chat/completions";
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 120000);
+  const timeoutId = setTimeout(() => controller.abort(), 180000); // 真题仿真题量多，延长到 3 分钟
 
   try {
     const res = await fetch(url, {
@@ -242,10 +344,10 @@ export async function generateWorksheet(
       throw new Error("AI 未返回任何内容，请检查模型名称或 API Key 是否正确");
     }
 
-    return parseAIResponse(content);
+    return parseAIResponse(content, config.mode);
   } catch (e) {
     if (e instanceof Error) {
-      if (e.name === "AbortError") throw new Error("请求超时（120秒），请检查网络或更换模型");
+      if (e.name === "AbortError") throw new Error("请求超时（3分钟），请检查网络或更换模型");
       if (e.message === "Failed to fetch") {
         throw new Error(
           isRelative
@@ -268,7 +370,7 @@ export async function generateWorksheet(
   }
 }
 
-function parseAIResponse(content: string): WorksheetQuestion[] {
+function parseAIResponse(content: string, mode: WorksheetMode = "unit_practice"): WorksheetQuestion[] {
   let text = content.trim();
   if (text.startsWith("```")) {
     text = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
@@ -276,12 +378,16 @@ function parseAIResponse(content: string): WorksheetQuestion[] {
   const arr = JSON.parse(text);
   if (!Array.isArray(arr)) throw new Error("AI 返回格式错误：不是数组");
 
-  const validTypes = ["true_false", "choice", "fill_blank_text", "short_answer"] as const;
+  const validLegacyTypes = ["true_false", "choice", "fill_blank_text", "short_answer"] as const;
 
   return arr.map((q: Record<string, unknown>, i: number) => {
     const rawType = (q.type as string) || "short_answer";
+    // 兼容旧版：只有 4 种类型时做 fallback；真题仿真模式保留原始 type
+    const type = mode === "unit_practice" && !(validLegacyTypes as readonly string[]).includes(rawType)
+      ? "short_answer"
+      : rawType;
     return {
-      type: (validTypes as readonly string[]).includes(rawType) ? rawType : "short_answer",
+      type,
       score: Number(q.score) || 2,
       difficulty: Number(q.difficulty) || 1,
       knowledge_point: (q.knowledge_point as string) || "",
@@ -289,7 +395,7 @@ function parseAIResponse(content: string): WorksheetQuestion[] {
       options: Array.isArray(q.options) ? (q.options as string[]) : [],
       answer: (q.answer as string) || "",
       explanation: (q.explanation as string) || "",
-      id: i + 1,
+      section_index: q.section_index !== undefined ? Number(q.section_index) : undefined,
     } as WorksheetQuestion;
   });
 }

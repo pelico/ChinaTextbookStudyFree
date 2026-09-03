@@ -211,7 +211,25 @@ export interface Exam {
   total_pages: number;
   has_text: boolean;
   text_len: number;
+  has_structure?: boolean;
+  analyze_status?: string;
+  structure?: string | null;
   created_at: string;
+}
+
+export interface ExamStructureSection {
+  name: string;
+  type: string;
+  count: number;
+  score_each: number;
+  total_score: number;
+  description?: string;
+}
+
+export interface ExamStructure {
+  total_score: number;
+  duration_minutes: number;
+  sections: ExamStructureSection[];
 }
 
 export async function listExams(): Promise<Exam[]> {
@@ -244,6 +262,28 @@ export async function extractExamText(examId: string): Promise<{ status: string;
 
 export async function getExamExtractStatus(examId: string): Promise<{ status: string; message?: string; result?: { total: number; extracted: number } }> {
   return apiGet(`exams/${examId}/extract-status`);
+}
+
+// 试卷结构分析
+export async function analyzeExamStructure(examId: string): Promise<{ status: string; message?: string }> {
+  return apiPost(`exams/${examId}/analyze`);
+}
+
+export async function getExamAnalyzeStatus(examId: string): Promise<{ status: string; message?: string; structure?: ExamStructure }> {
+  return apiGet(`exams/${examId}/analyze-status`);
+}
+
+export async function getExamWithStructure(examId: string): Promise<{ exam: Exam; structure: ExamStructure | null }> {
+  const exam = await getExam(examId);
+  let structure: ExamStructure | null = null;
+  if (exam.structure) {
+    try {
+      structure = JSON.parse(exam.structure as string) as ExamStructure;
+    } catch {
+      structure = null;
+    }
+  }
+  return { exam, structure };
 }
 
 

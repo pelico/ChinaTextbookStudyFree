@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   navigate, getExam, extractExamText, getExamExtractStatus, updateExamText,
-  type Exam, DIFFICULTY_LABELS,
+  analyzeExamStructure, getExamAnalyzeStatus,
+  type Exam, type ExamStructure, DIFFICULTY_LABELS,
 } from "@/lib/customApi";
 import { requireParentAuth } from "@/lib/parentAuth";
 import { ArrowLeft } from "@/components/icons";
@@ -11,6 +12,27 @@ import { ArrowLeft } from "@/components/icons";
 const subjectLabels: Record<string, string> = {
   math: "数学", chinese: "语文", english: "英语", science: "科学",
 };
+
+const QUESTION_TYPE_LABELS: Record<string, string> = {
+  true_false: "判断题",
+  choice: "选择题",
+  fill_blank: "填空题",
+  fill_blank_text: "填空题",
+  short_answer: "简答题",
+  calculation: "计算题",
+  application: "应用题",
+  word_problem: "解决问题",
+  reading_comprehension: "阅读理解",
+  cloze: "完形填空",
+  composition: "作文",
+  matching: "连线题",
+  fill_in_the_blanks: "选词填空",
+  sentence: "句子练习",
+};
+
+function getTypeLabel(type: string): string {
+  return QUESTION_TYPE_LABELS[type] || type;
+}
 
 export function CustomExamDetail({ examId }: { examId: string }) {
   const [exam, setExam] = useState<Exam | null>(null);
@@ -21,12 +43,25 @@ export function CustomExamDetail({ examId }: { examId: string }) {
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState("");
   const [saving, setSaving] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeStatus, setAnalyzeStatus] = useState("");
+  const [structure, setStructure] = useState<ExamStructure | null>(null);
 
   const load = useCallback(async () => {
     try {
       const data = await getExam(examId);
       setExam(data);
       setEditText(data.text_content || "");
+      // 解析 structure
+      if (data.structure) {
+        try {
+          setStructure(JSON.parse(data.structure as string));
+        } catch {
+          setStructure(null);
+        }
+      } else {
+        setStructure(null);
+      }
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -59,6 +94,32 @@ export function CustomExamDetail({ examId }: { examId: string }) {
     return () => clearInterval(timer);
   }, [extracting, examId, load]);
 
+  // Poll analyze status
+  useEffect(() => {
+    if (!analyzing) return;
+    const timer = setInterval(async () => {
+      try {
+        const status = await getExamAnalyzeStatus(examId);
+        if (status.status === "done") {
+          setAnalyzing(false);
+          setAnalyzeStatus("");
+          if (status.structure) {
+            setStructure(status.structure);
+          }
+          await load();
+        } else if (status.status === "error") {
+          setAnalyzing(false);
+          setAnalyzeStatus("分析失败: " + (status.message || "未知错误"));
+        } else {
+          setAnalyzeStatus(status.message || "正在分析...");
+        }
+      } catch {
+        // ignore poll errors
+      }
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [analyzing, examId, load]);
+
   async function handleExtract() {
     const ok = await requireParentAuth("识别文字");
     if (!ok) return;
@@ -69,6 +130,19 @@ export function CustomExamDetail({ examId }: { examId: string }) {
     } catch (e: any) {
       setExtracting(false);
       setExtractStatus("启动失败: " + e.message);
+    }
+  }
+
+  async function handleAnalyze() {
+    const ok = await requireParentAuth("分析试卷结构");
+    if (!ok) return;
+    setAnalyzing(true);
+    setAnalyzeStatus("正在分析试卷结构...");
+    try {
+      await analyzeExamStructure(examId);
+    } catch (e: any) {
+      setAnalyzing(false);
+      setAnalyzeStatus("启动失败: " + e.message);
     }
   }
 
@@ -105,6 +179,7 @@ export function CustomExamDetail({ examId }: { examId: string }) {
   );
 
   const hasText = exam.has_text || !!exam.text_content;
+  const hasStructure = !!structure;
 
   return (
     <main className="min-h-screen bg-bg-soft pb-20 md:pb-8">
@@ -162,7 +237,7 @@ export function CustomExamDetail({ examId }: { examId: string }) {
 
           {hasText && !editing && !extracting && (
             <>
-              <div className="rounded-xl bg-bg-soft p-3 max-h-96 overflow-y-auto">
+              <div className="rounded-xl bg-bg-soft p-3 max-h-60 overflow-y-auto">
                 <pre className="text-xs text-ink whitespace-pre-wrap font-mono">
                   {exam.text_content || "(空)"}
                 </pre>
@@ -211,11 +286,94 @@ export function CustomExamDetail({ examId }: { examId: string }) {
           )}
         </div>
 
+        {/* 试卷结构分析 */}
+        {hasText && !extracting && (
+          <div className="rounded-2xl border-2 border-bg-softer bg-white p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-extrabold text-ink">试卷结构</span>
+              {hasStructure ? (
+                <span className="text-xs text-secondary-dark font-bold">✓ 已分析</span>
+              ) : analyzing ? (
+                <span className="text-xs text-primary-dark font-bold">分析中...</span>
+              ) : (
+                <span className="text-xs text-warning font-bold">未分析</span>
+              )}
+            </div>
+
+            {analyzing && (
+              <div className="flex items-center gap-2 text-sm text-primary-dark">
+                <div className="animate-spin w-4 h-4 border-2 border-primary border-t-transparent rounded-full" />
+                {analyzeStatus}
+              </div>
+            )}
+
+            {!hasStructure && !analyzing && (
+              <button
+                onClick={handleAnalyze}
+                className="w-full flex items-center justify-center gap-2 rounded-xl bg-secondary px-4 py-2.5 text-white font-extrabold hover:bg-secondary-dark transition-colors"
+              >
+                📊 AI 分析试卷结构
+              </button>
+            )}
+
+            {hasStructure && !analyzing && (
+              <>
+                {/* 总分和时长 */}
+                <div className="flex gap-4 text-sm">
+                  <div className="flex-1 rounded-xl bg-bg-soft p-3 text-center">
+                    <div className="text-2xl font-extrabold text-primary-dark">{structure.total_score}</div>
+                    <div className="text-xs text-ink-light">总分</div>
+                  </div>
+                  <div className="flex-1 rounded-xl bg-bg-soft p-3 text-center">
+                    <div className="text-2xl font-extrabold text-secondary-dark">{structure.duration_minutes}</div>
+                    <div className="text-xs text-ink-light">分钟</div>
+                  </div>
+                  <div className="flex-1 rounded-xl bg-bg-soft p-3 text-center">
+                    <div className="text-2xl font-extrabold text-warning">{structure.sections.length}</div>
+                    <div className="text-xs text-ink-light">大题</div>
+                  </div>
+                </div>
+
+                {/* 大题列表 */}
+                <div className="space-y-2">
+                  {structure.sections.map((section, i) => (
+                    <div key={i} className="flex items-center gap-3 rounded-xl bg-bg-soft p-3">
+                      <div className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-sm font-extrabold flex-shrink-0">
+                        {i + 1}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-bold text-ink truncate">{section.name}</div>
+                        <div className="text-xs text-ink-light">
+                          {getTypeLabel(section.type)} · {section.count} 小题 · 共 {section.total_score} 分
+                        </div>
+                      </div>
+                      <div className="text-sm font-extrabold text-primary-dark flex-shrink-0">
+                        {section.score_each > 0 ? `${section.score_each}分/题` : "分值不等"}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  onClick={handleAnalyze}
+                  className="w-full rounded-xl border-2 border-bg-softer px-3 py-2 text-sm text-ink-light hover:text-ink hover:border-ink/15 transition-colors"
+                >
+                  🔄 重新分析
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
         {hasText && !extracting && (
           <div className="rounded-2xl border-2 border-primary/20 bg-primary/5 p-4">
-            <p className="text-sm font-extrabold text-primary-dark mb-1">可用于出题</p>
+            <p className="text-sm font-extrabold text-primary-dark mb-1">
+              {hasStructure ? "可用于真题仿真出题" : "可用于出题参考"}
+            </p>
             <p className="text-xs text-ink-light">
-              前往「打印试卷」页面，选择本真题作为参考，AI 将模仿其风格和难度生成新题。
+              {hasStructure
+                ? "前往「打印试卷」页面，选择真题仿真模式，AI 将严格按照这份试卷的题型结构、题数和分值生成新题。"
+                : "前往「打印试卷」页面，选择本真题作为参考，AI 将模仿其风格和难度生成新题。"}
             </p>
             <button
               onClick={() => navigate("/worksheet/")}

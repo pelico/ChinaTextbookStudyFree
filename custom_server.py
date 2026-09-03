@@ -240,6 +240,13 @@ def init_db():
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_exam_pages ON exam_pages(exam_id);")
 
+    # Migration: exams 表加 structure 字段（试卷结构分析结果 JSON）
+    cols_exams = {r[1] for r in conn.execute("PRAGMA table_info(exams)")}
+    if "structure" not in cols_exams:
+        conn.execute("ALTER TABLE exams ADD COLUMN structure TEXT")
+    if "analyze_status" not in cols_exams:
+        conn.execute("ALTER TABLE exams ADD COLUMN analyze_status TEXT DEFAULT 'idle'")
+
     conn.commit()
     conn.close()
 
@@ -1325,6 +1332,7 @@ def list_question_versions(kp_id):
 # ============================================================
 
 _exam_extract_jobs = {}  # exam_id -> {status, message, result}
+_exam_analyze_jobs = {}  # exam_id -> {status, message, result}
 
 
 def list_exams():
@@ -1333,7 +1341,9 @@ def list_exams():
         rows = conn.execute(
             "SELECT id, title, subject, grade, semester, difficulty, "
             "total_pages, LENGTH(text_content) as text_len, "
-            "text_content IS NOT NULL as has_text, created_at "
+            "text_content IS NOT NULL as has_text, "
+            "structure IS NOT NULL as has_structure, "
+            "analyze_status, created_at "
             "FROM exams ORDER BY created_at DESC"
         ).fetchall()
         return [dict(r) for r in rows]
@@ -1457,6 +1467,75 @@ def extract_exam_text(exam_id, api_key=None):
     update_exam_text(exam_id, combined)
 
     return {"total": len(rows), "extracted": len(all_text)}
+
+
+def update_exam_structure(exam_id, structure_json, status="done"):
+    now = now_iso()
+    conn = get_db()
+    try:
+        conn.execute(
+            "UPDATE exams SET structure = ?, analyze_status = ?, updated_at = ? WHERE id = ?",
+            (structure_json, status, now, exam_id)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"success": True}
+
+
+def analyze_exam_structure(exam_id, api_key=None):
+    """AI 分析真题试卷的题型结构，产出结构化数据。"""
+    exam = get_exam(exam_id)
+    if not exam:
+        raise RuntimeError("试卷不存在")
+    if not exam.get("text_content"):
+        raise RuntimeError("请先识别文字再分析结构")
+
+    prompt = f"""请分析下面这份小学试卷的题型结构，提取每一大题的信息。
+
+试卷内容：
+{exam["text_content"][:6000]}
+
+请输出 JSON 格式，包含以下字段：
+- total_score: 总分（整数）
+- duration_minutes: 考试时长分钟数（整数，未知则填 90）
+- sections: 数组，每个元素包含：
+  - name: 大题名称（如"一、填空题"）
+  - type: 题型标识（英文，用小写字母和下划线，如 fill_blank、choice、true_false、calculation、application、reading_comprehension、word_problem、cloze、composition 等）
+  - count: 该大题小题数量（整数）
+  - score_each: 每小题分值（整数，如果各小题分值不同则填 0）
+  - total_score: 该大题总分（整数）
+  - description: 题型说明（可选，如"每题只有一个正确答案"）
+
+注意：
+1. 严格按照试卷上的大题顺序排列
+2. 题型标识尽量标准化，但可以自由定义，不要局限于给定的例子
+3. 只输出 JSON，不要包含任何其他文字或 markdown 标记"""
+
+    resp = call_ai(prompt, api_key=api_key)
+    if not resp:
+        raise RuntimeError("AI 未返回内容")
+
+    # 清理 markdown 代码块
+    text = resp.strip()
+    if text.startswith("```"):
+        text = text.replace("```json", "").replace("```", "").strip()
+
+    try:
+        structure = json.loads(text)
+    except json.JSONDecodeError:
+        # 尝试提取第一个 { 到最后一个 } 之间的内容
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            structure = json.loads(text[start:end + 1])
+        else:
+            raise RuntimeError("AI 返回格式错误，无法解析为 JSON")
+
+    # 保存到数据库
+    update_exam_structure(exam_id, json.dumps(structure, ensure_ascii=False), "done")
+
+    return structure
 
 
 # ============================================================
@@ -1688,6 +1767,16 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
             # /exams/:id/extract-status — 查询 OCR 任务状态
             if len(parts) == 3 and parts[0] == "exams" and parts[2] == "extract-status":
                 job = _exam_extract_jobs.get(parts[1], {"status": "idle"})
+                self._send_json(job)
+                return
+
+            # /exams/:id/analyze-status — 查询试卷结构分析任务状态
+            if len(parts) == 3 and parts[0] == "exams" and parts[2] == "analyze-status":
+                exam = get_exam(parts[1])
+                job = _exam_analyze_jobs.get(parts[1], {"status": exam.get("analyze_status", "idle") if exam else "idle"})
+                # 如果数据库里已经有 structure，直接返回 done
+                if exam and exam.get("structure") and job.get("status") != "processing":
+                    job = {"status": "done", "structure": json.loads(exam["structure"]) if exam["structure"] else None}
                 self._send_json(job)
                 return
 
@@ -1976,6 +2065,27 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                 t = _threading.Thread(target=_do_extract_exam, daemon=True)
                 t.start()
                 self._send_json({"status": "started", "message": "识别任务已启动"})
+                return
+
+            # /exams/:id/analyze — 异步 AI 分析试卷结构
+            if len(parts) == 3 and parts[0] == "exams" and parts[2] == "analyze":
+                exam_id = parts[1]
+                if exam_id in _exam_analyze_jobs and _exam_analyze_jobs[exam_id].get("status") == "processing":
+                    self._send_json({"status": "processing", "message": "正在分析中..."})
+                    return
+                update_exam_structure(exam_id, None, "processing")
+                _exam_analyze_jobs[exam_id] = {"status": "processing", "message": "正在分析试卷结构..."}
+                ai_key = self._ai_key()
+                def _do_analyze():
+                    try:
+                        result = analyze_exam_structure(exam_id, api_key=ai_key)
+                        _exam_analyze_jobs[exam_id] = {"status": "done", "result": result}
+                    except Exception as e:
+                        update_exam_structure(exam_id, None, "error")
+                        _exam_analyze_jobs[exam_id] = {"status": "error", "message": str(e)}
+                t = _threading.Thread(target=_do_analyze, daemon=True)
+                t.start()
+                self._send_json({"status": "started", "message": "分析任务已启动"})
                 return
 
             self._send_error("未知路径", 404)

@@ -7,6 +7,8 @@ import {
   type WorksheetConfig,
   type WorksheetQuestion,
   type AIConfig,
+  type ExamStructure,
+  type ExamStructureSection,
   QUESTION_TYPE_LABELS,
   SUBJECT_LABELS,
   loadAIConfig,
@@ -15,7 +17,7 @@ import {
 } from "@/lib/worksheet";
 import type { SubjectId, Outline } from "@cstf/core";
 import { ArrowLeft } from "@/components/icons";
-import { apiGet, type CustomBook, listExams, getExam, type Exam, DIFFICULTY_LABELS } from "@/lib/customApi";
+import { apiGet, type CustomBook, listExams, getExam, type Exam, DIFFICULTY_LABELS, getExamWithStructure } from "@/lib/customApi";
 
 const SUBJECT_LIST: SubjectId[] = ["chinese", "math", "english", "science"];
 
@@ -25,6 +27,10 @@ const SUBJECT_COLORS: Record<SubjectId, string> = {
   english: "border-secondary/40 bg-secondary/10 text-secondary-dark",
   science: "border-warning/40 bg-warning/10 text-ink",
 };
+
+function getTypeLabel(type: string): string {
+  return QUESTION_TYPE_LABELS[type] || type;
+}
 
 interface Props {
   books: BookInfo[];
@@ -52,6 +58,8 @@ export function WorksheetClient({ books }: Props) {
   const [showPreview, setShowPreview] = useState(false);
   const [exams, setExams] = useState<Exam[]>([]);
   const [selectedExamId, setSelectedExamId] = useState<string>("");
+  const [mode, setMode] = useState<"unit_practice" | "exam_simulation">("unit_practice");
+  const [examStructure, setExamStructure] = useState<ExamStructure | null>(null);
 
   // Fetch custom books and convert to BookInfo format
   useEffect(() => {
@@ -95,7 +103,29 @@ export function WorksheetClient({ books }: Props) {
     })();
   }, []);
 
+  // 当选中真题变化时，加载结构（真题仿真模式）
+  useEffect(() => {
+    if (mode !== "exam_simulation" || !selectedExamId) {
+      setExamStructure(null);
+      return;
+    }
+    (async () => {
+      try {
+        const { structure } = await getExamWithStructure(selectedExamId);
+        setExamStructure(structure);
+      } catch {
+        setExamStructure(null);
+      }
+    })();
+  }, [mode, selectedExamId]);
+
   const allBooks = useMemo(() => [...books, ...customBooks], [books, customBooks]);
+
+  // 真题仿真模式下，过滤有结构的真题
+  const examsForSimulation = useMemo(
+    () => exams.filter(e => e.has_structure && e.subject === selectedSubject && e.grade === selectedGrade),
+    [exams, selectedSubject, selectedGrade],
+  );
 
   const grades = useMemo(() => {
     const set = new Set(allBooks.filter(b => b.subject === selectedSubject).map(b => b.grade));
@@ -144,10 +174,23 @@ export function WorksheetClient({ books }: Props) {
       return;
     }
 
-    const totalQ = Object.values(questionTypes).reduce((a, b) => a + b, 0);
-    if (totalQ === 0) {
-      setError("请至少选择一种题型");
-      return;
+    if (mode === "unit_practice") {
+      const totalQ = Object.values(questionTypes).reduce((a, b) => a + b, 0);
+      if (totalQ === 0) {
+        setError("请至少选择一种题型");
+        return;
+      }
+    }
+
+    if (mode === "exam_simulation") {
+      if (!selectedExamId) {
+        setError("请选择一份真题试卷用于仿真");
+        return;
+      }
+      if (!examStructure) {
+        setError("该真题尚未分析结构，请先在真题详情页分析试卷结构");
+        return;
+      }
     }
 
     setGenerating(true);
@@ -166,6 +209,7 @@ export function WorksheetClient({ books }: Props) {
     }
 
     const config: WorksheetConfig = {
+      mode,
       subject: selectedSubject,
       bookId: selectedBook.id,
       textbookName: selectedBook.textbookName,
@@ -174,6 +218,7 @@ export function WorksheetClient({ books }: Props) {
       difficultyMax,
       includeAnswerKey,
       examReference,
+      examStructure: examStructure ?? undefined,
     };
 
     try {
@@ -185,13 +230,14 @@ export function WorksheetClient({ books }: Props) {
     } finally {
       setGenerating(false);
     }
-  }, [selectedBook, aiConfig, selectedUnits, selectedBookUnits, questionTypes, difficultyMax, includeAnswerKey, selectedSubject, selectedExamId]);
+  }, [selectedBook, aiConfig, selectedUnits, selectedBookUnits, questionTypes, difficultyMax, includeAnswerKey, selectedSubject, selectedExamId, mode, examStructure]);
 
   if (showPreview && questions.length > 0) {
     return (
       <PrintPreview
         questions={questions}
         config={{
+          mode,
           subject: selectedSubject,
           bookId: selectedBook?.id ?? "",
           textbookName: selectedBook?.textbookName ?? "",
@@ -199,6 +245,7 @@ export function WorksheetClient({ books }: Props) {
           questionTypes,
           difficultyMax,
           includeAnswerKey,
+          examStructure: examStructure ?? undefined,
         }}
         onBack={() => setShowPreview(false)}
       />
@@ -219,6 +266,45 @@ export function WorksheetClient({ books }: Props) {
       </header>
 
       <div className="max-w-3xl mx-auto px-4 py-6 space-y-6 md:px-6">
+        {/* 出题模式 */}
+        <div className="bg-white rounded-2xl border-2 border-bg-softer p-4">
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={() => { setMode("unit_practice"); setSelectedExamId(""); }}
+              className={`p-4 rounded-xl border-2 text-left transition-all ${
+                mode === "unit_practice"
+                  ? "border-primary bg-primary/10"
+                  : "border-bg-softer hover:border-ink/20"
+              }`}
+            >
+              <div className="text-lg mb-1">📚</div>
+              <div className={`text-sm font-extrabold ${mode === "unit_practice" ? "text-primary-dark" : "text-ink"}`}>
+                单元练习
+              </div>
+              <div className="text-xs text-ink-light mt-1">
+                自选题型和数量，按知识点出题
+              </div>
+            </button>
+            <button
+              onClick={() => setMode("exam_simulation")}
+              disabled={exams.filter(e => e.has_structure).length === 0}
+              className={`p-4 rounded-xl border-2 text-left transition-all ${
+                mode === "exam_simulation"
+                  ? "border-secondary bg-secondary/10"
+                  : "border-bg-softer hover:border-ink/20"
+              } ${exams.filter(e => e.has_structure).length === 0 ? "opacity-50 cursor-not-allowed" : ""}`}
+            >
+              <div className="text-lg mb-1">📝</div>
+              <div className={`text-sm font-extrabold ${mode === "exam_simulation" ? "text-secondary-dark" : "text-ink"}`}>
+                真题仿真
+              </div>
+              <div className="text-xs text-ink-light mt-1">
+                仿照真题结构，题型题数完全一致
+              </div>
+            </button>
+          </div>
+        </div>
+
         {/* Step 1: 学科 */}
         <Section step={1} title="选择学科">
           <div className="grid grid-cols-4 gap-3">
@@ -229,6 +315,7 @@ export function WorksheetClient({ books }: Props) {
                   setSelectedSubject(s);
                   setSelectedBookId("");
                   setSelectedUnits(new Set());
+                  setSelectedExamId("");
                 }}
                 className={`px-3 py-3 rounded-2xl border-2 text-sm font-bold transition-all ${
                   selectedSubject === s
@@ -252,6 +339,7 @@ export function WorksheetClient({ books }: Props) {
                   setSelectedGrade(g);
                   setSelectedBookId("");
                   setSelectedUnits(new Set());
+                  setSelectedExamId("");
                 }}
                 className={`px-4 py-2.5 rounded-xl border-2 text-sm font-bold transition-all ${
                   selectedGrade === g
@@ -318,55 +406,125 @@ export function WorksheetClient({ books }: Props) {
                 </label>
               ))}
             </div>
+            {mode === "exam_simulation" && (
+              <p className="text-xs text-ink-light mt-2">
+                💡 真题仿真模式下，知识点以上面选中的范围为主，允许出综合题。
+              </p>
+            )}
           </Section>
         )}
 
-        {/* Step 5: 题型与数量 */}
-        <Section step={5} title="题型与数量">
-          <div className="space-y-3">
-            {(Object.keys(questionTypes) as (keyof typeof questionTypes)[]).map(type => (
-              <div key={type} className="flex items-center gap-3 p-3 rounded-xl border-2 border-bg-softer bg-white">
-                <div className="flex-1">
-                  <div className="text-sm font-bold text-ink">{QUESTION_TYPE_LABELS[type]}</div>
-                  <div className="text-xs text-ink-light">
-                    {type === "true_false" && "每题2分 · 判断对错"}
-                    {type === "choice" && "每题5分 · 四选一"}
-                    {type === "fill_blank_text" && "每空2分 · 文字填空"}
-                    {type === "short_answer" && "每题8分 · 简要作答"}
+        {/* Step 5: 题型与数量（仅单元练习模式） */}
+        {mode === "unit_practice" && (
+          <Section step={5} title="题型与数量">
+            <div className="space-y-3">
+              {(Object.keys(questionTypes) as (keyof typeof questionTypes)[]).map(type => (
+                <div key={type} className="flex items-center gap-3 p-3 rounded-xl border-2 border-bg-softer bg-white">
+                  <div className="flex-1">
+                    <div className="text-sm font-bold text-ink">{QUESTION_TYPE_LABELS[type]}</div>
+                    <div className="text-xs text-ink-light">
+                      {type === "true_false" && "每题2分 · 判断对错"}
+                      {type === "choice" && "每题5分 · 四选一"}
+                      {type === "fill_blank_text" && "每空2分 · 文字填空"}
+                      {type === "short_answer" && "每题8分 · 简要作答"}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setQuestionTypes(prev => ({ ...prev, [type]: Math.max(0, prev[type] - 1) }))}
+                      className="w-8 h-8 rounded-lg bg-bg-soft text-ink font-bold hover:bg-bg-softer transition-colors"
+                    >
+                      −
+                    </button>
+                    <span className="w-8 text-center text-sm font-extrabold text-ink tabular-nums">
+                      {questionTypes[type]}
+                    </span>
+                    <button
+                      onClick={() => setQuestionTypes(prev => ({ ...prev, [type]: Math.min(20, prev[type] + 1) }))}
+                      className="w-8 h-8 rounded-lg bg-bg-soft text-ink font-bold hover:bg-bg-softer transition-colors"
+                    >
+                      +
+                    </button>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+              ))}
+              <div className="flex items-center justify-between px-1">
+                <span className="text-xs text-ink-light">共 {Object.values(questionTypes).reduce((a, b) => a + b, 0)} 题</span>
+                <span className="text-xs text-ink-light">
+                  预计 {
+                    questionTypes.true_false * 2 +
+                    questionTypes.choice * 5 +
+                    questionTypes.fill_blank_text * 2 +
+                    questionTypes.short_answer * 8
+                  } 分
+                </span>
+              </div>
+            </div>
+          </Section>
+        )}
+
+        {/* Step 5: 选择真题（真题仿真模式） */}
+        {mode === "exam_simulation" && (
+          <Section step={5} title="选择真题试卷">
+            {examsForSimulation.length === 0 ? (
+              <p className="text-sm text-ink-light">
+                该学科年级暂无已分析结构的真题。请先前往「自定义学习 → 真题库」上传并分析试卷结构。
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {examsForSimulation.map(exam => (
                   <button
-                    onClick={() => setQuestionTypes(prev => ({ ...prev, [type]: Math.max(0, prev[type] - 1) }))}
-                    className="w-8 h-8 rounded-lg bg-bg-soft text-ink font-bold hover:bg-bg-softer transition-colors"
+                    key={exam.id}
+                    onClick={() => setSelectedExamId(exam.id)}
+                    className={`w-full p-3 rounded-xl border-2 text-left transition-all ${
+                      selectedExamId === exam.id
+                        ? "border-secondary bg-secondary/10"
+                        : "border-bg-softer bg-white hover:border-ink/20"
+                    }`}
                   >
-                    −
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className={`text-sm font-bold truncate ${selectedExamId === exam.id ? "text-secondary-dark" : "text-ink"}`}>
+                          {exam.title}
+                        </div>
+                        <div className="text-xs text-ink-light mt-0.5">
+                          {DIFFICULTY_LABELS[exam.difficulty as keyof typeof DIFFICULTY_LABELS] || exam.difficulty}
+                        </div>
+                      </div>
+                      <div className="text-xs text-ink-light">
+                        {exam.total_pages}页
+                      </div>
+                    </div>
                   </button>
-                  <span className="w-8 text-center text-sm font-extrabold text-ink tabular-nums">
-                    {questionTypes[type]}
-                  </span>
-                  <button
-                    onClick={() => setQuestionTypes(prev => ({ ...prev, [type]: Math.min(20, prev[type] + 1) }))}
-                    className="w-8 h-8 rounded-lg bg-bg-soft text-ink font-bold hover:bg-bg-softer transition-colors"
-                  >
-                    +
-                  </button>
+                ))}
+              </div>
+            )}
+
+            {examStructure && (
+              <div className="mt-4 p-3 rounded-xl bg-bg-soft border border-bg-softer">
+                <div className="text-xs font-bold text-ink mb-2">试卷结构</div>
+                <div className="flex gap-3 mb-3 text-xs">
+                  <span className="text-ink-light">总分：<span className="font-extrabold text-primary-dark">{examStructure.total_score}</span></span>
+                  <span className="text-ink-light">时长：<span className="font-extrabold text-secondary-dark">{examStructure.duration_minutes}</span>分钟</span>
+                  <span className="text-ink-light">大题：<span className="font-extrabold text-warning">{examStructure.sections.length}</span></span>
+                </div>
+                <div className="space-y-1.5">
+                  {examStructure.sections.map((s, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs">
+                      <span className="w-5 h-5 rounded-full bg-primary text-white flex items-center justify-center font-extrabold flex-shrink-0 text-[10px]">
+                        {i + 1}
+                      </span>
+                      <span className="text-ink font-bold flex-shrink-0">{s.name}</span>
+                      <span className="text-ink-light">
+                        {s.count}小题 · 共{s.total_score}分
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
-            ))}
-            <div className="flex items-center justify-between px-1">
-              <span className="text-xs text-ink-light">共 {Object.values(questionTypes).reduce((a, b) => a + b, 0)} 题</span>
-              <span className="text-xs text-ink-light">
-                预计 {
-                  questionTypes.true_false * 2 +
-                  questionTypes.choice * 5 +
-                  questionTypes.fill_blank_text * 2 +
-                  questionTypes.short_answer * 8
-                } 分
-              </span>
-            </div>
-          </div>
-        </Section>
+            )}
+          </Section>
+        )}
 
         {/* Step 6: 难度 */}
         <Section step={6} title="难度上限">
@@ -385,8 +543,8 @@ export function WorksheetClient({ books }: Props) {
           </div>
         </Section>
 
-        {/* Step 7: 参考真题 */}
-        {exams.length > 0 && (
+        {/* Step 7: 参考真题（仅单元练习模式，且有真题时） */}
+        {mode === "unit_practice" && exams.length > 0 && (
           <Section step={7} title="参考真题（可选）">
             <p className="text-xs text-ink-light mb-2">
               选择一份真题试卷，AI 将模仿其题型风格和难度出题
@@ -533,7 +691,6 @@ function PrintPreview({
   onBack: () => void;
 }) {
   // 打印模式：给 html 加类，便于全局 CSS 隐藏导航等元素
-  // 同时暂时移除 theme-dark，确保打印输出始终是白底黑字
   useEffect(() => {
     const html = document.documentElement;
     html.classList.add("worksheet-print-mode");
@@ -548,23 +705,40 @@ function PrintPreview({
     : config.unitNumbers.map(n => `第${n}单元`).join("、");
 
   const totalScore = questions.reduce((acc, q) => acc + q.score, 0);
+  const duration = config.examStructure?.duration_minutes || 0;
 
-  const grouped = useMemo(() => {
+  // 按大题分组（真题仿真模式用 section_index，单元练习模式用 type）
+  const sections = useMemo(() => {
+    if (config.mode === "exam_simulation" && config.examStructure) {
+      return config.examStructure.sections.map((section, idx) => {
+        const sectionQuestions = questions.filter(q => q.section_index === idx);
+        return {
+          name: section.name,
+          type: section.type,
+          questions: sectionQuestions.length > 0 ? sectionQuestions : questions.filter(q => q.type === section.type),
+          totalScore: section.total_score,
+          description: section.description,
+        };
+      });
+    }
+
+    // 单元练习模式：按 type 分组
     const groups: Record<string, WorksheetQuestion[]> = {};
     for (const q of questions) {
       if (!groups[q.type]) groups[q.type] = [];
       groups[q.type].push(q);
     }
-    return groups;
-  }, [questions]);
-
-  const typeOrder = ["true_false", "choice", "fill_blank_text", "short_answer"];
-  const sectionLabels: Record<string, string> = {
-    true_false: "判断题",
-    choice: "选择题",
-    fill_blank_text: "填空题",
-    short_answer: "简答题",
-  };
+    const typeOrder = ["true_false", "choice", "fill_blank_text", "short_answer"];
+    return typeOrder
+      .filter(t => groups[t]?.length > 0)
+      .map(t => ({
+        name: QUESTION_TYPE_LABELS[t] || t,
+        type: t,
+        questions: groups[t],
+        totalScore: groups[t].reduce((a, q) => a + q.score, 0),
+        description: "",
+      }));
+  }, [questions, config.mode, config.examStructure]);
 
   return (
     <>
@@ -590,7 +764,7 @@ function PrintPreview({
         {/* 试卷头 */}
         <div className="text-center mb-6">
           <h1 className="text-2xl font-bold text-black tracking-wide">
-            {subjectLabel}练习试卷
+            {subjectLabel}{config.mode === "exam_simulation" ? "仿真试卷" : "练习试卷"}
           </h1>
           <p className="text-sm text-gray-600 mt-1">
             {config.textbookName} · {unitText}
@@ -602,61 +776,30 @@ function PrintPreview({
           <span>姓名：<span className="inline-block border-b border-black min-w-[80px]">&nbsp;</span></span>
           <span>班级：<span className="inline-block border-b border-black min-w-[80px]">&nbsp;</span></span>
           <span>得分：<span className="inline-block border-b border-black min-w-[40px]">&nbsp;</span></span>
-          <span>时间：______ 分钟</span>
+          <span>时间：{duration > 0 ? `${duration} 分钟` : "______ 分钟"}</span>
         </div>
 
         {/* 试卷说明 */}
         <div className="text-sm text-gray-700 mb-6">
-          <span>满分 {totalScore} 分 · 考试时间 ______ 分钟</span>
+          <span>满分 {totalScore} 分 · 考试时间 {duration > 0 ? `${duration} 分钟` : "______ 分钟"}</span>
         </div>
 
-        {/* 题目 */}
-        {typeOrder.map(type => {
-          const qs = grouped[type];
+        {/* 题目 - 按大题渲染 */}
+        {sections.map((section, si) => {
+          const qs = section.questions;
           if (!qs || qs.length === 0) return null;
-          let num = 0;
-          const sectionScore = qs.reduce((acc, q) => acc + q.score, 0);
           return (
-            <section key={type} className="mb-8 break-inside-avoid">
+            <section key={si} className="mb-8 break-inside-avoid">
               <h2 className="text-base font-bold text-black border-b border-gray-400 pb-1 mb-4">
-                {QUESTION_TYPE_LABELS[type] || sectionLabels[type]}（共 {qs.length} 题，{sectionScore} 分）
+                {section.name}（共 {qs.length} 题，{section.totalScore} 分）
               </h2>
+              {section.description && (
+                <p className="text-xs text-gray-600 mb-3">{section.description}</p>
+              )}
               <ol className="space-y-4 text-sm text-black leading-7">
-                {qs.map((q, i) => {
-                  num++;
-                  return (
-                    <li key={i} className="break-inside-avoid">
-                      <div className="flex gap-2">
-                        <span className="font-bold flex-shrink-0">{num}.</span>
-                        <div className="flex-1">
-                          <div>{renderQuestionText(q)}</div>
-                          {q.type === "choice" && q.options.length > 0 && (
-                            <div className="grid grid-cols-2 gap-x-6 gap-y-1 mt-1.5 ml-4">
-                              {q.options.map((opt, oi) => (
-                                <div key={oi}>
-                                  {"ABCD"[oi]}. {opt.replace(/^[A-Da-d][.、．]\s*/, "")}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          {q.type === "true_false" && (
-                            <div className="mt-1.5 ml-4 text-gray-500">
-                              <span className="border-b border-gray-400 px-4">&nbsp;</span>
-                              （对 / 错）
-                            </div>
-                          )}
-                          {q.type === "fill_blank_text" && (
-                            <div className="mt-2 text-xs text-gray-400">答：</div>
-                          )}
-                          {q.type === "short_answer" && (
-                            <div className="mt-2 border-b border-gray-300 h-16">&nbsp;</div>
-                          )}
-                        </div>
-                        <span className="text-xs text-gray-500 flex-shrink-0">({q.score}分)</span>
-                      </div>
-                    </li>
-                  );
-                })}
+                {qs.map((q, i) => (
+                  <QuestionItem key={i} q={q} index={i + 1} />
+                ))}
               </ol>
             </section>
           );
@@ -689,8 +832,82 @@ function PrintPreview({
   );
 }
 
-function renderQuestionText(q: WorksheetQuestion): string {
-  return q.question;
+function QuestionItem({ q, index }: { q: WorksheetQuestion; index: number }) {
+  // 不同题型的答题区渲染
+  const renderAnswerArea = () => {
+    // 选择题
+    if (q.type === "choice" && q.options.length > 0) {
+      return (
+        <div className="grid grid-cols-2 gap-x-6 gap-y-1 mt-1.5 ml-4">
+          {q.options.map((opt, oi) => (
+            <div key={oi}>
+              {"ABCD"[oi]}. {opt.replace(/^[A-Da-d][.、．]\s*/, "")}
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    // 判断题
+    if (q.type === "true_false") {
+      return (
+        <div className="mt-1.5 ml-4 text-gray-500">
+          <span className="border-b border-gray-400 px-4">&nbsp;</span>
+          （对 / 错）
+        </div>
+      );
+    }
+
+    // 填空题
+    if (q.type === "fill_blank" || q.type === "fill_blank_text" || q.type === "fill_in_the_blanks") {
+      return (
+        <div className="mt-2 text-xs text-gray-400">答：</div>
+      );
+    }
+
+    // 计算题
+    if (q.type === "calculation") {
+      return (
+        <div className="mt-3 ml-4 border-b border-gray-300 h-20">&nbsp;</div>
+      );
+    }
+
+    // 应用题 / 解决问题 / 简答题
+    if (q.type === "application" || q.type === "word_problem" || q.type === "short_answer" || q.type === "reading_comprehension") {
+      return (
+        <div className="mt-3 ml-4 border-b border-gray-300 h-24">&nbsp;</div>
+      );
+    }
+
+    // 作文
+    if (q.type === "composition") {
+      return (
+        <div className="mt-3 ml-4 space-y-1">
+          <div className="border-b border-gray-300 h-16">&nbsp;</div>
+          <div className="border-b border-gray-300 h-16">&nbsp;</div>
+          <div className="border-b border-gray-300 h-16">&nbsp;</div>
+        </div>
+      );
+    }
+
+    // 默认：留一行答题空间
+    return (
+      <div className="mt-2 ml-4 border-b border-gray-300 h-12">&nbsp;</div>
+    );
+  };
+
+  return (
+    <li className="break-inside-avoid">
+      <div className="flex gap-2">
+        <span className="font-bold flex-shrink-0">{index}.</span>
+        <div className="flex-1">
+          <div>{q.question}</div>
+          {renderAnswerArea()}
+        </div>
+        <span className="text-xs text-gray-500 flex-shrink-0">({q.score}分)</span>
+      </div>
+    </li>
+  );
 }
 
 const PRINT_CSS = `
