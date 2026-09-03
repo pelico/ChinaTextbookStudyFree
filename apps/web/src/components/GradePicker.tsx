@@ -50,33 +50,6 @@ export function GradePicker() {
 
   return (
     <div className="fixed inset-0 z-40 bg-bg flex flex-col">
-      {/* 右上角：自定义学习 + 打印试卷入口 */}
-      <div className="absolute top-4 right-4 z-50 flex items-center gap-2">
-        <Link
-          href="/custom/"
-          onClick={() => {
-            playSfx("tap");
-            haptic("light");
-          }}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-violet-50 border-2 border-violet-300 text-violet-700 text-xs font-extrabold shadow-sm hover:border-violet-500 transition-colors"
-        >
-          <span>📖</span>
-          <span>自定义学习</span>
-        </Link>
-        <Link
-          href="/worksheet/"
-          onClick={() => {
-            playSfx("tap");
-            haptic("light");
-          }}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-white border-2 border-primary/30 text-primary-dark text-xs font-extrabold shadow-sm hover:border-primary transition-colors"
-        >
-          <Book className="w-4 h-4" />
-          <span>打印试卷</span>
-          <Sparkle className="w-3 h-3 text-gold" />
-        </Link>
-      </div>
-
       <div className="flex-1 flex flex-col items-center justify-start pt-12 px-5 overflow-y-auto pb-32">
         {/* 顶部 mascot + 气泡 */}
         <motion.div
@@ -148,6 +121,47 @@ export function GradePicker() {
               </motion.button>
             );
           })}
+
+          {/* 分隔线 */}
+          <div className="border-t-2 border-bg-softer my-1" />
+
+          {/* 自定义学习 + 打印试卷 */}
+          <motion.div
+            initial={{ opacity: 0, x: 12 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.1 + OPTIONS.length * 0.05 }}
+            className="flex flex-col gap-3"
+          >
+            <Link
+              href="/custom/"
+              onClick={() => { playSfx("tap"); haptic("light"); }}
+              className="flex items-center gap-4 px-4 py-4 rounded-2xl border-2 border-bg-softer bg-white hover:border-primary/40 transition-colors select-none"
+              style={{ boxShadow: "0 3px 0 0 var(--shadow-card-color)" }}
+            >
+              <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 bg-primary/10">
+                <span className="text-2xl">📖</span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-base font-extrabold leading-tight text-ink">自定义学习</div>
+                <div className="text-xs text-ink-light mt-0.5">拍照上传教材 · AI 出题</div>
+              </div>
+            </Link>
+            <Link
+              href="/worksheet/"
+              onClick={() => { playSfx("tap"); haptic("light"); }}
+              className="flex items-center gap-4 px-4 py-4 rounded-2xl border-2 border-bg-softer bg-white hover:border-primary/40 transition-colors select-none"
+              style={{ boxShadow: "0 3px 0 0 var(--shadow-card-color)" }}
+            >
+              <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 bg-primary/10">
+                <Book className="w-7 h-7 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-base font-extrabold leading-tight text-ink">打印试卷</div>
+                <div className="text-xs text-ink-light mt-0.5">AI 出题 · 可打印 A4</div>
+              </div>
+              <Sparkle className="w-4 h-4 text-gold shrink-0" />
+            </Link>
+          </motion.div>
         </div>
       </div>
 

@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import { navigate, compressImage, createExam } from "@/lib/customApi";
 import { DIFFICULTY_LABELS, type ExamDifficulty } from "@/lib/customApi";
+import { requireParentAuth } from "@/lib/parentAuth";
 import { ArrowLeft } from "@/components/icons";
 
 const subjects = [
@@ -62,6 +63,9 @@ export function CustomExamCreate() {
   async function handleSubmit() {
     if (!title.trim()) { setError("请输入试卷名称"); return; }
     if (images.length === 0) { setError("请上传至少一张试卷照片或 PDF"); return; }
+
+    const ok = await requireParentAuth("创建真题");
+    if (!ok) return;
 
     setLoading(true);
     setError("");
