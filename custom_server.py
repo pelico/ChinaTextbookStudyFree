@@ -389,7 +389,7 @@ def call_ai(messages, timeout=120, api_key=None):
         "messages": messages,
         "temperature": 0.7,
         "stream": False,
-        "max_tokens": 8192,
+        "max_tokens": 16384,
     }).encode("utf-8")
 
     req = urllib.request.Request(url, data=body, headers={
@@ -1494,7 +1494,7 @@ def analyze_exam_structure(exam_id, api_key=None):
     prompt = f"""请分析下面这份小学试卷的题型结构，提取每一大题的信息。
 
 试卷内容：
-{exam["text_content"][:6000]}
+{exam["text_content"][:8000]}
 
 请输出 JSON 格式，包含以下字段：
 - total_score: 总分（整数）

@@ -121,9 +121,9 @@ export function WorksheetClient({ books }: Props) {
 
   const allBooks = useMemo(() => [...books, ...customBooks], [books, customBooks]);
 
-  // 真题仿真模式下，过滤有结构的真题
+  // 真题仿真模式下，过滤有结构的真题（全部年级时不按年级过滤）
   const examsForSimulation = useMemo(
-    () => exams.filter(e => e.has_structure && e.subject === selectedSubject && e.grade === selectedGrade),
+    () => exams.filter(e => e.has_structure && e.subject === selectedSubject && (selectedGrade === 0 || e.grade === selectedGrade)),
     [exams, selectedSubject, selectedGrade],
   );
 
@@ -154,7 +154,9 @@ export function WorksheetClient({ books }: Props) {
   }, []);
 
   const handleGenerate = useCallback(async () => {
-    if (!selectedBook) {
+    const isAllGrade = selectedGrade === 0;
+
+    if (!isAllGrade && !selectedBook) {
       setError("请先选择教材");
       return;
     }
@@ -164,10 +166,24 @@ export function WorksheetClient({ books }: Props) {
       return;
     }
 
-    const unitNumbers = Array.from(selectedUnits).sort((a, b) => a - b);
-    const units = unitNumbers.length === 0
-      ? selectedBookUnits
-      : selectedBookUnits.filter(u => selectedUnits.has(u.unit_number));
+    let units: typeof selectedBookUnits;
+    let textbookName: string;
+    let bookId: string;
+
+    if (isAllGrade) {
+      // 全部年级模式：汇总该学科所有年级的 units
+      const subjectBooks = allBooks.filter(b => b.subject === selectedSubject);
+      units = subjectBooks.flatMap(b => b.outline.units);
+      textbookName = `${SUBJECT_LABELS[selectedSubject]}全年级综合`;
+      bookId = "all-grades";
+    } else {
+      const unitNumbers = Array.from(selectedUnits).sort((a, b) => a - b);
+      units = unitNumbers.length === 0
+        ? selectedBookUnits
+        : selectedBookUnits.filter(u => selectedUnits.has(u.unit_number));
+      textbookName = selectedBook!.textbookName;
+      bookId = selectedBook!.id;
+    }
 
     if (units.length === 0) {
       setError("该教材没有单元数据");
@@ -211,9 +227,9 @@ export function WorksheetClient({ books }: Props) {
     const config: WorksheetConfig = {
       mode,
       subject: selectedSubject,
-      bookId: selectedBook.id,
-      textbookName: selectedBook.textbookName,
-      unitNumbers,
+      bookId,
+      textbookName,
+      unitNumbers: isAllGrade ? [] : Array.from(selectedUnits).sort((a, b) => a - b),
       questionTypes,
       difficultyMax,
       includeAnswerKey,
@@ -230,7 +246,7 @@ export function WorksheetClient({ books }: Props) {
     } finally {
       setGenerating(false);
     }
-  }, [selectedBook, aiConfig, selectedUnits, selectedBookUnits, questionTypes, difficultyMax, includeAnswerKey, selectedSubject, selectedExamId, mode, examStructure]);
+  }, [selectedBook, aiConfig, selectedUnits, selectedBookUnits, questionTypes, difficultyMax, includeAnswerKey, selectedSubject, selectedExamId, mode, examStructure, selectedGrade, allBooks]);
 
   if (showPreview && questions.length > 0) {
     return (
@@ -239,8 +255,10 @@ export function WorksheetClient({ books }: Props) {
         config={{
           mode,
           subject: selectedSubject,
-          bookId: selectedBook?.id ?? "",
-          textbookName: selectedBook?.textbookName ?? "",
+          bookId: selectedGrade === 0 ? "all-grades" : (selectedBook?.id ?? ""),
+          textbookName: selectedGrade === 0
+            ? `${SUBJECT_LABELS[selectedSubject]}全年级综合`
+            : (selectedBook?.textbookName ?? ""),
           unitNumbers: Array.from(selectedUnits).sort((a, b) => a - b),
           questionTypes,
           difficultyMax,
@@ -350,10 +368,33 @@ export function WorksheetClient({ books }: Props) {
                 {g}年级
               </button>
             ))}
+            {mode === "exam_simulation" && (
+              <button
+                onClick={() => {
+                  setSelectedGrade(0);
+                  setSelectedBookId("");
+                  setSelectedUnits(new Set());
+                  setSelectedExamId("");
+                }}
+                className={`px-4 py-2.5 rounded-xl border-2 text-sm font-extrabold transition-all ${
+                  selectedGrade === 0
+                    ? "border-secondary bg-secondary/10 text-secondary-dark"
+                    : "border-bg-softer bg-white text-ink-softer hover:border-ink/20"
+                }`}
+              >
+                全部年级
+              </button>
+            )}
           </div>
+          {mode === "exam_simulation" && selectedGrade === 0 && (
+            <p className="text-xs text-ink-light mt-2">
+              💡 升学/综合模式：AI 将融合该学科所有年级的知识点出题，适合毕业模拟、升学考试等场景。
+            </p>
+          )}
         </Section>
 
-        {/* Step 3: 教材 */}
+        {/* Step 3: 教材（全部年级模式下隐藏） */}
+        {selectedGrade !== 0 && (
         <Section step={3} title="选择教材">
           {availableBooks.length === 0 ? (
             <p className="text-sm text-ink-light">该学科暂无此年级教材</p>
@@ -381,9 +422,10 @@ export function WorksheetClient({ books }: Props) {
             </div>
           )}
         </Section>
+        )}
 
-        {/* Step 4: 单元 */}
-        {selectedBook && selectedBookUnits.length > 0 && (
+        {/* Step 4: 单元（全部年级模式下隐藏） */}
+        {selectedGrade !== 0 && selectedBook && selectedBookUnits.length > 0 && (
           <Section step={4} title="选择单元（不选则全部）">
             <div className="space-y-2.5">
               {selectedBookUnits.map(u => (

@@ -211,6 +211,8 @@ function buildUserPrompt(
   units: Unit[],
 ): string {
   const subjectLabel = SUBJECT_LABELS[config.subject] || config.subject;
+  const isAllGrade = config.bookId === "all-grades";
+
   const unitTexts = units.map(u => {
     const kps = u.knowledge_points
       .filter(kp => kp.difficulty <= config.difficultyMax)
@@ -233,9 +235,9 @@ function buildUserPrompt(
 
   let prompt = `学科：${subjectLabel}
 教材：${config.textbookName}
-单元：${config.unitNumbers.length === 0 ? "全部单元" : config.unitNumbers.map(n => `第${n}单元`).join("、")}
+${isAllGrade ? "范围：全年级综合（升学考试模式）\n" : ""}单元：${config.unitNumbers.length === 0 ? "全部单元" : config.unitNumbers.map(n => `第${n}单元`).join("、")}
 
-知识点范围（主要考察范围，真题仿真模式下允许跨单元综合题）：
+知识点范围（${isAllGrade ? "涵盖该学科小学全阶段核心知识点，" : ""}真题仿真模式下允许跨单元综合题）：
 ${unitTexts}
 `;
 
@@ -275,7 +277,7 @@ ${config.examReference ? "- 参考真题的风格和难度，但生成全新题�
 - 严格按照上面的试卷结构生成题目，大题顺序、题型、题数、分值都不能变
 - 每道题的 section_index 对应大题的索引（从 0 开始）
 - 知识点以上面列出的范围为主，但允许出综合题，适当结合其他相关知识
-- 整体难度与真题相当，要有梯度，从易到难
+${isAllGrade ? "- 这是全年级综合考试，题目应覆盖各年级核心知识点，难度要有明显梯度，从基础到拓展\n" : ""}- 整体难度与真题相当，要有梯度，从易到难
 ${config.examReference ? "- 参考真题的出题风格和难度水平，但生成全新题目，绝对不能直接复制原题\n" : ""}- 只输出 JSON 数组，不要包含 markdown 代码块标记或任何其他文字`;
   }
 
@@ -317,6 +319,7 @@ export async function generateWorksheet(
           { role: "user", content: user },
         ],
         temperature: 0.7,
+        max_tokens: 16384,
         stream: false,
       }),
       signal: controller.signal,
