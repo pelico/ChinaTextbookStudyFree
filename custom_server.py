@@ -1512,7 +1512,7 @@ def analyze_exam_structure(exam_id, api_key=None):
 2. 题型标识尽量标准化，但可以自由定义，不要局限于给定的例子
 3. 只输出 JSON，不要包含任何其他文字或 markdown 标记"""
 
-    resp = call_ai(prompt, api_key=api_key)
+    resp = call_ai([{"role": "user", "content": prompt}], api_key=api_key)
     if not resp:
         raise RuntimeError("AI 未返回内容")
 
