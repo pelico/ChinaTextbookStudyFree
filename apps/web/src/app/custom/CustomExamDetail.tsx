@@ -376,7 +376,7 @@ export function CustomExamDetail({ examId }: { examId: string }) {
                 : "前往「打印试卷」页面，选择本真题作为参考，AI 将模仿其风格和难度生成新题。"}
             </p>
             <button
-              onClick={() => navigate("/worksheet/")}
+              onClick={() => window.location.assign("/worksheet/")}
               className="mt-3 w-full flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-white font-extrabold hover:bg-primary-dark transition-colors"
             >
               🖨️ 去打印试卷
