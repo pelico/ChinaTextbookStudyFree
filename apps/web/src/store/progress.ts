@@ -286,9 +286,6 @@ interface ProgressState {
   // 🚩 v11：题目报错（本地列表，不上传）
   reports: QuestionReport[];
 
-  /** persist hydration 完成（异步从 localStorage 恢复后置 true） */
-  _hasHydrated: boolean;
-
   // actions
   setSelectedGrade: (grade: number | null) => void;
   /** 设置首页当前教材（null = 未选择，回到选书流程） */
@@ -626,8 +623,6 @@ export const useProgressStore = create<ProgressState>()(
       mistakesBank: [],
       muted: false,
       autoNarrate: true,
-
-      _hasHydrated: false,
 
       hearts: MAX_HEARTS,
       nextHeartAt: null,
@@ -1828,13 +1823,6 @@ export const useProgressStore = create<ProgressState>()(
           // v11：题目报错列表
           reports: state.reports ?? [],
         } as ProgressState;
-      },
-      partialize: (s) => {
-        const { _hasHydrated: _, ...rest } = s;
-        return rest;
-      },
-      onRehydrateStorage: () => (state) => {
-        if (state) state._hasHydrated = true;
       },
     },
   ),
