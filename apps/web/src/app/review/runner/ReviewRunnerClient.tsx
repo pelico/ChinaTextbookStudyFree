@@ -84,6 +84,7 @@ export function ReviewRunnerClient() {
   const reviewMistake = useProgressStore(s => s.reviewMistake);
   const awardReviewXP = useProgressStore(s => s.awardReviewXP);
   const awardReviewHeart = useProgressStore(s => s.awardReviewHeart);
+  const hasHydrated = useProgressStore(s => s._hasHydrated);
   const prefersReduced = useReducedMotion();
 
   // ============ 队列：hydrate 后一次性快照（复习中 store 变化不打乱当前会话）============
@@ -92,6 +93,7 @@ export function ReviewRunnerClient() {
   const totalRef = useRef(0);
 
   useEffect(() => {
+    if (!hasHydrated) return;
     const bank = useProgressStore.getState().mistakesBank;
     const due = getDueSrsEntries(bank);
     const items: ReviewItem[] = due.map(e => ({
@@ -103,7 +105,7 @@ export function ReviewRunnerClient() {
     totalRef.current = items.length;
     setQueue(items);
     setReady(true);
-  }, []);
+  }, [hasHydrated]);
 
   // ============ 答题状态 ============
   const [answer, setAnswer] = useState("");
