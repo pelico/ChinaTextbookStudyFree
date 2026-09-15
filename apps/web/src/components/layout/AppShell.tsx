@@ -59,10 +59,12 @@ export function AppShell({ children, right, leftSlot, centerMaxWidth = 1080 }: A
         <SideNav leftSlot={showLeftSlot ? resolvedLeftSlot : null} />
       </aside>
 
-      <div className="min-w-0">
-        {/* 中列 wrapper：md 640px / lg+ 由 grid 1fr 自然撑满，受 centerMaxWidth 软限。 */}
+      <div className="min-w-0 w-full">
+        {/* 中列 wrapper：md 640px / lg+ 撑满 grid 1fr，受 centerMaxWidth 软限。
+            —— 见 rail-left-3：必须 w-full，否则在内容宽度 < track 时 mx-auto 会
+            让 wrapper 居中、左右留白，看起来「右栏没东西占位」。 */}
         <div
-          className="mx-auto w-full md:max-w-[640px] lg:max-w-[var(--center-max)]"
+          className="w-full md:max-w-[640px] lg:max-w-[var(--center-max)]"
           style={{ "--center-max": `${centerMaxWidth}px` } as CSSProperties}
         >
           {children}

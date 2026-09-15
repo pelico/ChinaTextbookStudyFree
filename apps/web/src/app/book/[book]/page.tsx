@@ -57,7 +57,7 @@ export default async function BookPage({ params }: { params: Promise<{ book: str
       </div>
 
       {/* 续学 CTA —— 有未完成课程会话时出现 */}
-      <div className="max-w-md lg:max-w-none mx-auto px-4 lg:px-0 pt-3 lg:pt-0 empty:hidden">
+      <div className="max-w-md lg:max-w-none px-4 lg:px-0 pt-3 lg:pt-0 empty:hidden">
         <ContinueLearningCard />
       </div>
 

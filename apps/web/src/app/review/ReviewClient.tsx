@@ -104,7 +104,7 @@ export function ReviewClient() {
         </div>
       </div>
 
-      <div className="mx-auto px-4 py-6">
+      <div className="px-4 py-6">
         {hydrated && totalMistakes > 0 && (
           <SrsSummary
             todayCount={dueCount}

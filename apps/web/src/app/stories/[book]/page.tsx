@@ -70,7 +70,7 @@ export default async function StoryListPage({
         flatOnDesktop
       />
 
-      <div className="max-w-md lg:max-w-none mx-auto px-4 lg:px-0 py-5 lg:pt-2 space-y-6">
+      <div className="max-w-md lg:max-w-none px-4 lg:px-0 py-5 lg:pt-2 space-y-6">
         {units.map(([unitNum, stories]) => (
           <div key={unitNum}>
             <div className="text-xs font-extrabold text-ink-softer uppercase tracking-wider mb-2 px-1">

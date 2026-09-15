@@ -84,7 +84,7 @@ export default async function GradePage({ params }: { params: Promise<{ grade: s
 
   return (
     <AppShell centerMaxWidth={1080}>
-    <main className="min-h-screen flex flex-col items-center px-4 pt-4 pb-8 lg:pt-2 lg:px-0">
+    <main className="min-h-screen flex flex-col px-4 pt-4 pb-8 lg:pt-2 lg:px-0">
       <div className="w-full">
         <div className="lg:hidden flex justify-end mb-4">
           <StatsBar compact />
@@ -123,7 +123,7 @@ export default async function GradePage({ params }: { params: Promise<{ grade: s
                 </div>
 
                 {/* 该学科的书本卡片 —— Duolingo 纯色块 + 厚底阴影 */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 lg:gap-5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 lg:gap-5">
                   {subjectBooks.map(book => (
                     <SoundLink
                       key={book.id}

@@ -55,7 +55,7 @@ export function CustomExamHome() {
         </div>
       </header>
 
-      <div className="mx-auto px-4 py-6 space-y-6 md:px-6">
+      <div className="px-4 py-6 space-y-6 md:px-6">
         <button
           onClick={async () => {
             const ok = await requireParentAuth("上传真题");

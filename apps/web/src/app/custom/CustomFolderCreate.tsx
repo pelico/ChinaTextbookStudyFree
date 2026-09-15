@@ -81,7 +81,7 @@ export function CustomFolderCreate() {
         </div>
       </header>
 
-      <div className="mx-auto px-4 py-6 space-y-5 md:px-6">
+      <div className="px-4 py-6 space-y-5 md:px-6">
         <div>
           <label className="block text-sm font-extrabold text-ink mb-2">教材名称</label>
           <input

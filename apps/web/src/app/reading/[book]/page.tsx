@@ -85,7 +85,7 @@ export default async function ReadingListPage({
         flatOnDesktop
       />
 
-      <div className="max-w-md lg:max-w-none mx-auto px-4 lg:px-0 py-5 lg:pt-2 space-y-3 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-3">
+      <div className="max-w-md lg:max-w-none px-4 lg:px-0 py-5 lg:pt-2 space-y-3 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-3">
         {doc.passages.map(p => {
           const audioReady = p.sentences.some(s => s.audio);
           const kindLabel = KIND_LABEL[p.kind] ?? "";

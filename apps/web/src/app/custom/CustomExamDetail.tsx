@@ -192,7 +192,7 @@ export function CustomExamDetail({ examId }: { examId: string }) {
         </div>
       </header>
 
-      <div className="mx-auto px-4 py-6 space-y-6 md:px-6">
+      <div className="px-4 py-6 space-y-6 md:px-6">
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="px-2.5 py-1 rounded-lg bg-primary/10 text-primary-dark font-bold">
             {subjectLabels[exam.subject] || exam.subject}

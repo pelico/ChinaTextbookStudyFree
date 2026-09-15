@@ -85,7 +85,7 @@ export default function LeaguePage() {
     <AppShell>
       <main className="min-h-screen bg-bg-soft lg:bg-transparent pb-8">
         <PageHeader backHref={null} title="排行榜" subtitle="和影子同学比一比" />
-        <div className="max-w-md lg:max-w-none mx-auto px-4 lg:px-0 pt-4">
+        <div className="px-4 lg:px-0 pt-4">
           {!hydrated ? (
             <div className="animate-pulse space-y-3">
               <div className="h-28 rounded-3xl bg-bg-softer/60" />
