@@ -104,7 +104,7 @@ export default function StoryReaderClient({ story, backHref, prevHref, prevTitle
       stopTTS();
       return;
     }
-    if (mode === "playing" || mode === "followup") {
+    if (mode === "playing") {
       abortRef.current = true;
       stopTTS();
       return;

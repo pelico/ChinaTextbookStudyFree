@@ -54,16 +54,15 @@ export function preloadTTS(src: string | undefined | null) {
 
 /** 强制结束当前正在进行的 playTTS 的 await —— 上游 await 干净退出 */
 function finishPending() {
-  if (!el) {
-    pendingResolve = null;
-    pendingListeners = [];
-    return;
-  }
-  // 先摘掉旧 listener（避免后续 audio 自然 ended 触到旧 finish）
-  for (const [type, fn] of pendingListeners) {
-    el.removeEventListener(type, fn);
+  const a = el;
+  // 先把旧 listener 摘掉（避免后续 audio 自然 ended 误触旧 finish）
+  if (a) {
+    for (const [type, fn] of pendingListeners) {
+      a.removeEventListener(type, fn);
+    }
   }
   pendingListeners = [];
+  // 然后再 resolve，让上游 await 退出
   const r = pendingResolve;
   pendingResolve = null;
   if (r) r();
