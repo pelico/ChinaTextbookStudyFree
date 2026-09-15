@@ -1832,6 +1832,57 @@ export const useProgressStore = create<ProgressState>()(
 // Server sync: startup pull + periodic push + anti-addiction override
 // Supports multi-kid isolation via kid_id
 // ============================================================
+
+/**
+ * 关键时序说明（kid 切换的污染修复）：
+ *
+ *   csf-active-kid 是同步 localStorage key，但 zustand persist 的 name
+ *   是在 store 创建（模块加载）时确定的，不会随 kid 切换更新。所以中间
+ *   状态有："localStorage.csf-active-kid = B，但 store 还是 A 的数据"。
+ *
+ *   之前 kid 切换时：
+ *     - KidPicker 同步 setActiveKidId(B) → dispatch kid-changed
+ *     - onKidChanged listener 触发：push 用 kid_id=B 但 store 仍是 A 的 2000 gems
+ *     - 服务端 row_id = B:deviceId 被错误写入 A 的 2000 gems
+ *     - reload 后 initServerSync pull B 时拿 2000，再与 B 本地 200 取 max → 2000
+ *     - B kid 被污染成 2000 gems
+ *
+ *   修复：kid 切换必须显式区分"oldKidId"和"newKidId"。oldKidId 用于
+ *   push（保证 push 的是当前 store 数据对应的 kid）；newKidId 在 reload
+ *   之后由 initServerSync 通过 localStorage.csf-active-kid 自然读取。
+ *
+ *   KidPicker.pickKid 现在改为调用 switchKid(newKidId)，由它：
+ *     1. 读 oldKidId = 当前 csf-active-kid
+ *     2. pushProgressToServer(deviceId, oldKidId) —— 推送旧 kid 的 store 状态
+ *     3. localStorage.setItem(csf-active-kid, newKidId)
+ *     4. window.location.reload() —— reload 后 store 会按 newKidId 从
+ *        csf-progress-v1-{newKidId} 加载真实 B kid 数据，initServerSync
+ *        会 push/pull 该 kid。
+ *
+ *   如果 KidPicker 走老路径直接 reload，新流程由 layout 的 ServerSyncInit
+ *   兜底：onKidChanged listener 不再 reload，避免和 KidPicker 双重 reload。
+ */
+
+export async function switchKid(newKidId: string) {
+  if (typeof window === "undefined") return;
+  const oldKidId = localStorage.getItem("csf-active-kid") || "default";
+  if (oldKidId === newKidId) return;
+  const deviceId = localStorage.getItem("csf-device-id");
+  if (!deviceId) {
+    // 没有 deviceId 就直接 reload，由 initServerSync 重新走流程
+    localStorage.setItem("csf-active-kid", newKidId);
+    window.location.reload();
+    return;
+  }
+  // 1. 推送旧 kid 的当前 store 状态（这是核心修复点：kid_id 必须是旧 kid）
+  try {
+    await pushProgressToServer(deviceId, oldKidId);
+  } catch {}
+  // 2. 切换 kid —— reload 后 store 会从 csf-progress-v1-{newKidId} 加载
+  localStorage.setItem("csf-active-kid", newKidId);
+  window.location.reload();
+}
+
 let _syncTimer: ReturnType<typeof setInterval> | null = null;
 let _antiAddictionTimer: ReturnType<typeof setInterval> | null = null;
 let _kidChangedListener: (() => void) | null = null;
@@ -1926,14 +1977,14 @@ export async function initServerSync() {
     } catch {}
   }, 30_000);
 
-  // 6. 监听 kid 切换事件
+  // 6. 监听 kid 切换事件 —— 仅作为兜底，主切换走 switchKid()
+  //    KidPicker.pickKid 已经调用 switchKid()，它自己负责 push + reload。
+  //    这里只兜底：万一有其它路径调 setActiveKidId()，listener 仍能刷新数据。
+  //    注意：kid-changed 触发时 csf-active-kid 已经是新 kid，但 store 还是旧
+  //    kid 的状态；不能再 push + reload（会和 KidPicker 双重 reload），只能
+  //    reload 一次让 store 重新按新 kid 的 localStorage key 加载。
   const onKidChanged = () => {
-    // 切换前先 push 当前 kid 的最新状态，再 reload，避免最后一笔消费丢失。
-    void (async () => {
-      const curKid = localStorage.getItem("csf-active-kid") || "default";
-      await pushProgressToServer(deviceId, curKid);
-      window.location.reload();
-    })();
+    window.location.reload();
   };
   // 先清理可能的旧监听器，避免 HMR / 二次初始化时重复绑定
   if (_kidChangedListener) {

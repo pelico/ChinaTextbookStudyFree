@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from "react";
 import {
-  getActiveKidId, setActiveKidId, listKids, type Kid,
+  getActiveKidId, listKids, type Kid,
 } from "@/lib/kidProfile";
+import { switchKid } from "@/store/progress";
 
 const AVATARS = ["🦊", "🐼", "🐱", "🐰", "🐯", "🦁", "🐨", "🐸"];
 
@@ -38,11 +39,14 @@ export function KidPicker() {
   }
 
   function pickKid(kidId: string) {
-    setActiveKidId(kidId);
     setActiveKid(kidId);
     setShowPicker(false);
-    // Reload page to rehydrate store with new kid's data
-    window.location.reload();
+    // Reload page to rehydrate store with new kid's data.
+    // The store-side switchKid ensures the *previous* kid's local state is
+    // pushed to the server *before* csf-active-kid flips and reload happens,
+    // closing the gem-contamination race (old fix had store data leak into
+    // the new kid's row_id).
+    switchKid(kidId);
   }
 
   if (showPicker) {
