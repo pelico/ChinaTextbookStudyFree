@@ -296,52 +296,31 @@ export async function generateWorksheet(
   const system = buildSystemPrompt(config.mode);
   const user = buildUserPrompt(config, units);
 
-  const baseUrl = aiConfig.baseURL.replace(/\/+$/, "");
-  const isRelative = baseUrl.startsWith("/");
-  const url = isRelative
-    ? baseUrl + "/chat/completions"
-    : baseUrl + "/chat/completions";
-
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 180000); // 真题仿真题量多，延长到 3 分钟
 
   try {
-    const res = await fetch(url, {
+    // 走后端代理：避免浏览器 CORS 拦截（Tailscale 远程访问必须）
+    const res = await fetch("/api/custom/worksheet/generate", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${aiConfig.apiKey}`,
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        system,
+        user,
+        baseURL: aiConfig.baseURL,
+        apiKey: aiConfig.apiKey,
         model: aiConfig.model,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        temperature: 0.7,
-        max_tokens: 16384,
-        stream: false,
       }),
       signal: controller.signal,
     });
 
     if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`AI 接口错误 (${res.status}): ${text.slice(0, 200)}`);
-    }
-
-    const contentType = res.headers.get("content-type") || "";
-    if (!contentType.includes("application/json") && !contentType.includes("json")) {
-      const text = await res.text().catch(() => "");
-      const snippet = text.slice(0, 100).replace(/\s+/g, " ").trim();
-      throw new Error(
-        `AI 接口返回的不是 JSON（${contentType || "未知类型"}）。` +
-        `请检查 Base URL 是否正确，应以 /v1 结尾，例如 https://api.openai.com/v1`,
-      );
+      const data = await res.json().catch(() => ({} as any));
+      throw new Error(data.error || `后端代理错误 (${res.status})`);
     }
 
     const data = await res.json();
-    const content = data?.choices?.[0]?.message?.content ?? "";
+    const content = data?.content ?? "";
 
     if (!content) {
       throw new Error("AI 未返回任何内容，请检查模型名称或 API Key 是否正确");
@@ -351,13 +330,6 @@ export async function generateWorksheet(
   } catch (e) {
     if (e instanceof Error) {
       if (e.name === "AbortError") throw new Error("请求超时（3分钟），请检查网络或更换模型");
-      if (e.message === "Failed to fetch") {
-        throw new Error(
-          isRelative
-            ? "无法连接 AI 接口，请检查 Base URL 和 API Key"
-            : "请求被浏览器拦截（CORS），请使用支持跨域的接口，或检查 Base URL 是否正确",
-        );
-      }
       // JSON 解析失败（接口返回 HTML 等非 JSON 内容）
       if (e.message.includes("Unexpected token") || e.message.includes("JSON")) {
         throw new Error(

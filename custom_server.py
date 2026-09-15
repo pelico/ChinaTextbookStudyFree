@@ -2440,6 +2440,58 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                 self._send_json(result)
                 return
 
+            # /worksheet/generate — 服务端代理 AI 调用，避开浏览器 CORS（Tailscale 远程访问必须）
+            if parts == ["worksheet", "generate"]:
+                data = self._read_json()
+                system_msg = data.get("system", "")
+                user_msg = data.get("user", "")
+                base_url = data.get("baseURL", "").strip() or AI_BASE
+                api_key = data.get("apiKey", "").strip() or self._ai_key() or AI_KEY
+                model = data.get("model", "").strip() or AI_MODEL
+                if not isinstance(system_msg, str) or not isinstance(user_msg, str):
+                    self._send_error("system / user 必须是字符串", 400)
+                    return
+                if not api_key:
+                    self._send_error("未配置 AI API Key，请在家长设置或试卷页 AI 接口设置中配置", 400)
+                    return
+                if not base_url:
+                    self._send_error("未配置 AI Base URL", 400)
+                    return
+                url = base_url.rstrip("/") + "/chat/completions"
+                body = json.dumps({
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": system_msg},
+                        {"role": "user", "content": user_msg},
+                    ],
+                    "temperature": 0.7,
+                    "stream": False,
+                    "max_tokens": 16384,
+                }).encode("utf-8")
+                req = urllib.request.Request(url, data=body, headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+                    "Accept": "application/json",
+                })
+                try:
+                    resp = _urlopen(req, timeout=180)
+                    ctype = (resp.headers.get("Content-Type") or "").lower()
+                    if "application/json" not in ctype:
+                        sample = resp.read(200).decode("utf-8", errors="replace")
+                        raise RuntimeError(f"AI 接口返回非 JSON（{ctype or '未知类型'}），请检查 API Base 配置")
+                    raw = resp.read()
+                    data_resp = json.loads(raw.decode("utf-8"))
+                    content = data_resp.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    if not content:
+                        raise RuntimeError("AI 返回空内容，请检查模型名或 API Key")
+                    self._send_json({"content": content})
+                except urllib.error.HTTPError as e:
+                    raise RuntimeError(f"AI 接口错误 HTTP {e.code}")
+                except urllib.error.URLError as e:
+                    raise RuntimeError(f"无法连接 AI 接口（{e.reason}），请检查 Base URL 和网络")
+                return
+
             # /parent/setup — 首次设置密码 + 默认配置
             if parts == ["parent", "setup"]:
                 data = self._read_json()
