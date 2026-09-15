@@ -1,10 +1,14 @@
 "use client";
 
 /**
- * RightRail —— 桌面端右侧 rail（仿 Duolingo web）
+ * SideRail —— 桌面端侧栏（仿 Duolingo web）
  *
- * 顺序：StatsBar HUD / LeaderboardTeaserCard / DailyQuestsPanel
- * 每日目标环继续留在 profile；rail 上的目标卡已被「每日任务卡」取代。
+ * 顺序：LeaderboardTeaserCard / DailyQuestsPanel
+ * 移动端的 StatsBar HUD 由页面自身紧凑显示，不放进 rail。
+ *
+ * 使用方式：AppShell 默认会把 SideRail 挂在左列 SideNav 下方；
+ * 如需在右栏显示（如 /league/ 页面），在页面中显式
+ *   <AppShell right={<SideRail />}>
  */
 
 import { useEffect, useState } from "react";
@@ -17,19 +21,18 @@ import {
   userRank,
   weekKeyFor,
 } from "@cstf/core/league";
-import { StatsBar } from "@/components/StatsBar";
 import { DailyQuestsPanel } from "@/components/DailyQuestsPanel";
 import { useProgressStore, weekXpFromHistory } from "@/store/progress";
 import { Trophy } from "@/components/icons";
 import { playSfx } from "@/lib/sfx";
 import { haptic } from "@/lib/haptic";
 
-export function RightRail() {
+// 旧名保留为别名，避免外部直接 import 报错
+export { SideRail as RightRail };
+
+export function SideRail() {
   return (
     <div className="flex flex-col gap-4 w-full">
-      <div className="flex justify-end">
-        <StatsBar compact />
-      </div>
       <LeaderboardTeaserCard />
       <DailyQuestsPanel />
     </div>

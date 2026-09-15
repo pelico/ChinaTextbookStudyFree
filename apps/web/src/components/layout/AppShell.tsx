@@ -1,12 +1,17 @@
 "use client";
 
 /**
- * AppShell —— 响应式三栏布局壳（左 SideNav / 中央内容 / 右 RightRail）
+ * AppShell —— 响应式三栏布局壳（左 SideNav + SideRail / 中央内容 / 右 right slot）
  *
- * 断点（web-shell-14）：
+ * 断点（web-shell-14 + rail-left-1）：
  *   - < md：单列，底部 BottomNav（BottomNav 自身 md:hidden）
- *   - md (768-1023)：icon-only 88px SideNav + 中央列（max ~640），无右栏
- *   - lg+：260px SideNav + 中央列 + 360px RightRail
+ *   - md (768-1023)：icon-only 88px SideNav + 中央列（max ~640），无侧栏
+ *   - lg+：260px SideNav（含 SideRail / 排行榜 + 每日任务）+ 中央列 + 可选 360px right
+ *
+ * 改动记录：
+ *   - 把原来的 RightRail 默认挂载位置从「右栏」改为「左列 SideNav 下方」
+ *   - 右栏保持可显式控制，传 right={...} 才出现
+ *   - 这是为了腾出中央列的视觉空间（参考 /profile/ 的 right={null} centerMaxWidth=920 布局）
  *
  * 单树渲染：children 只挂载一次，靠 hidden md:block 控制两侧栏的显隐，
  * 避免旧版「移动端 + 桌面端各渲染一份 children」带来的音效 / observer /
@@ -18,18 +23,23 @@
 
 import type { CSSProperties, ReactNode } from "react";
 import { SideNav } from "./SideNav";
-import { RightRail } from "./RightRail";
+import { SideRail } from "./RightRail";
 
 interface AppShellProps {
   children: ReactNode;
-  /** 自定义右栏。传 null 显式隐藏；不传则显示默认 RightRail */
+  /** 自定义右栏。传 null 显式隐藏；传 JSX 显式替换默认；不传则默认无右栏 */
   right?: ReactNode | null;
+  /** 自定义左栏（SideNav 下方追加区）。不传则显示默认 SideRail（排行榜 + 每日任务） */
+  leftSlot?: ReactNode | null;
   /** 中央内容栏最大宽度（仅 md+ 生效），默认 640 */
   centerMaxWidth?: number;
 }
 
-export function AppShell({ children, right, centerMaxWidth = 640 }: AppShellProps) {
+export function AppShell({ children, right, leftSlot, centerMaxWidth = 640 }: AppShellProps) {
   const showRight = right !== null;
+  // leftSlot 默认显示 SideRail；null 显式隐藏；JSX 替换
+  const showLeftSlot = leftSlot !== null;
+  const resolvedLeftSlot = leftSlot === undefined ? <SideRail /> : leftSlot;
   return (
     <div
       className={
@@ -40,8 +50,11 @@ export function AppShell({ children, right, centerMaxWidth = 640 }: AppShellProp
           : "lg:[grid-template-columns:260px_minmax(0,1fr)]")
       }
     >
-      <aside className="hidden md:block md:sticky md:top-6 md:self-start md:h-[calc(100vh-3rem)]">
+      <aside className="hidden md:block md:sticky md:top-6 md:self-start md:h-[calc(100vh-3rem)] md:overflow-y-auto md:pb-6">
         <SideNav />
+        {showLeftSlot && (
+          <div className="mt-6">{resolvedLeftSlot}</div>
+        )}
       </aside>
 
       <div className="min-w-0">
@@ -55,7 +68,7 @@ export function AppShell({ children, right, centerMaxWidth = 640 }: AppShellProp
 
       {showRight && (
         <aside className="hidden lg:block lg:sticky lg:top-6 lg:self-start lg:h-[calc(100vh-3rem)] overflow-y-auto pb-6">
-          {right ?? <RightRail />}
+          {right}
         </aside>
       )}
     </div>
