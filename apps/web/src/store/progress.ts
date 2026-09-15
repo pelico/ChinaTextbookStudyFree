@@ -1998,8 +1998,20 @@ function mergeProgressState(server: Record<string, any>, local: any): Partial<an
   const merged: Record<string, any> = {};
 
   // === 数值类：取最优（更大值代表更多进度）===
+  // 但有"异常高值"防御：如果服务端某数值异常大于本地（>= 2x），极可能是
+  // 之前 kid 切换 bug 导致的 row_id 污染（旧 kid 数据写到了新 kid 的 row）。
+  // 此时拒绝服务端的异常高值，保留本地原值——避免污染的扩散（如果接受，
+  // pull 后 push 会把污染值再次写回服务端 row，污染"自我强化"）。
   for (const key of ["xp", "gems", "streak", "lifetimeGems", "streakFreezes"]) {
-    merged[key] = Math.max(server[key] ?? 0, (local as any)[key] ?? 0);
+    const sv = server[key] ?? 0;
+    const lv = (local as any)[key] ?? 0;
+    if (lv > 0 && sv >= lv * 2 && sv > 100) {
+      // 服务端异常高（>= 本地 2 倍且 > 100），标记为污染，丢弃
+      console.warn(`[sync] discarding suspicious server.${key}=${sv} (local=${lv}); likely row contamination`);
+      merged[key] = lv;
+    } else {
+      merged[key] = Math.max(sv, lv);
+    }
   }
 
   // === 集合类（Object-as-Set）：并集 ===
@@ -2076,7 +2088,35 @@ async function pushProgressToServer(deviceId?: string, kidId?: string) {
     // 兜底：理论上 initServerSync 已经注入并持久化 deviceId；这里仅在
     // 非预期路径（如被外部直接调用）下回退，不使用 "unknown" 避免覆盖冲突
     const devId = deviceId || localStorage.getItem("csf-device-id") || `dev-${Date.now()}`;
-    const kId = kidId || localStorage.getItem("csf-active-kid") || "default";
+    let kId = kidId || localStorage.getItem("csf-active-kid") || "default";
+    // === 防污染不变量 ===
+    // 服务端按 row_id = (kid_id, device_id) 分行写入并按 kid 维度合并。
+    // 如果 kidId 参数与 store 实际归属的 kid 不一致（zustand persist 的
+    // name 在模块加载时确定，kid 切换有短暂窗口 store≠localStorage kid），
+    // 会把旧 kid 的状态写入新 kid 的 row，引发"切到 B kid 看到 A 的钻石"
+    // 这类污染。
+    //
+    // 不变量：store 数据的归属 kid == push 的 kid_id。
+    //
+    // 实现：caller 显式传 kidId → 信任 caller（switchKid/initServerSync/
+    // 定时器闭包都已经做过归属校验）。caller 没传（兜底路径）才校验：
+    // 通过 zustand persist 当前 name 反推 store 真实归属 kid（这是最可靠的
+    // 来源，比 localStorage.csf-active-kid 更准，因为后者会因 kid 切换而
+    // 暂时跟 store 错配）。
+    if (kidId === undefined && typeof window !== "undefined") {
+      try {
+        // 读取当前 zustand persist 的 name：一定是模块加载时算的 key，
+        // 因此就是当前 store 真实归属的 kid
+        const persistName = (useProgressStore as any).persist?.getOptions?.()?.name;
+        if (typeof persistName === "string" && persistName.startsWith("csf-progress-v1")) {
+          const derivedKid = persistName === "csf-progress-v1" ? "default" : persistName.slice("csf-progress-v1-".length);
+          if (derivedKid !== kId) {
+            console.warn(`[sync] fallback kid mismatch: csf-active-kid=${kId} store_kid=${derivedKid}; using store kid`);
+            kId = derivedKid;
+          }
+        }
+      } catch {}
+    }
     await fetch("/api/custom/sync/progress", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
