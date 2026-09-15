@@ -134,34 +134,60 @@ export function PassageReader({ passage, backHref, prevHref, prevTitle, nextHref
     setMode("idle");
   }, [passage]);
 
+  /** playAll 单例锁：防止 effect timeout 与用户按钮同时触发多次 playAll */
+  const playingRef = useRef(false);
+
   const playAll = useCallback(async () => {
-    if (mode === "playing") {
+    // 1) 已经在跑 → 用户主动停
+    if (playingRef.current) {
       abortRef.current = true;
       stopTTS();
-      setMode("idle");
-      setCurrentIndex(null);
+      // 让 setMode 在 finally 走，避免双重设置
       return;
     }
+    // 2) 已经在 playing 状态但 playingRef 还没 flush（极罕见，并发场景）
+    if (mode === "playing" || mode === "followup") {
+      abortRef.current = true;
+      stopTTS();
+      return;
+    }
+
+    playingRef.current = true;
     abortRef.current = false;
     setMode("playing");
+
     let completed = true;
-    for (let i = 0; i < passage.sentences.length; i++) {
-      if (abortRef.current) {
-        completed = false;
-        break;
+    try {
+      for (let i = 0; i < passage.sentences.length; i++) {
+        if (abortRef.current) {
+          completed = false;
+          break;
+        }
+        const s = passage.sentences[i];
+        if (!s.audio) continue;
+        setCurrentIndex(i);
+        // 用 try/catch 包每一次播放：单句 error 不应该退出整个连播循环，
+        // 但要让 playAll 知道"这一句没正常播完"——不进入连播分支。
+        try {
+          await playTTS(s.audio);
+        } catch {
+          completed = false;
+          break;
+        }
+        if (abortRef.current) {
+          completed = false;
+          break;
+        }
+        // 让旧 listener 干净摘掉，避免下句切换 src 时上一句的 pause 误触发 end。
+        await sleep(80);
       }
-      const s = passage.sentences[i];
-      if (!s.audio) continue;
-      setCurrentIndex(i);
-      await playTTS(s.audio);
-      if (abortRef.current) {
-        completed = false;
-        break;
-      }
-      await sleep(200);
+    } catch {
+      completed = false;
+    } finally {
+      setCurrentIndex(null);
+      playingRef.current = false;
     }
-    setCurrentIndex(null);
-    // 主动中断的或卸载场景下不再连播；正常播完才发 XP + 跳下一篇
+
     if (!completed) {
       setMode("idle");
       return;
@@ -169,6 +195,7 @@ export function PassageReader({ passage, backHref, prevHref, prevTitle, nextHref
     // 完整听完整篇 → 首次给 XP
     grantPassageReward("listen", XP_LISTEN);
     setMode("idle");
+
     // 自动连播：播完后跳到下一篇
     if (autoPlay && nextHref) {
       // 跳之前主动断开本页 audio + 标记中断，避免旧 Promise 在新页面 mount 后再次触发副作用
@@ -177,7 +204,6 @@ export function PassageReader({ passage, backHref, prevHref, prevTitle, nextHref
       await sleep(500);
       const sep = nextHref.includes("?") ? "&" : "?";
       router.push(`${nextHref}${sep}autoplay=1`);
-      return;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, passage, autoPlay, nextHref, router]);
@@ -257,26 +283,28 @@ export function PassageReader({ passage, backHref, prevHref, prevTitle, nextHref
     setRecordings(passage.sentences.map(() => null));
   }, [recordings, passage]);
 
-  const hasAnyAudio = passage.sentences.some(s => s.audio);
-  const isPoem =
-    passage.kind === "poem" ||
-    passage.kind === "ancient_poem" ||
-    passage.kind === "song";
-
-  // 如果 URL 带 autoplay=1，自动开始播放（连播跳转过来时触发）
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("autoplay") !== "1") return;
-    if (!hasAnyAudio) return;
+  // 如果 URL 带 autoplay=1，自动开始播放（连播跳转过来时触发）。
+// 仅在 mount 时跑一次，避免 hasAnyAudio/props 重渲染时重复触发。
+const hasAnyAudio = passage.sentences.some(s => s.audio);
+const isPoem =
+  passage.kind === "poem" ||
+  passage.kind === "ancient_poem" ||
+  passage.kind === "song";
+useEffect(() => {
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("autoplay") !== "1") return;
+  if (!hasAnyAudio) return;
+  if (playingRef.current) return;
+  if (modeRef.current !== "idle") return;
+  const t = setTimeout(() => {
+    if (playingRef.current) return;
     if (modeRef.current !== "idle") return;
-    // 仅在 mount 时跑一次，避免 hasAnyAudio/props 重渲染时重复触发
-    const t = setTimeout(() => {
-      if (modeRef.current === "idle") playAll();
-    }, 600);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasAnyAudio]);
+    playAll();
+  }, 600);
+  return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
 
   return (
     <main className="min-h-screen bg-bg-soft pb-24">

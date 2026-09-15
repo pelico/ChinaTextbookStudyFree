@@ -83,6 +83,9 @@ export default function StoryReaderClient({ story, backHref, prevHref, prevTitle
 
   const hasAudio = story.sentences.some(s => s.audio);
 
+  /** playAll 单例锁：防止 effect timeout 与用户按钮同时触发多次 playAll */
+  const playingRef = useRef(false);
+
   const playSingle = useCallback(async (idx: number) => {
     const s = story.sentences[idx];
     if (!s?.audio) return;
@@ -95,32 +98,51 @@ export default function StoryReaderClient({ story, backHref, prevHref, prevTitle
   }, [story]);
 
   const playAll = useCallback(async () => {
-    if (mode === "playing") {
+    // 用户主动停
+    if (playingRef.current) {
       abortRef.current = true;
       stopTTS();
-      setMode("idle");
-      setCurrentIndex(null);
       return;
     }
+    if (mode === "playing" || mode === "followup") {
+      abortRef.current = true;
+      stopTTS();
+      return;
+    }
+
+    playingRef.current = true;
     abortRef.current = false;
     setMode("playing");
+
     let completed = true;
-    for (let i = 0; i < story.sentences.length; i++) {
-      if (abortRef.current) {
-        completed = false;
-        break;
+    try {
+      for (let i = 0; i < story.sentences.length; i++) {
+        if (abortRef.current) {
+          completed = false;
+          break;
+        }
+        const s = story.sentences[i];
+        if (!s.audio) continue;
+        setCurrentIndex(i);
+        try {
+          await playTTS(s.audio);
+        } catch {
+          completed = false;
+          break;
+        }
+        if (abortRef.current) {
+          completed = false;
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 80));
       }
-      const s = story.sentences[i];
-      if (!s.audio) continue;
-      setCurrentIndex(i);
-      await playTTS(s.audio);
-      if (abortRef.current) {
-        completed = false;
-        break;
-      }
+    } catch {
+      completed = false;
+    } finally {
+      setCurrentIndex(null);
+      playingRef.current = false;
     }
-    setCurrentIndex(null);
-    // 主动中断的或卸载场景下不再连播；正常播完才跳下一篇
+
     if (!completed) {
       setMode("idle");
       return;
@@ -138,19 +160,22 @@ export default function StoryReaderClient({ story, backHref, prevHref, prevTitle
     }
   }, [mode, story, autoPlay, nextHref, router]);
 
-  // 如果 URL 带 autoplay=1，自动开始播放（连播跳转过来时触发）
+  // 如果 URL 带 autoplay=1，自动开始播放（连播跳转过来时触发）。仅 mount 一次。
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("autoplay") !== "1") return;
     if (!hasAudio) return;
+    if (playingRef.current) return;
     if (modeRef.current !== "idle") return;
     const t = setTimeout(() => {
-      if (modeRef.current === "idle") playAll();
+      if (playingRef.current) return;
+      if (modeRef.current !== "idle") return;
+      playAll();
     }, 600);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasAudio]);
+  }, []);
 
   const startQuiz = () => {
     abortRef.current = true;
