@@ -6,6 +6,12 @@
  * backdrop 半透明黑 + blur，内容 spring 弹入。
  * 点击 backdrop 或按 Esc 触发 onClose。
  *
+ * 用 React Portal 把内容挂到 document.body，避开任何祖先 transform /
+ * backdrop-filter / isolation / sticky 子树对 z-index 和 fixed 定位的影响；
+ * —— 见 statsbar-modal-portal-1：之前 StatsBar 嵌在侧栏（aside sticky 子树）
+ * 时 Modal 在阅读模块能置顶，到了 lesson / review 这些页面由于外层 sticky /
+ * backdrop-blur 创建了 stacking context，Modal 被中央内容列盖住。
+ *
  * a11y:
  *   - role="dialog" + aria-modal="true"
  *   - 打开时 trap focus 在 modal 内；Tab/Shift+Tab 循环
@@ -14,6 +20,7 @@
  */
 
 import { useEffect, useRef, useId } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface ModalProps {
@@ -102,7 +109,10 @@ export function Modal({ open, onClose, children, dismissible = true, ariaLabel }
     };
   }, [open]);
 
-  return (
+  const portalTarget = typeof document !== "undefined" ? document.body : null;
+  if (!portalTarget) return null;
+
+  return createPortal(
     <AnimatePresence>
       {open && (
         <motion.div
@@ -133,6 +143,7 @@ export function Modal({ open, onClose, children, dismissible = true, ariaLabel }
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    portalTarget,
   );
 }
