@@ -107,7 +107,6 @@ export function CustomExamHome() {
           </button>
         </div>
       ))}
-    </div>
     </>
   );
 }

@@ -174,7 +174,8 @@ export function CustomCreate() {
             >
               AI 识别并创建
             </button>
-          </div>}
+          </div>
+        )}
     </>
   );
 }

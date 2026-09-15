@@ -372,7 +372,6 @@ export function CustomExamDetail({ examId }: { examId: string }) {
             </button>
           </div>
         )}
-      </div>
     </>
   );
 }

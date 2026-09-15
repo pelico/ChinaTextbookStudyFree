@@ -107,7 +107,6 @@ export function CustomHome() {
               </button>
             </div>
           ))}
-        </div>
     </>
   );
 }
