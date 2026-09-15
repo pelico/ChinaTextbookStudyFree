@@ -123,13 +123,13 @@ export default async function GradePage({ params }: { params: Promise<{ grade: s
                 </div>
 
                 {/* 该学科的书本卡片 —— Duolingo 纯色块 + 厚底阴影 */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 lg:gap-5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 lg:gap-5">
                   {subjectBooks.map(book => (
                     <SoundLink
                       key={book.id}
                       href={`/book/${book.id}/`}
                       hapticIntensity="medium"
-                      className="duo-chunky-card group relative block rounded-2xl lg:rounded-3xl select-none overflow-hidden"
+                      className="duo-chunky-card group relative block rounded-2xl lg:rounded-3xl select-none overflow-hidden min-h-[88px] lg:min-h-[112px]"
                       style={{
                         backgroundColor: theme.bg,
                         boxShadow: `0 5px 0 0 ${theme.shadow}`,
