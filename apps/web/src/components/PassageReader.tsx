@@ -483,7 +483,9 @@ export function PassageReader({ passage, backHref, prevHref, prevTitle, nextHref
               type="button"
               onClick={() => setAutoPlay(v => !v)}
               className={cn(
-                "shrink-0 px-3 py-2 rounded-xl border text-xs font-extrabold transition-all",
+                "shrink-0 min-w-[72px] px-4 py-3 rounded-xl border text-xs font-extrabold transition-all",
+                "inline-flex items-center justify-center gap-1",
+                "min-h-[44px]",
                 autoPlay
                   ? "bg-primary text-white border-primary"
                   : "bg-white text-ink-light border-bg-softer hover:bg-bg-soft",
