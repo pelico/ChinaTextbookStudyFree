@@ -3,7 +3,7 @@ import path from "path";
 import { StatsBar } from "@/components/StatsBar";
 import { SoundLink } from "@/components/SoundLink";
 import { AppShell } from "@/components/layout/AppShell";
-import { ChangeGradeButton } from "@/components/ChangeGradeButton";
+import { GradeSwitcher } from "@/components/GradeSwitcher";
 import type { SiteIndex, SubjectId, Book } from "@/types";
 import { SUBJECTS } from "@/lib/subjects";
 
@@ -89,13 +89,11 @@ export default async function GradePage({ params }: { params: Promise<{ grade: s
         <div className="lg:hidden flex justify-end mb-4">
           <StatsBar compact />
         </div>
-        <div className="flex items-end justify-between gap-3 mb-5 lg:mb-8">
+        <div className="flex flex-wrap items-end justify-between gap-3 mb-5 lg:mb-8">
           <h1 className="text-2xl lg:text-4xl font-extrabold text-ink leading-tight truncate">
             {gradeName}年级
           </h1>
-          <div className="shrink-0">
-            <ChangeGradeButton />
-          </div>
+          <GradeSwitcher current={gradeNum} />
         </div>
       </div>
       <div className="w-full">

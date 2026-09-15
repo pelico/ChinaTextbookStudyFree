@@ -15,7 +15,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ComponentType, ReactNode } from "react";
+import { useMemo, type ComponentType, type ReactNode } from "react";
+import { useProgressStore } from "@/store/progress";
 import {
   Home as HomeIcon,
   HomeFill,
@@ -33,6 +34,7 @@ import {
 } from "@/components/icons";
 import { LightDarkToggle } from "@/components/LightDarkToggle";
 import { StatsBar } from "@/components/StatsBar";
+import { GradeSwitcher } from "@/components/GradeSwitcher";
 import { cn } from "@/lib/cn";
 import { playSfx } from "@/lib/sfx";
 import { haptic } from "@/lib/haptic";
@@ -79,6 +81,13 @@ interface SideNavProps {
 
 export function SideNav({ leftSlot }: SideNavProps = {}) {
   const pathname = usePathname() ?? "/";
+  // 当前所在年级：/grade/N/、/book/{id}/、/lesson/{unit}/{lesson}/ 三种路径都能反推到年级
+  const activeGrade = useMemo(() => {
+    const m = pathname.match(/^\/grade\/(\d+)/);
+    if (m) return Number(m[1]);
+    return null;
+  }, [pathname]);
+  const selectedGrade = useProgressStore(s => s.selectedGrade);
 
   return (
     <nav className="flex flex-col gap-2 w-full h-full" aria-label="主导航">
@@ -109,6 +118,13 @@ export function SideNav({ leftSlot }: SideNavProps = {}) {
          *   紧凑显示。 */}
       <div className="hidden lg:block mb-3">
         <StatsBar compact />
+      </div>
+
+      {/* 年级快速切换 —— 一排 6 颗紧凑按钮（无"年级"前缀），当前年级高亮
+          md (768-1023) 88px 窄栏里隐藏，lg+ 完整宽 260px 时显示在导航区上方。
+          用户在切换年级时无需先回首页选年级，顶部直接切。 */}
+      <div className="hidden lg:flex justify-center mb-2">
+        <GradeSwitcher current={activeGrade ?? selectedGrade ?? null} variant="compact" />
       </div>
 
       {/* 左列追加区（默认 SideRail：排行榜 + 每日任务）—— 紧贴 StatsBar 下方。
