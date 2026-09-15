@@ -1884,8 +1884,11 @@ export async function switchKid(newKidId: string) {
 }
 
 let _syncTimer: ReturnType<typeof setInterval> | null = null;
+let _pullTimer: ReturnType<typeof setInterval> | null = null;
 let _antiAddictionTimer: ReturnType<typeof setInterval> | null = null;
 let _kidChangedListener: (() => void) | null = null;
+let _focusListener: (() => void) | null = null;
+let _focusListenerWindow: (() => void) | null = null;
 
 export function teardownServerSync() {
   // C2: 全局定时器/监听器卸载清理。组件 unmount 或 HMR 时释放资源，
@@ -1893,6 +1896,10 @@ export function teardownServerSync() {
   if (_syncTimer) {
     clearInterval(_syncTimer);
     _syncTimer = null;
+  }
+  if (_pullTimer) {
+    clearInterval(_pullTimer);
+    _pullTimer = null;
   }
   if (_antiAddictionTimer) {
     clearInterval(_antiAddictionTimer);
@@ -1902,6 +1909,32 @@ export function teardownServerSync() {
     window.removeEventListener("kid-changed", _kidChangedListener);
     _kidChangedListener = null;
   }
+  if (_focusListener && typeof document !== "undefined") {
+    document.removeEventListener("visibilitychange", _focusListener);
+    _focusListener = null;
+  }
+  if (_focusListenerWindow && typeof window !== "undefined") {
+    window.removeEventListener("focus", _focusListenerWindow);
+    _focusListenerWindow = null;
+  }
+}
+
+/**
+ * 从服务端拉取当前 kid 的进度并合并到 store。
+ * 不修改服务端，仅 setState 本地。
+ */
+async function pullProgressFromServer(kidId: string) {
+  try {
+    const res = await fetch("/api/custom/sync/progress", {
+      headers: { "X-Kid-Id": kidId },
+    });
+    if (!res.ok) return;
+    const { progress } = await res.json();
+    if (!progress) return;
+    const local = useProgressStore.getState();
+    const merged = mergeProgressState(progress, local);
+    useProgressStore.setState(merged);
+  } catch {}
 }
 
 export async function initServerSync() {
@@ -1914,19 +1947,24 @@ export async function initServerSync() {
   //    拉取时按 kid 维度把所有 device 行合并成一份最佳状态。
   let deviceId = localStorage.getItem("csf-device-id");
   if (!deviceId) {
-    // crypto.randomUUID 在所有现代浏览器（含 iOS Safari 15.4+ / Android Chrome 92+）可用；
-    // 极端情况下退到自造 ID。绝不沿用 "unknown"，否则所有设备挤到同一行覆盖彼此。
     deviceId = (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
       ? crypto.randomUUID()
       : `dev-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     localStorage.setItem("csf-device-id", deviceId);
   }
 
-  // 0.5 启动顺序：先 push 当前 kid 数据，再 pull 服务端合并结果，
-  //     否则 pull 后的 setState 会覆盖掉本地刚发生的进度变更。
-  await pushProgressToServer(deviceId, kidId);
+  // === 重构后的启动顺序：pull 优先（pull-based 架构）===
+  //
+  // 用户设计理念："不急着 push 本地，先 pull 服务端，以服务端为主"。
+  // 实施：
+  //   1. 先 pull 服务端聚合数据（数值字段权威源）
+  //   2. 再 push 本地当前数据（保留本设备独有的最新变更）
+  // 这样：服务端被旧 bug 污染的值会被本地"反向覆盖"修复；服务端正常时
+  // 服务端值被信任为本设备没记录的最新状态。
+  //
+  // 防沉迷设置（每日时长等）是服务端权威，但跟进度合并无关，单独处理。
 
-  // 1. 拉取服务端防沉迷设置，覆盖本地
+  // 1. 拉取服务端防沉迷设置（覆盖本地）—— 服务端权威
   try {
     const res = await fetch("/api/custom/parent/public-settings");
     if (res.ok) {
@@ -1940,7 +1978,7 @@ export async function initServerSync() {
     }
   } catch {}
 
-  // 2. 拉取服务端进度并合并（按 kid_id，服务端负责跨设备合并）
+  // 2. 先 PULL 服务端聚合数据（按 kid_id 隔离）—— pull-based 核心
   try {
     const res = await fetch("/api/custom/sync/progress", {
       headers: { "X-Kid-Id": kidId },
@@ -1949,20 +1987,42 @@ export async function initServerSync() {
       const { progress } = await res.json();
       if (progress) {
         const local = useProgressStore.getState();
+        // mergeProgressState 内部：数值字段服务端优先，异常高值丢弃
+        // （污染自愈）；集合类并集；装备类非空优先
         const merged = mergeProgressState(progress, local);
         useProgressStore.setState(merged);
       }
     }
   } catch {}
 
-  // 3. 首次 pull 后再上报一次合并结果，确保服务端最终也持有最新视图
-  pushProgressToServer(deviceId, kidId);
+  // 3. pull 完成后，再 PUSH 当前本地状态（含本设备的最新变更，可能
+  //    比 pull 拿到的服务端值更大；同时把本地真实数据写回服务端以
+  //    修复旧 bug 留下的污染 row）。
+  //    用 push 异步、不 await（fire-and-forget），不阻塞后续定时器注册
+  await pushProgressToServer(deviceId, kidId);
 
-  // 4. 定时上报（每 60 秒）
+  // 4. 定时上报（每 60 秒 push）+ 定时拉取（每 30 秒 pull）。
+  //    pull 频率高于 push 是因为服务端数据是"其他设备的镜像"，更新更频繁。
   if (_syncTimer) clearInterval(_syncTimer);
   _syncTimer = setInterval(() => pushProgressToServer(deviceId, kidId), 60_000);
+  if (_pullTimer) clearInterval(_pullTimer);
+  _pullTimer = setInterval(() => pullProgressFromServer(kidId), 30_000);
 
-  // 5. 每 30 秒同步防沉迷设置（防止改本地绕过）
+  // 5. tab focus / visibilitychange 时立即 pull（用户切回页面看到最新数据）
+  if (typeof document !== "undefined") {
+    if (_focusListener) document.removeEventListener("visibilitychange", _focusListener);
+    _focusListener = () => {
+      if (document.visibilityState === "visible") {
+        pullProgressFromServer(kidId);
+      }
+    };
+    document.addEventListener("visibilitychange", _focusListener);
+    if (_focusListenerWindow) window.removeEventListener("focus", _focusListenerWindow);
+    _focusListenerWindow = () => pullProgressFromServer(kidId);
+    window.addEventListener("focus", _focusListenerWindow);
+  }
+
+  // 6. 每 30 秒同步防沉迷设置（防止改本地绕过）
   if (_antiAddictionTimer) clearInterval(_antiAddictionTimer);
   _antiAddictionTimer = setInterval(async () => {
     try {
@@ -1977,16 +2037,10 @@ export async function initServerSync() {
     } catch {}
   }, 30_000);
 
-  // 6. 监听 kid 切换事件 —— 仅作为兜底，主切换走 switchKid()
-  //    KidPicker.pickKid 已经调用 switchKid()，它自己负责 push + reload。
-  //    这里只兜底：万一有其它路径调 setActiveKidId()，listener 仍能刷新数据。
-  //    注意：kid-changed 触发时 csf-active-kid 已经是新 kid，但 store 还是旧
-  //    kid 的状态；不能再 push + reload（会和 KidPicker 双重 reload），只能
-  //    reload 一次让 store 重新按新 kid 的 localStorage key 加载。
+  // 7. 监听 kid 切换事件 —— 仅作为兜底，主切换走 switchKid()
   const onKidChanged = () => {
     window.location.reload();
   };
-  // 先清理可能的旧监听器，避免 HMR / 二次初始化时重复绑定
   if (_kidChangedListener) {
     window.removeEventListener("kid-changed", _kidChangedListener);
   }
@@ -1997,20 +2051,30 @@ export async function initServerSync() {
 function mergeProgressState(server: Record<string, any>, local: any): Partial<any> {
   const merged: Record<string, any> = {};
 
-  // === 数值类：取最优（更大值代表更多进度）===
-  // 但有"异常高值"防御：如果服务端某数值异常大于本地（>= 2x），极可能是
-  // 之前 kid 切换 bug 导致的 row_id 污染（旧 kid 数据写到了新 kid 的 row）。
-  // 此时拒绝服务端的异常高值，保留本地原值——避免污染的扩散（如果接受，
-  // pull 后 push 会把污染值再次写回服务端 row，污染"自我强化"）。
+  // === 数值类：服务端优先（pull-based 架构核心）===
+  // 之前是 Math.max(server, local) —— 双向取大。
+  // 改为：以服务端权威值为主，本地值仅在"服务端没记录"或"本地更新比
+  // 服务端新"时覆盖。这呼应用户的设计理念："不急着 push 本地，先
+  // pull 服务端，以服务端为主，本地是 cache"。
+  //
+  // 三种情况：
+  // 1. 服务端有值，本地无值（或 0）→ 用服务端
+  // 2. 服务端有值，本地也有值 → 用 max（保留本地最新变更）
+  // 3. 服务端 0 或缺失，本地有值 → 用本地
+  // 4. 服务端异常高（>= 本地 2 倍且 > 100）→ 视为污染，丢弃用本地
   for (const key of ["xp", "gems", "streak", "lifetimeGems", "streakFreezes"]) {
     const sv = server[key] ?? 0;
     const lv = (local as any)[key] ?? 0;
     if (lv > 0 && sv >= lv * 2 && sv > 100) {
-      // 服务端异常高（>= 本地 2 倍且 > 100），标记为污染，丢弃
+      // 服务端异常高 → 污染丢弃
       console.warn(`[sync] discarding suspicious server.${key}=${sv} (local=${lv}); likely row contamination`);
       merged[key] = lv;
+    } else if (lv > sv) {
+      // 本地更新比服务端新（pull 时本地刚刚发生的变更还没 push 上去）
+      merged[key] = lv;
     } else {
-      merged[key] = Math.max(sv, lv);
+      // 服务端值更大或相等 → 服务端权威
+      merged[key] = sv;
     }
   }
 
