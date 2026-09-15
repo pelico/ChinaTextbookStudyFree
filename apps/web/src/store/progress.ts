@@ -613,6 +613,58 @@ export function weekXpFromHistory(
 // Store
 // ============================================================
 
+// ============================================================
+// Delta 队列（模块级，不入 store）
+// ============================================================
+//
+// 每个 mutator 调用 queueDelta() 把"应该同步到服务端"的变更压入队列。
+// 60 秒定时器（或 pull 后 / 关键操作后）flush 这个队列到服务端 progress_baseline。
+//
+// 旧 snapshot 模式：客户端 push 整个 state，服务端跨设备合并 max/并集。
+// 钻石串号 bug 来自 max 放大 row_id 污染。
+//
+// 新 delta 模式：客户端 push 增量（"gems +5" / "装备 cat" / "集合加 skin_fox"），
+// 服务端累加到 baseline 单一权威行。
+// —— 即使某台设备上报了错误的 delta，污染也只发生在"该设备 + 该 kid"的视野内，
+// 其它设备的 baseline 仍然是对的（不像 snapshot 模式 max 全设备放大）。
+
+let _deltaQueue: Array<{ type: string; key?: string; value: any }> = [];
+let _deltaTimer: ReturnType<typeof setTimeout> | null = null;
+
+function queueDelta(delta: { type: string; key?: string; value: any }) {
+  _deltaQueue.push(delta);
+  // 防抖：5 秒内没有新 delta 就 flush
+  if (_deltaTimer) clearTimeout(_deltaTimer);
+  _deltaTimer = setTimeout(() => flushDeltas(), 5000);
+}
+
+async function flushDeltas(deviceId?: string, kidId?: string) {
+  if (_deltaTimer) {
+    clearTimeout(_deltaTimer);
+    _deltaTimer = null;
+  }
+  if (!_deltaQueue.length) return;
+  const deltas = _deltaQueue.splice(0, _deltaQueue.length);
+  const devId = deviceId || (typeof window !== "undefined" ? localStorage.getItem("csf-device-id") : null);
+  const kId = kidId || (typeof window !== "undefined" ? localStorage.getItem("csf-active-kid") : null);
+  if (!devId || !kId) return;
+  try {
+    await fetch("/api/custom/sync/progress", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        device_id: devId,
+        kid_id: kId,
+        device_name: typeof navigator !== "undefined" && navigator.userAgent.includes("Mobile") ? "手机" : "电脑",
+        deltas,
+      }),
+    });
+  } catch (e) {
+    // 失败不丢：把 delta 重新压回队列头
+    _deltaQueue = [...deltas, ..._deltaQueue];
+  }
+}
+
 export const useProgressStore = create<ProgressState>()(
   persist(
     (set, get) => ({
@@ -1125,6 +1177,20 @@ export const useProgressStore = create<ProgressState>()(
           };
         });
 
+        // === Delta 同步到服务端 baseline ===
+        // 课程通关产生的所有服务端权威状态变化（数值 + 集合）
+        if (outcome.xpGained) queueDelta({ type: "xp_delta", value: outcome.xpGained });
+        const totalGemsDelta = outcome.gemsGained + outcome.milestoneGems;
+        if (totalGemsDelta) {
+          queueDelta({ type: "gems_delta", value: totalGemsDelta });
+          queueDelta({ type: "lifetime_gems_delta", value: totalGemsDelta });
+        }
+        if (outcome.isFirstPerfect) {
+          queueDelta({ type: "set_add", key: "perfectedLessons", value: lessonId });
+        }
+        queueDelta({ type: "set_add", key: "completedLessons", value: lessonId });
+        queueDelta({ type: "set_add", key: "lessonHistory", value: today });
+
         // 通关后：如当前课程的错题都已掌握（用户通过），自动移除该课的错题
         // 保守起见：准确率 100% 才清理，否则保留待复习
         if (accuracy >= 0.999) {
@@ -1387,6 +1453,8 @@ export const useProgressStore = create<ProgressState>()(
           gems: state.gems + n,
           lifetimeGems: state.lifetimeGems + n,
         }));
+        queueDelta({ type: "gems_delta", value: n });
+        queueDelta({ type: "lifetime_gems_delta", value: n });
       },
 
       spendGems: n => {
@@ -1394,6 +1462,7 @@ export const useProgressStore = create<ProgressState>()(
         const { gems } = get();
         if (gems < n) return false;
         set({ gems: gems - n });
+        queueDelta({ type: "gems_delta", value: -n });
         return true;
       },
 
@@ -1401,6 +1470,7 @@ export const useProgressStore = create<ProgressState>()(
         const { perfectedLessons } = get();
         if (perfectedLessons[lessonId]) return false;
         set({ perfectedLessons: { ...perfectedLessons, [lessonId]: true } });
+        queueDelta({ type: "set_add", key: "perfectedLessons", value: lessonId });
         return true;
       },
 
@@ -1408,6 +1478,7 @@ export const useProgressStore = create<ProgressState>()(
         const { claimedChests } = get();
         if (claimedChests[chestId]) return false;
         set({ claimedChests: { ...claimedChests, [chestId]: true } });
+        queueDelta({ type: "set_add", key: "claimedChests", value: chestId });
         return true;
       },
 
@@ -1421,6 +1492,7 @@ export const useProgressStore = create<ProgressState>()(
         set(state => ({
           ownedCosmetics: { ...state.ownedCosmetics, [id]: true },
         }));
+        queueDelta({ type: "set_add", key: "ownedCosmetics", value: id });
       },
 
       purchaseCosmetic: id => {
@@ -1433,6 +1505,8 @@ export const useProgressStore = create<ProgressState>()(
           gems: state.gems - item.cost,
           ownedCosmetics: { ...state.ownedCosmetics, [id]: true },
         }));
+        queueDelta({ type: "gems_delta", value: -item.cost });
+        queueDelta({ type: "set_add", key: "ownedCosmetics", value: id });
         // 自动装备购买的道具
         get().equipCosmetic(id);
         return { ok: true };
@@ -1443,9 +1517,18 @@ export const useProgressStore = create<ProgressState>()(
         if (!item) return false;
         const { ownedCosmetics } = get();
         if (!ownedCosmetics[id]) return false;
-        if (item.type === "mascot_skin") set({ equippedMascotSkin: id });
-        else if (item.type === "ui_theme") set({ equippedTheme: id });
-        else if (item.type === "lesson_backdrop") set({ equippedBackdrop: id });
+        if (item.type === "mascot_skin") {
+          set({ equippedMascotSkin: id });
+          queueDelta({ type: "equip", key: "equipped_mascot_skin", value: id });
+        }
+        else if (item.type === "ui_theme") {
+          set({ equippedTheme: id });
+          queueDelta({ type: "equip", key: "equipped_theme", value: id });
+        }
+        else if (item.type === "lesson_backdrop") {
+          set({ equippedBackdrop: id });
+          queueDelta({ type: "equip", key: "equipped_backdrop", value: id });
+        }
         return true;
       },
 
@@ -1853,7 +1936,7 @@ export const useProgressStore = create<ProgressState>()(
  *
  *   KidPicker.pickKid 现在改为调用 switchKid(newKidId)，由它：
  *     1. 读 oldKidId = 当前 csf-active-kid
- *     2. pushProgressToServer(deviceId, oldKidId) —— 推送旧 kid 的 store 状态
+ *   1. flushDeltas(deviceId, oldKidId) —— 把本地 delta 队列推送给服务端 baseline
  *     3. localStorage.setItem(csf-active-kid, newKidId)
  *     4. window.location.reload() —— reload 后 store 会按 newKidId 从
  *        csf-progress-v1-{newKidId} 加载真实 B kid 数据，initServerSync
@@ -1869,14 +1952,13 @@ export async function switchKid(newKidId: string) {
   if (oldKidId === newKidId) return;
   const deviceId = localStorage.getItem("csf-device-id");
   if (!deviceId) {
-    // 没有 deviceId 就直接 reload，由 initServerSync 重新走流程
     localStorage.setItem("csf-active-kid", newKidId);
     window.location.reload();
     return;
   }
-  // 1. 推送旧 kid 的当前 store 状态（这是核心修复点：kid_id 必须是旧 kid）
+  // 1. flush delta 队列（push 当前 kid 的最新变更）
   try {
-    await pushProgressToServer(deviceId, oldKidId);
+    await flushDeltas(deviceId, oldKidId);
   } catch {}
   // 2. 切换 kid —— reload 后 store 会从 csf-progress-v1-{newKidId} 加载
   localStorage.setItem("csf-active-kid", newKidId);
@@ -1884,11 +1966,8 @@ export async function switchKid(newKidId: string) {
 }
 
 let _syncTimer: ReturnType<typeof setInterval> | null = null;
-let _pullTimer: ReturnType<typeof setInterval> | null = null;
 let _antiAddictionTimer: ReturnType<typeof setInterval> | null = null;
 let _kidChangedListener: (() => void) | null = null;
-let _focusListener: (() => void) | null = null;
-let _focusListenerWindow: (() => void) | null = null;
 
 export function teardownServerSync() {
   // C2: 全局定时器/监听器卸载清理。组件 unmount 或 HMR 时释放资源，
@@ -1896,10 +1975,6 @@ export function teardownServerSync() {
   if (_syncTimer) {
     clearInterval(_syncTimer);
     _syncTimer = null;
-  }
-  if (_pullTimer) {
-    clearInterval(_pullTimer);
-    _pullTimer = null;
   }
   if (_antiAddictionTimer) {
     clearInterval(_antiAddictionTimer);
@@ -1909,32 +1984,6 @@ export function teardownServerSync() {
     window.removeEventListener("kid-changed", _kidChangedListener);
     _kidChangedListener = null;
   }
-  if (_focusListener && typeof document !== "undefined") {
-    document.removeEventListener("visibilitychange", _focusListener);
-    _focusListener = null;
-  }
-  if (_focusListenerWindow && typeof window !== "undefined") {
-    window.removeEventListener("focus", _focusListenerWindow);
-    _focusListenerWindow = null;
-  }
-}
-
-/**
- * 从服务端拉取当前 kid 的进度并合并到 store。
- * 不修改服务端，仅 setState 本地。
- */
-async function pullProgressFromServer(kidId: string) {
-  try {
-    const res = await fetch("/api/custom/sync/progress", {
-      headers: { "X-Kid-Id": kidId },
-    });
-    if (!res.ok) return;
-    const { progress } = await res.json();
-    if (!progress) return;
-    const local = useProgressStore.getState();
-    const merged = mergeProgressState(progress, local);
-    useProgressStore.setState(merged);
-  } catch {}
 }
 
 export async function initServerSync() {
@@ -1942,9 +1991,7 @@ export async function initServerSync() {
 
   const kidId = localStorage.getItem("csf-active-kid") || "default";
 
-  // 0. 设备 ID 一次性生成并持久化。这是手机/电脑数据能合并的关键前提：
-  //    每个设备一个稳定 ID，服务端按 (kid_id, device_id) 存行，
-  //    拉取时按 kid 维度把所有 device 行合并成一份最佳状态。
+  // 0. 设备 ID 一次性生成并持久化。
   let deviceId = localStorage.getItem("csf-device-id");
   if (!deviceId) {
     deviceId = (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
@@ -1953,18 +2000,36 @@ export async function initServerSync() {
     localStorage.setItem("csf-device-id", deviceId);
   }
 
-  // === 重构后的启动顺序：pull 优先（pull-based 架构）===
-  //
-  // 用户设计理念："不急着 push 本地，先 pull 服务端，以服务端为主"。
-  // 实施：
-  //   1. 先 pull 服务端聚合数据（数值字段权威源）
-  //   2. 再 push 本地当前数据（保留本设备独有的最新变更）
-  // 这样：服务端被旧 bug 污染的值会被本地"反向覆盖"修复；服务端正常时
-  // 服务端值被信任为本设备没记录的最新状态。
-  //
-  // 防沉迷设置（每日时长等）是服务端权威，但跟进度合并无关，单独处理。
+  // 0.5 先 pull 服务端权威值，覆盖 localStorage 当前 kid 的 key。
+  //     delta 模式下服务端是单一权威源：pull 拿 progress_baseline 的快照，
+  //     直接覆盖 localStorage 即可。无需客户端 merge max —— 服务端已经维护
+  //     跨设备的权威状态（多设备的 +delta 已经在服务端累加完毕）。
+  try {
+    const res = await fetch("/api/custom/sync/progress", {
+      headers: { "X-Kid-Id": kidId },
+    });
+    if (res.ok) {
+      const { progress } = await res.json();
+      if (progress && typeof progress === "object") {
+        // 直接覆盖本地状态（不含设备特定字段）
+        const local = useProgressStore.getState();
+        const sanitized: any = { ...progress };
+        // 客户端独占字段（不动）
+        const clientOnlyKeys = [
+          "muted", "autoNarrate", "hearts", "nextHeartAt", "lastReviewHeartDate",
+          "activeLesson", "lastQuizAt", "activeBookId", "todayXp", "lastXpDate",
+          "dailyLessons", "dailyGoal", "dailyTimeLimitMs", "sessionTimeLimitMs",
+          "todayTimeMs", "lastTimeDate", "pendingStreakMilestone",
+        ];
+        for (const k of clientOnlyKeys) {
+          if (k in local) sanitized[k] = (local as any)[k];
+        }
+        useProgressStore.setState(sanitized);
+      }
+    }
+  } catch {}
 
-  // 1. 拉取服务端防沉迷设置（覆盖本地）—— 服务端权威
+  // 1. 拉取服务端防沉迷设置
   try {
     const res = await fetch("/api/custom/parent/public-settings");
     if (res.ok) {
@@ -1978,51 +2043,39 @@ export async function initServerSync() {
     }
   } catch {}
 
-  // 2. 先 PULL 服务端聚合数据（按 kid_id 隔离）—— pull-based 核心
-  try {
-    const res = await fetch("/api/custom/sync/progress", {
-      headers: { "X-Kid-Id": kidId },
-    });
-    if (res.ok) {
-      const { progress } = await res.json();
-      if (progress) {
-        const local = useProgressStore.getState();
-        // mergeProgressState 内部：数值字段服务端优先，异常高值丢弃
-        // （污染自愈）；集合类并集；装备类非空优先
-        const merged = mergeProgressState(progress, local);
-        useProgressStore.setState(merged);
-      }
-    }
-  } catch {}
+  // 2. flush 本地 delta 队列到服务端（如果有未上报的 delta）
+  flushDeltas(deviceId, kidId).catch(() => {});
 
-  // 3. pull 完成后，再 PUSH 当前本地状态（含本设备的最新变更，可能
-  //    比 pull 拿到的服务端值更大；同时把本地真实数据写回服务端以
-  //    修复旧 bug 留下的污染 row）。
-  //    用 push 异步、不 await（fire-and-forget），不阻塞后续定时器注册
-  await pushProgressToServer(deviceId, kidId);
-
-  // 4. 定时上报（每 60 秒 push）+ 定时拉取（每 30 秒 pull）。
-  //    pull 频率高于 push 是因为服务端数据是"其他设备的镜像"，更新更频繁。
+  // 3. 定时上报（每 60 秒）—— 触发 delta flush 而非 push snapshot
   if (_syncTimer) clearInterval(_syncTimer);
-  _syncTimer = setInterval(() => pushProgressToServer(deviceId, kidId), 60_000);
-  if (_pullTimer) clearInterval(_pullTimer);
-  _pullTimer = setInterval(() => pullProgressFromServer(kidId), 30_000);
+  _syncTimer = setInterval(() => {
+    // 优先 flush 本地 delta 队列；队列为空时拉取服务端一次确认一致
+    if (_deltaQueue.length > 0) {
+      flushDeltas(deviceId, kidId).catch(() => {});
+    } else {
+      // 拉一次确认服务端一致（不强制覆盖）
+      fetch("/api/custom/sync/progress", { headers: { "X-Kid-Id": kidId } })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+          if (d?.progress) {
+            // 不主动覆盖本地（避免覆盖本设备刚刚的本地变更）；只更新权威数值
+            const local = useProgressStore.getState();
+            const server = d.progress;
+            const updates: any = {};
+            // 数值字段：以服务端为权威（delta 模式下服务端是单一来源）
+            for (const k of ["xp", "gems", "lifetimeGems", "streak", "streakFreezes"]) {
+              const sv = Number(server[k] ?? 0);
+              const lv = Number((local as any)[k] ?? 0);
+              // 服务端值与本地差异 > 0 时信任服务端（pull 是 pull snapshot）
+              if (sv !== lv) updates[k] = sv;
+            }
+            if (Object.keys(updates).length) useProgressStore.setState(updates);
+          }
+        }).catch(() => {});
+    }
+  }, 60_000);
 
-  // 5. tab focus / visibilitychange 时立即 pull（用户切回页面看到最新数据）
-  if (typeof document !== "undefined") {
-    if (_focusListener) document.removeEventListener("visibilitychange", _focusListener);
-    _focusListener = () => {
-      if (document.visibilityState === "visible") {
-        pullProgressFromServer(kidId);
-      }
-    };
-    document.addEventListener("visibilitychange", _focusListener);
-    if (_focusListenerWindow) window.removeEventListener("focus", _focusListenerWindow);
-    _focusListenerWindow = () => pullProgressFromServer(kidId);
-    window.addEventListener("focus", _focusListenerWindow);
-  }
-
-  // 6. 每 30 秒同步防沉迷设置（防止改本地绕过）
+  // 4. 每 30 秒同步防沉迷设置（防止改本地绕过）
   if (_antiAddictionTimer) clearInterval(_antiAddictionTimer);
   _antiAddictionTimer = setInterval(async () => {
     try {
@@ -2037,7 +2090,7 @@ export async function initServerSync() {
     } catch {}
   }, 30_000);
 
-  // 7. 监听 kid 切换事件 —— 仅作为兜底，主切换走 switchKid()
+  // 5. 监听 kid 切换事件 —— 仅作为兜底，主切换走 switchKid()
   const onKidChanged = () => {
     window.location.reload();
   };
@@ -2048,148 +2101,10 @@ export async function initServerSync() {
   _kidChangedListener = onKidChanged;
 }
 
-function mergeProgressState(server: Record<string, any>, local: any): Partial<any> {
-  const merged: Record<string, any> = {};
-
-  // === 数值类：服务端优先（pull-based 架构核心）===
-  // 之前是 Math.max(server, local) —— 双向取大。
-  // 改为：以服务端权威值为主，本地值仅在"服务端没记录"或"本地更新比
-  // 服务端新"时覆盖。这呼应用户的设计理念："不急着 push 本地，先
-  // pull 服务端，以服务端为主，本地是 cache"。
-  //
-  // 三种情况：
-  // 1. 服务端有值，本地无值（或 0）→ 用服务端
-  // 2. 服务端有值，本地也有值 → 用 max（保留本地最新变更）
-  // 3. 服务端 0 或缺失，本地有值 → 用本地
-  // 4. 服务端异常高（>= 本地 2 倍且 > 100）→ 视为污染，丢弃用本地
-  for (const key of ["xp", "gems", "streak", "lifetimeGems", "streakFreezes"]) {
-    const sv = server[key] ?? 0;
-    const lv = (local as any)[key] ?? 0;
-    if (lv > 0 && sv >= lv * 2 && sv > 100) {
-      // 服务端异常高 → 污染丢弃
-      console.warn(`[sync] discarding suspicious server.${key}=${sv} (local=${lv}); likely row contamination`);
-      merged[key] = lv;
-    } else if (lv > sv) {
-      // 本地更新比服务端新（pull 时本地刚刚发生的变更还没 push 上去）
-      merged[key] = lv;
-    } else {
-      // 服务端值更大或相等 → 服务端权威
-      merged[key] = sv;
-    }
-  }
-
-  // === 集合类（Object-as-Set）：并集 ===
-  // 任何一端出现的 id 都保留，不会被"对方没记录"覆盖为空
-  for (const key of ["completedLessons", "unlockedAchievements",
-                      "xpHistory", "lessonHistory", "claimedQuests", "claimedChests",
-                      "completedReadings", "perfectedLessons"]) {
-    merged[key] = { ...(server[key] ?? {}), ...((local as any)[key] ?? {}) };
-  }
-
-  // === 装备类（非空优先）：本地未装备但服务端装备了 → 沿用服务端；反之亦然 ===
-  // 解决"在手机上买皮肤、电脑一拉就没了"的根本问题
-  for (const key of ["equippedMascotSkin", "equippedTheme", "equippedBackdrop"]) {
-    const sv = server[key];
-    const lv = (local as any)[key];
-    merged[key] = (lv && lv !== "") ? lv : (sv || lv || "");
-  }
-
-  // === 集合类（ownedCosmetics）：并集，买了就不能丢 ===
-  const svOwned = (server.ownedCosmetics && typeof server.ownedCosmetics === "object") ? server.ownedCosmetics : {};
-  const lvOwned = (local && local.ownedCosmetics && typeof local.ownedCosmetics === "object") ? local.ownedCosmetics : {};
-  merged.ownedCosmetics = { ...svOwned, ...lvOwned };
-
-  // === claimedStreakRewards：并集，奖励不可重复领取但也不应丢 ===
-  merged.claimedStreakRewards = {
-    ...(server.claimedStreakRewards ?? {}),
-    ...((local && local.claimedStreakRewards) ?? {}),
-  };
-
-  // === reports（题目报错列表）：按时间戳去重并集 ===
-  const svReports = Array.isArray(server.reports) ? server.reports : [];
-  const lvReports = Array.isArray((local as any).reports) ? (local as any).reports : [];
-  const reportSeen = new Set<string>();
-  merged.reports = [...lvReports, ...svReports].filter(r => {
-    const k = `${r.questionId || ""}@${r.ts || r.timestamp || ""}`;
-    if (!k || k === "@") return true;
-    if (reportSeen.has(k)) return false;
-    reportSeen.add(k);
-    return true;
-  });
-
-  // === 联赛状态：取最新的（按 weekKey 字典序）===
-  const svWk = server.leagueWeekKey || "";
-  const lvWk = (local && local.leagueWeekKey) || "";
-  if (svWk > lvWk) {
-    merged.leagueWeekKey = svWk;
-    merged.leagueTier = server.leagueTier || (local && local.leagueTier);
-    merged.leagueSalt = server.leagueSalt || (local && local.leagueSalt);
-    merged.pendingLeagueResult = server.pendingLeagueResult || null;
-  } else {
-    merged.leagueWeekKey = lvWk;
-    merged.leagueTier = (local && local.leagueTier) || server.leagueTier;
-    merged.leagueSalt = (local && local.leagueSalt) || server.leagueSalt;
-    merged.pendingLeagueResult = (local && local.pendingLeagueResult) || server.pendingLeagueResult || null;
-  }
-
-  // === Array-type key: mistakesBank — concat and deduplicate by lessonId+questionId ===
-  const localMistakes = Array.isArray((local as any).mistakesBank) ? (local as any).mistakesBank : [];
-  const serverMistakes = Array.isArray(server.mistakesBank) ? server.mistakesBank : [];
-  const seen = new Set<string>();
-  const mergedMistakes = [...localMistakes, ...serverMistakes].filter(m => {
-    const k = `${m.lessonId}:${m.questionId}`;
-    if (seen.has(k)) return false;
-    seen.add(k);
-    return true;
-  });
-  merged.mistakesBank = mergedMistakes;
-  return merged;
-}
-
-async function pushProgressToServer(deviceId?: string, kidId?: string) {
-  try {
-    const state = useProgressStore.getState() as any;
-    // 兜底：理论上 initServerSync 已经注入并持久化 deviceId；这里仅在
-    // 非预期路径（如被外部直接调用）下回退，不使用 "unknown" 避免覆盖冲突
-    const devId = deviceId || localStorage.getItem("csf-device-id") || `dev-${Date.now()}`;
-    let kId = kidId || localStorage.getItem("csf-active-kid") || "default";
-    // === 防污染不变量 ===
-    // 服务端按 row_id = (kid_id, device_id) 分行写入并按 kid 维度合并。
-    // 如果 kidId 参数与 store 实际归属的 kid 不一致（zustand persist 的
-    // name 在模块加载时确定，kid 切换有短暂窗口 store≠localStorage kid），
-    // 会把旧 kid 的状态写入新 kid 的 row，引发"切到 B kid 看到 A 的钻石"
-    // 这类污染。
-    //
-    // 不变量：store 数据的归属 kid == push 的 kid_id。
-    //
-    // 实现：caller 显式传 kidId → 信任 caller（switchKid/initServerSync/
-    // 定时器闭包都已经做过归属校验）。caller 没传（兜底路径）才校验：
-    // 通过 zustand persist 当前 name 反推 store 真实归属 kid（这是最可靠的
-    // 来源，比 localStorage.csf-active-kid 更准，因为后者会因 kid 切换而
-    // 暂时跟 store 错配）。
-    if (kidId === undefined && typeof window !== "undefined") {
-      try {
-        // 读取当前 zustand persist 的 name：一定是模块加载时算的 key，
-        // 因此就是当前 store 真实归属的 kid
-        const persistName = (useProgressStore as any).persist?.getOptions?.()?.name;
-        if (typeof persistName === "string" && persistName.startsWith("csf-progress-v1")) {
-          const derivedKid = persistName === "csf-progress-v1" ? "default" : persistName.slice("csf-progress-v1-".length);
-          if (derivedKid !== kId) {
-            console.warn(`[sync] fallback kid mismatch: csf-active-kid=${kId} store_kid=${derivedKid}; using store kid`);
-            kId = derivedKid;
-          }
-        }
-      } catch {}
-    }
-    await fetch("/api/custom/sync/progress", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        device_id: devId,
-        kid_id: kId,
-        device_name: navigator.userAgent.includes("Mobile") ? "手机" : "电脑",
-        progress: state,
-      }),
-    });
-  } catch {}
-}
+// 注：旧的 pushProgressToServer + mergeProgressState 已删除。
+// delta 模式下，服务端 progress_baseline 是单一权威源。
+// - 服务端写入：每个 mutator 调用 queueDelta() 入队，5 秒后 flushDeltas()
+//   推送给服务端 apply_delta 累加到 baseline。
+// - 服务端读取：initServerSync 启动时直接 pull 服务端权威值覆盖本地 store
+//   （保留客户端独占字段如 dailyTimeLimitMs 等）。
+// 不再有跨设备 max/并集合并——污染无源可起。

@@ -213,6 +213,129 @@ def init_db():
     conn.execute("CREATE INDEX IF NOT EXISTS idx_progress_kid ON progress_sync(kid_id)")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_progress_kid_dev ON progress_sync(kid_id, device_id)")
 
+    # === Delta 模式权威进度表 ===
+    # 每个 kid 一行"权威基线"，所有客户端 push 的 delta 累加到这一行。
+    # pull 读这一行就是权威值，不再跨设备合并多份 snapshot。
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS progress_baseline (
+            kid_id              TEXT PRIMARY KEY,
+            xp                  INTEGER NOT NULL DEFAULT 0,
+            gems                INTEGER NOT NULL DEFAULT 0,
+            streak              INTEGER NOT NULL DEFAULT 0,
+            lifetime_gems       INTEGER NOT NULL DEFAULT 0,
+            streak_freezes      INTEGER NOT NULL DEFAULT 0,
+            equipped_mascot_skin TEXT NOT NULL DEFAULT '',
+            equipped_theme      TEXT NOT NULL DEFAULT '',
+            equipped_backdrop   TEXT NOT NULL DEFAULT '',
+            league_tier         TEXT NOT NULL DEFAULT '',
+            league_week_key     TEXT NOT NULL DEFAULT '',
+            league_salt         TEXT NOT NULL DEFAULT '',
+            selected_grade      TEXT NOT NULL DEFAULT '',
+            created_at          TEXT NOT NULL,
+            updated_at          TEXT NOT NULL
+        );
+    """)
+    # delta 审计日志（可重算、可追溯）
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS progress_ledger (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            kid_id      TEXT NOT NULL,
+            device_id   TEXT NOT NULL,
+            delta_type  TEXT NOT NULL,
+            delta_key   TEXT NOT NULL,
+            delta_value TEXT NOT NULL,
+            created_at  TEXT NOT NULL
+        );
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ledger_kid ON progress_ledger(kid_id)")
+    # 集合类并集表（ownedCosmetics / completedLessons 等）
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS progress_sets (
+            kid_id      TEXT NOT NULL,
+            set_name    TEXT NOT NULL,
+            set_key     TEXT NOT NULL,
+            PRIMARY KEY (kid_id, set_name, set_key)
+        );
+    """)
+    # === 一次性迁移：从 snapshot 模式升级到 delta 模式 ===
+    # 老 progress_sync 表里每行有 progress_json（一份完整快照），
+    # 这里取该 kid 下"gems 最大的行"作为初始基线（粗略去重），剩余 snapshot
+    # 行保留但不再用。客户端升级后只 push delta，pull 读 baseline。
+    try:
+        kid_ids_with_baseline = {r["kid_id"] for r in conn.execute("SELECT kid_id FROM progress_baseline")}
+        all_kid_ids = {r["kid_id"] for r in conn.execute(
+            "SELECT DISTINCT kid_id FROM progress_sync WHERE progress_json IS NOT NULL"
+        )}
+        for kid_id in all_kid_ids - kid_ids_with_baseline:
+            # 取该 kid 下最大 gems 值的 snapshot 行作为初始基线（多设备竞争场景下
+            # 最大值最有可能是正确的；如果有之前的 row_id 污染数据，
+            # —— 之前的 max 也会放大污染，但客户端现在可以 push delta 重置它）
+            row = conn.execute("""
+                SELECT progress_json FROM progress_sync
+                WHERE kid_id = ? ORDER BY gems DESC, last_sync_at DESC LIMIT 1
+            """, (kid_id,)).fetchone()
+            if not row:
+                continue
+            try:
+                state = json.loads(row["progress_json"])
+                if not isinstance(state, dict):
+                    continue
+            except (json.JSONDecodeError, TypeError):
+                continue
+            now = now_iso()
+            def _int_field(k):
+                try:
+                    return max(0, int(state.get(k, 0) or 0))
+                except (TypeError, ValueError):
+                    return 0
+            def _str_field(k):
+                v = state.get(k, "")
+                return str(v) if v is not None else ""
+            conn.execute("""
+                INSERT OR IGNORE INTO progress_baseline
+                (kid_id, xp, gems, streak, lifetime_gems, streak_freezes,
+                 equipped_mascot_skin, equipped_theme, equipped_backdrop,
+                 league_tier, league_week_key, league_salt, selected_grade,
+                 created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                kid_id,
+                _int_field("xp"),
+                _int_field("gems"),
+                _int_field("streak"),
+                _int_field("lifetimeGems"),
+                _int_field("streakFreezes"),
+                _str_field("equippedMascotSkin"),
+                _str_field("equippedTheme"),
+                _str_field("equippedBackdrop"),
+                _str_field("leagueTier"),
+                _str_field("leagueWeekKey"),
+                _str_field("leagueSalt"),
+                _str_field("selectedGrade"),
+                now, now,
+            ))
+            # 集合类也迁一遍
+            set_names = [
+                "ownedCosmetics", "completedLessons", "unlockedAchievements",
+                "xpHistory", "lessonHistory", "claimedQuests", "claimedChests",
+                "completedReadings", "perfectedLessons", "claimedStreakRewards",
+            ]
+            for sn in set_names:
+                obj = state.get(sn)
+                if not isinstance(obj, dict):
+                    continue
+                for k in obj:
+                    try:
+                        conn.execute(
+                            "INSERT OR IGNORE INTO progress_sets (kid_id, set_name, set_key) VALUES (?, ?, ?)",
+                            (kid_id, sn, str(k)),
+                        )
+                    except Exception:
+                        pass
+    except Exception as e:
+        print(f"[warn] baseline migration skipped: {e}")
+    conn.commit()
+
     # 真题库
     conn.execute("""
     CREATE TABLE IF NOT EXISTS exams (
@@ -255,6 +378,219 @@ def init_db():
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+# ============================================================
+# Delta 模式：apply_delta + get_progress_for_kid
+# ============================================================
+#
+# 旧 snapshot 模式：客户端 push 整个 state，服务端按 kid 维度 merge max/并集
+# —— 容易出现 row_id 污染后 max 放大的 bug（之前的钻石串号）。
+#
+# 新 delta 模式：每个 kid 在 progress_baseline 里有一行"权威基线"，客户端
+# push 的不是完整 state 而是增量（"gems +5" / "装备皮肤 cat" / "集合加 skin_fox"），
+# 服务端把 delta 累加/覆盖/插入到 baseline + sets。
+# pull 直接读 baseline，是单数据源，不需要跨设备合并，杜绝污染扩散。
+#
+# 字段说明：
+#   delta.type:
+#     - "xp_delta" / "gems_delta" / "streak_delta" /
+#       "lifetime_gems_delta" / "streak_freezes_delta"
+#       delta.value 是整数（可正可负，累加到底层）
+#     - "equip"
+#       delta.key = 字段名（equipped_mascot_skin / equipped_theme / equipped_backdrop /
+#                          league_tier / league_week_key / league_salt / selected_grade）
+#       delta.value = 新值（字符串）
+#     - "set_add"
+#       delta.key = 集合名（ownedCosmetics / completedLessons 等）
+#       delta.value = 要加入的 key（去重）
+#     - "set_remove"  —— 可选，当前不实现
+#     - "reset"  —— 紧急用，把 kid 的 baseline 清零（家长授权时）
+#
+# 兼容：
+#   旧客户端 push 的"完整 snapshot"格式仍可走旧路径（INSERT OR REPLACE progress_sync），
+#   升级后客户端只 push delta，服务端只读 baseline。
+#   一次性 migration 在 init_db 末尾执行，把 progress_sync 现有快照迁移到 baseline。
+
+_EQUIP_FIELDS = {
+    "equipped_mascot_skin", "equipped_theme", "equipped_backdrop",
+    "league_tier", "league_week_key", "league_salt", "selected_grade",
+}
+
+_DELTA_INT_FIELDS = {
+    "xp_delta": "xp",
+    "gems_delta": "gems",
+    "streak_delta": "streak",
+    "lifetime_gems_delta": "lifetime_gems",
+    "streak_freezes_delta": "streak_freezes",
+}
+
+
+def _ensure_baseline(conn, kid_id):
+    """确保该 kid 的 baseline 行存在，返回行 dict。"""
+    row = conn.execute(
+        "SELECT * FROM progress_baseline WHERE kid_id = ?", (kid_id,)
+    ).fetchone()
+    if row:
+        return {k: row[k] for k in row.keys()}
+    now = now_iso()
+    conn.execute(
+        "INSERT OR IGNORE INTO progress_baseline (kid_id, created_at, updated_at) VALUES (?, ?, ?)",
+        (kid_id, now, now),
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT * FROM progress_baseline WHERE kid_id = ?", (kid_id,)
+    ).fetchone()
+    if not row:
+        return None
+    return {k: row[k] for k in row.keys()}
+
+
+def apply_delta(conn, kid_id, device_id, deltas):
+    """把客户端 push 的 delta 列表应用到 baseline。
+
+    返回更新后的 baseline 行 dict。
+    """
+    if not isinstance(deltas, list):
+        return None
+    baseline = _ensure_baseline(conn, kid_id)
+    if not baseline:
+        return None
+    now = now_iso()
+    int_updates = {}
+    equip_updates = {}
+    for d in deltas:
+        if not isinstance(d, dict):
+            continue
+        dtype = str(d.get("type", ""))[:32]
+        dkey = str(d.get("key", ""))[:64]
+        # delta value 解析
+        raw_value = d.get("value", 0)
+        # 整数 delta：累加
+        if dtype in _DELTA_INT_FIELDS:
+            try:
+                iv = int(raw_value)
+            except (TypeError, ValueError):
+                continue
+            col = _DELTA_INT_FIELDS[dtype]
+            new_v = int(baseline.get(col, 0)) + iv
+            if new_v < 0:
+                new_v = 0
+            int_updates[col] = new_v
+            # 写 ledger
+            conn.execute(
+                "INSERT INTO progress_ledger (kid_id, device_id, delta_type, delta_key, delta_value, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (kid_id, device_id, dtype, col, str(iv), now),
+            )
+        # 装备/状态类：覆盖
+        elif dtype == "equip":
+            if dkey not in _EQUIP_FIELDS:
+                continue
+            sv = "" if raw_value is None else str(raw_value)[:128]
+            equip_updates[dkey] = sv
+            conn.execute(
+                "INSERT INTO progress_ledger (kid_id, device_id, delta_type, delta_key, delta_value, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (kid_id, device_id, "equip", dkey, sv, now),
+            )
+        # 集合 add
+        elif dtype == "set_add":
+            if not dkey or raw_value is None:
+                continue
+            sv = str(raw_value)[:128]
+            try:
+                conn.execute(
+                    "INSERT OR IGNORE INTO progress_sets (kid_id, set_name, set_key) VALUES (?, ?, ?)",
+                    (kid_id, dkey, sv),
+                )
+            except Exception:
+                pass
+            conn.execute(
+                "INSERT INTO progress_ledger (kid_id, device_id, delta_type, delta_key, delta_value, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (kid_id, device_id, "set_add", dkey, sv, now),
+            )
+        # 紧急重置（家长授权后可调）
+        elif dtype == "reset":
+            int_updates = {k: 0 for k in _DELTA_INT_FIELDS.values()}
+            equip_updates = {k: "" for k in _EQUIP_FIELDS}
+            try:
+                conn.execute("DELETE FROM progress_sets WHERE kid_id = ?", (kid_id,))
+            except Exception:
+                pass
+            conn.execute(
+                "INSERT INTO progress_ledger (kid_id, device_id, delta_type, delta_key, delta_value, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (kid_id, device_id, "reset", "", "", now),
+            )
+    # 写回 baseline（单次 UPDATE，包含所有累积）
+    if int_updates or equip_updates:
+        sets = []
+        params = []
+        for k, v in int_updates.items():
+            sets.append(f"{k} = ?")
+            params.append(v)
+            baseline[k] = v
+        for k, v in equip_updates.items():
+            sets.append(f"{k} = ?")
+            params.append(v)
+            baseline[k] = v
+        sets.append("updated_at = ?")
+        params.append(now)
+        params.append(kid_id)
+        try:
+            conn.execute(
+                f"UPDATE progress_baseline SET {', '.join(sets)} WHERE kid_id = ?",
+                params,
+            )
+            conn.commit()
+        except Exception as e:
+            print(f"[warn] baseline update failed: {e}")
+            return None
+    return baseline
+
+
+def get_progress_for_kid(conn, kid_id):
+    """pull 接口用：读 baseline + sets 组装成客户端期望的 progress JSON 格式。
+
+    如果该 kid 没有 baseline 行（极少见，migration 通常会建好），返回 None，
+    让 caller 回退到 snapshot 路径。
+    """
+    row = conn.execute(
+        "SELECT * FROM progress_baseline WHERE kid_id = ?", (kid_id,)
+    ).fetchone()
+    if not row:
+        return None
+    baseline = {k: row[k] for k in row.keys()}
+    progress = {
+        "xp": int(baseline.get("xp", 0)),
+        "gems": int(baseline.get("gems", 0)),
+        "streak": int(baseline.get("streak", 0)),
+        "lifetimeGems": int(baseline.get("lifetime_gems", 0)),
+        "streakFreezes": int(baseline.get("streak_freezes", 0)),
+        "equippedMascotSkin": str(baseline.get("equipped_mascot_skin", "") or ""),
+        "equippedTheme": str(baseline.get("equipped_theme", "") or ""),
+        "equippedBackdrop": str(baseline.get("equipped_backdrop", "") or ""),
+        "leagueTier": str(baseline.get("league_tier", "") or ""),
+        "leagueWeekKey": str(baseline.get("league_week_key", "") or ""),
+        "leagueSalt": str(baseline.get("league_salt", "") or ""),
+        "selectedGrade": str(baseline.get("selected_grade", "") or ""),
+    }
+    # 集合类
+    set_names = [
+        "ownedCosmetics", "completedLessons", "unlockedAchievements",
+        "xpHistory", "lessonHistory", "claimedQuests", "claimedChests",
+        "completedReadings", "perfectedLessons", "claimedStreakRewards",
+    ]
+    rows = conn.execute(
+        "SELECT set_name, set_key FROM progress_sets WHERE kid_id = ?", (kid_id,)
+    ).fetchall()
+    bucket = {sn: {} for sn in set_names}
+    for r in rows:
+        sn = r["set_name"]
+        if sn in bucket:
+            bucket[sn][r["set_key"]] = True
+    for sn, obj in bucket.items():
+        progress[sn] = obj
+    return progress
 
 
 # ============================================================
@@ -1899,25 +2235,31 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                 return
 
             # /sync/progress — 拉取合并后的进度（按 kid_id 隔离）
+            # 优先读 progress_baseline（delta 模式权威源）；若该 kid 还没有
+            # baseline，回退到旧的 progress_sync 快照（兼容老客户端）。
             if parts == ["sync", "progress"]:
                 kid_id = self.headers.get("X-Kid-Id", "default")
                 conn = get_db()
                 try:
-                    rows = conn.execute(
-                        "SELECT progress_json FROM progress_sync WHERE kid_id = ? ORDER BY last_sync_at",
-                        (kid_id,)
-                    ).fetchall()
-                    if not rows:
-                        self._send_json({"progress": None})
-                        return
-                    merged = None
-                    for r in rows:
-                        state = json.loads(r["progress_json"])
-                        if merged is None:
-                            merged = state
-                        else:
-                            merged = merge_progress(merged, state)
-                    self._send_json({"progress": merged})
+                    progress = get_progress_for_kid(conn, kid_id)
+                    if progress is None:
+                        # 回退：读旧 snapshot 行并合并
+                        rows = conn.execute(
+                            "SELECT progress_json FROM progress_sync WHERE kid_id = ? ORDER BY last_sync_at",
+                            (kid_id,)
+                        ).fetchall()
+                        if not rows:
+                            self._send_json({"progress": None})
+                            return
+                        merged = None
+                        for r in rows:
+                            state = json.loads(r["progress_json"])
+                            if merged is None:
+                                merged = state
+                            else:
+                                merged = merge_progress(merged, state)
+                        progress = merged
+                    self._send_json({"progress": progress})
                 finally:
                     conn.close()
                 return
@@ -2207,11 +2549,33 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                 return
 
             # /sync/progress — 上报进度（含 kid_id）
+            # 两种格式：
+            #   1. delta 模式（新）：body 里有 "deltas" 列表，每条是增量操作
+            #      服务端 apply_delta 累加到 progress_baseline。
+            #   2. snapshot 模式（旧）：body 里有 "progress" 字典
+            #      服务端写 progress_sync 行（旧表，保留兼容）。
+            # 检测：有 "deltas" 字段就走 delta 路径，否则走 snapshot 路径。
             if parts == ["sync", "progress"]:
                 data = self._read_json()
                 device_id = str(data.get("device_id", "unknown"))[:64]
                 kid_id = str(data.get("kid_id", "default"))[:64]
                 device_name = str(data.get("device_name", ""))[:128]
+                deltas = data.get("deltas")
+                if isinstance(deltas, list):
+                    # Delta 模式：累加到 baseline
+                    conn = get_db()
+                    try:
+                        baseline = apply_delta(conn, kid_id, device_id, deltas)
+                        self._send_json({
+                            "ok": True,
+                            "mode": "delta",
+                            "baseline_gems": baseline["gems"] if baseline else 0,
+                            "baseline_xp": baseline["xp"] if baseline else 0,
+                        })
+                    finally:
+                        conn.close()
+                    return
+                # Snapshot 模式（旧客户端兼容）
                 progress = data.get("progress", {})
                 if not isinstance(progress, dict):
                     progress = {}
@@ -2235,7 +2599,7 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                     conn.commit()
                 finally:
                     conn.close()
-                self._send_json({"ok": True})
+                self._send_json({"ok": True, "mode": "snapshot"})
                 return
 
             # /exams — 创建真题
