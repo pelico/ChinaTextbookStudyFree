@@ -58,7 +58,7 @@ export default async function ReadingHomePage() {
               {sortedPassage.length} 本教材
             </span>
           </div>
-          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
+          <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
             {sortedPassage.map(book => (
               <SoundLink
                 key={book.id}
@@ -94,7 +94,7 @@ export default async function ReadingHomePage() {
               {sortedStories.length} 本教材
             </span>
           </div>
-          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
+          <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
             {sortedStories.map(book => (
               <SoundLink
                 key={book.id}

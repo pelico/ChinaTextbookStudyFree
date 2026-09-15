@@ -274,7 +274,7 @@ export function WorksheetClient({ books }: Props) {
     <main className="min-h-screen bg-bg-soft pb-20 md:pb-8">
       {/* 顶栏 */}
       <header className="sticky top-0 z-30 bg-white border-b border-bg-softer px-4 py-3 md:px-6">
-        <div className="flex items-center gap-3 max-w-3xl mx-auto">
+        <div className="flex items-center gap-3">
           <Link href="/" className="text-ink-softer hover:text-ink transition-colors">
             <ArrowLeft className="w-5 h-5" />
           </Link>
@@ -799,7 +799,7 @@ function PrintPreview({
     <>
       {/* 屏幕上的操作栏（打印时隐藏） */}
       <div className="no-print sticky top-0 z-30 bg-white border-b border-bg-softer px-4 py-3 md:px-6">
-        <div className="flex items-center gap-3 max-w-3xl mx-auto">
+        <div className="flex items-center gap-3">
           <button onClick={onBack} className="text-ink-softer hover:text-ink transition-colors flex items-center gap-1.5">
             <ArrowLeft className="w-5 h-5" />
             <span className="text-sm font-bold">返回</span>

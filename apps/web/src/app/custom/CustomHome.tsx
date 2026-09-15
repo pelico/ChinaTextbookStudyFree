@@ -96,7 +96,7 @@ export function CustomHome() {
           </div>
         )}
 
-        <div className="space-y-3 lg:grid lg:gap-3 [grid-template-columns:repeat(auto-fill,minmax(360px,1fr))]">
+        <div className="space-y-3 lg:grid lg:gap-3 [grid-template-columns:repeat(auto-fit,minmax(360px,1fr))]">
           {books.map(book => (
             <div
               key={book.id}

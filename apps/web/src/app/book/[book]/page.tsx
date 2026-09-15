@@ -38,7 +38,7 @@ export default async function BookPage({ params }: { params: Promise<{ book: str
   const gradeBooks = index.books.filter(b => b.grade === book.grade);
 
   return (
-    <AppShell centerMaxWidth={1080}>
+    <AppShell>
     <main className="min-h-screen bg-bg-soft lg:bg-transparent">
       {/* 访问即成为「当前教材」（首页据此直达本页） */}
       <ActiveBookSync bookId={bookId} grade={book.grade} />

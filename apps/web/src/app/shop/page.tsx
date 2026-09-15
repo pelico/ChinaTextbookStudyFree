@@ -134,7 +134,7 @@ export default function ShopPage() {
   }
 
   return (
-    <AppShell centerMaxWidth={1080}>
+    <AppShell>
     <main className="min-h-screen bg-bg-soft lg:bg-transparent">
       {/* Header —— 仅移动端：白底 sticky（lg+ 宝石数由左列 SideRail HUD 常驻展示） */}
       <div className="bg-white border-b border-bg-softer sticky top-0 z-10 lg:hidden">
@@ -223,7 +223,7 @@ export default function ShopPage() {
 
           {/* 右侧网格 */}
           <div>
-            <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(160px,1fr))]">
+            <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(160px,1fr))]">
               {items.map(item => {
                 const owned = !!ownedCosmetics[item.id];
                 const equipped = isEquipped(item);

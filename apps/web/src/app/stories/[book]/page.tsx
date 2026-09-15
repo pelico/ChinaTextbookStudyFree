@@ -76,7 +76,7 @@ export default async function StoryListPage({
             <div className="text-xs font-extrabold text-ink-softer uppercase tracking-wider mb-2 px-1">
               第{unitNum}单元 · {stories[0].unitTitle}
             </div>
-            <div className="space-y-3 lg:space-y-3 lg:grid lg:gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
+            <div className="space-y-3 lg:space-y-3 lg:grid lg:gap-3 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
               {stories.map(s => (
                 <StoryCard key={s.id} story={s} bookId={bookId} />
               ))}

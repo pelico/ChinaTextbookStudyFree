@@ -1,24 +1,29 @@
 "use client";
 
 /**
- * AppShell —— 响应式三栏布局壳（左 SideNav + SideRail / 中央内容 / 右 right slot）
+ * AppShell —— 自适应两栏布局（左 SideNav 含 SideRail / 中央内容）
  *
- * 断点（web-shell-14 + rail-left-1）：
+ * 断点：
  *   - < md：单列，底部 BottomNav（BottomNav 自身 md:hidden）
- *   - md (768-1023)：icon-only 88px SideNav + 中央列（max ~640），无侧栏
- *   - lg+：260px SideNav（含 SideRail / 排行榜 + 每日任务）+ 中央列 + 可选 360px right
+ *   - md+：两栏布局，左 88px（icon-only）→ lg 260px（含 SideRail / 排行榜 + 每日任务）
+ *   - 容器不设 max-w，沿 viewport 100% 宽度铺开，让中央列 1fr 自然撑到桌面宽度
+ *
+ * 之前是三栏（左 + 中 + 可选右），右侧 360px 占位过宽，被中间列挤压。
+ * 现在简化为两栏：左 260px SideNav + 中 1fr 自适应。
+ * 如果未来某个页面需要右栏，再显式给那个页面套个 flex 即可。
  *
  * 改动记录：
- *   - 把原来的 RightRail 默认挂载位置从「右栏」改为「左列 SideNav 下方」
- *   - 右栏保持可显式控制，传 right={...} 才出现
- *   - 这是为了腾出中央列的视觉空间（参考 /profile/ 的 right={null} centerMaxWidth=920 布局）
+ *   - rail-left-1：RightRail 从右栏移到 SideNav 内部上方
+ *   - rail-left-2：内容页去除内联 max-w-3xl 让中列跟随 grid 撑开
+ *   - rail-left-3：中列 wrapper w-full，不再 mx-auto（mx-auto 在没有显式 max-w
+ *     时会让 wrapper 居中、左右留白，看起来「右栏没东西占位」）
+ *   - two-col-1：去掉外层 max-w-[1240px]，让 grid container 100% 宽度铺开；
+ *     之前 max-w 限制了中列 1fr 的可分配空间，auto-fill 在 1240 内列数有限。
  *
- * 单树渲染：children 只挂载一次，靠 hidden md:block 控制两侧栏的显隐，
- * 避免旧版「移动端 + 桌面端各渲染一份 children」带来的音效 / observer /
- * ticker 双跑与重复 <main> 问题。
+ * 单树渲染：children 只挂载一次，靠 hidden md:block 控制左侧栏的显隐。
  *
  * 语义：AppShell 自身不再输出 <main>——由各页面的 children 提供唯一的
- * <main> 地标（现有壳内页面均已自带）。
+ * <main> 地标。
  */
 
 import type { CSSProperties, ReactNode } from "react";
@@ -27,36 +32,26 @@ import { SideRail } from "./RightRail";
 
 interface AppShellProps {
   children: ReactNode;
-  /** 自定义右栏。传 null 显式隐藏；传 JSX 显式替换默认；不传则默认无右栏 */
-  right?: ReactNode | null;
-  /** 自定义左栏（SideNav 下方追加区）。不传则显示默认 SideRail（排行榜 + 每日任务） */
-  leftSlot?: ReactNode | null;
-  /** 中央内容栏最大宽度（仅 md+ 生效），默认 1080。
-   *  lg+ 时 grid 给的可用宽度通常 < 1080，因此 centerMaxWidth 是软上限。
-   *  真正限制内容宽度的，是各页面在 main/div 上加的 max-w-* 类，
-   *  —— 见 rail-left-2：内容页应去除内联 max-w-3xl 让中列跟随 grid 撑开。 */
+  /** 中央内容栏最大宽度（仅 md+ 生效），默认 1920。
+   *  容器本身不设 max-w，沿 viewport 铺开；centerMaxWidth 是个软上限，
+   *  用来防止极宽屏（4K）下文字行过长。 */
   centerMaxWidth?: number;
 }
 
-export function AppShell({ children, right, leftSlot, centerMaxWidth = 1080 }: AppShellProps) {
-  const showRight = right !== null;
-  // leftSlot 默认显示 SideRail；null 显式隐藏；JSX 替换
-  const showLeftSlot = leftSlot !== null;
-  const resolvedLeftSlot = leftSlot === undefined ? <SideRail /> : leftSlot;
+export function AppShell({ children, centerMaxWidth = 1920 }: AppShellProps) {
+  const showLeftSlot = true;
   return (
     <div
       className={
-        "min-h-screen w-full md:mx-auto md:grid md:max-w-[1240px] md:gap-4 md:px-4 md:py-6 lg:gap-6 lg:px-6 " +
+        "min-h-screen w-full md:mx-auto md:grid md:gap-4 md:px-4 md:py-6 lg:gap-6 lg:px-6 " +
         "md:[grid-template-columns:88px_minmax(0,1fr)] " +
-        (showRight
-          ? "lg:[grid-template-columns:260px_minmax(0,1fr)_360px]"
-          : "lg:[grid-template-columns:260px_minmax(0,1fr)]")
+        "lg:[grid-template-columns:260px_minmax(0,1fr)]"
       }
     >
       <aside className="hidden md:flex md:flex-col md:sticky md:top-6 md:self-start md:h-[calc(100vh-3rem)] md:overflow-y-auto md:pb-6">
         {/* 把 SideRail 渲染交给 SideNav 内部，确保它出现在「悠悠学堂」logo 下方、
             导航项上方的固定位置（具体位置由 SideNav.tsx 决定）。 */}
-        <SideNav leftSlot={showLeftSlot ? resolvedLeftSlot : null} />
+        <SideNav leftSlot={showLeftSlot ? <SideRail /> : null} />
       </aside>
 
       <div className="min-w-0 w-full">
@@ -70,12 +65,6 @@ export function AppShell({ children, right, leftSlot, centerMaxWidth = 1080 }: A
           {children}
         </div>
       </div>
-
-      {showRight && (
-        <aside className="hidden lg:block lg:sticky lg:top-6 lg:self-start lg:h-[calc(100vh-3rem)] overflow-y-auto pb-6">
-          {right}
-        </aside>
-      )}
     </div>
   );
 }

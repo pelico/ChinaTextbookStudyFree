@@ -82,7 +82,7 @@ export function ReviewClient() {
     : 0;
 
   return (
-    <AppShell centerMaxWidth={1080}>
+    <AppShell>
       <main className="min-h-screen bg-bg-soft lg:bg-transparent relative">
         {/* Header —— 仅移动端：白底 sticky（lg+ HUD 由左列 SideRail 常驻，不再重复） */}
         <div className="bg-white border-b border-bg-softer sticky top-0 z-10 lg:hidden">

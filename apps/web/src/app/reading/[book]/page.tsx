@@ -75,7 +75,7 @@ export default async function ReadingListPage({
   if (!doc) notFound();
 
   return (
-    <AppShell centerMaxWidth={720}>
+    <AppShell>
     <main className="min-h-screen bg-bg-soft lg:bg-transparent">
       <InnerHeader
         backHref={`/book/${bookId}/`}
@@ -85,7 +85,7 @@ export default async function ReadingListPage({
         flatOnDesktop
       />
 
-      <div className="px-4 lg:px-0 py-5 lg:pt-2 space-y-3 lg:grid lg:gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
+      <div className="px-4 lg:px-0 py-5 lg:pt-2 space-y-3 lg:grid lg:gap-3 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
         {doc.passages.map(p => {
           const audioReady = p.sentences.some(s => s.audio);
           const kindLabel = KIND_LABEL[p.kind] ?? "";
