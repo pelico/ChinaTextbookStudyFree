@@ -103,12 +103,15 @@ export function ProfileClient() {
 
   // ---- 资源状态轮询 ----
   const [assetsStatus, setAssetsStatus] = useState<AssetsStatus | null>(null);
+  const assetsStatusRef = useRef<AssetsStatus | null>(null);
+  useEffect(() => { assetsStatusRef.current = assetsStatus; }, [assetsStatus]);
   const [assetsError, setAssetsError] = useState<string | null>(null);
   const [showProxyHelp, setShowProxyHelp] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
+    let stopped = false;
 
     async function fetchStatus() {
       try {
@@ -131,13 +134,17 @@ export function ProfileClient() {
     function schedule() {
       timer = setTimeout(async () => {
         await fetchStatus();
-        if (!cancelled) {
-          // 如果所有资源都就绪/跳过/错误，就停止轮询
-          const allDone = assetsStatus && ["ready", "skipped", "error"].includes(assetsStatus.audio)
-            && ["ready", "skipped", "error"].includes(assetsStatus.textbookPages)
-            && ["ready", "skipped", "error"].includes(assetsStatus.storyImages);
-          if (!allDone) schedule();
+        if (cancelled || stopped) return;
+        // 读取最新 state（避免闭包陷阱）
+        const cur = assetsStatusRef.current;
+        const allDone = cur && ["ready", "skipped", "error"].includes(cur.audio)
+            && ["ready", "skipped", "error"].includes(cur.textbookPages)
+            && ["ready", "skipped", "error"].includes(cur.storyImages);
+        if (allDone) {
+          stopped = true;
+          return;
         }
+        schedule();
       }, 10000);
     }
     schedule();
@@ -146,10 +153,54 @@ export function ProfileClient() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [assetsStatus]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ---- 重试下载 ----
   const [retryingKey, setRetryingKey] = useState<string | null>(null);
+  const [retryTick, setRetryTick] = useState(0);
+
+  // 重启轮询：每次 retryTick 变化时执行一次
+  useEffect(() => {
+    if (retryTick === 0) return; // 首次跳过
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    let stopped = false;
+
+    async function fetchStatus() {
+      try {
+        const res = await fetch(`/assets-status.json?_=${Date.now()}`, {
+          cache: "no-store",
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (!cancelled) {
+          setAssetsStatus(data);
+          assetsStatusRef.current = data;
+          setAssetsError(null);
+        }
+      } catch (e) {
+        if (!cancelled) setAssetsError((e as Error).message);
+      }
+    }
+
+    fetchStatus();
+    function schedule() {
+      timer = setTimeout(async () => {
+        await fetchStatus();
+        if (cancelled || stopped) return;
+        const cur = assetsStatusRef.current;
+        const allDone = cur && ["ready", "skipped", "error"].includes(cur.audio)
+          && ["ready", "skipped", "error"].includes(cur.textbookPages)
+          && ["ready", "skipped", "error"].includes(cur.storyImages);
+        if (allDone) { stopped = true; return; }
+        schedule();
+      }, 10000);
+    }
+    schedule();
+
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [retryTick]);
 
   async function handleRetry(resourceKey: string) {
     setRetryingKey(resourceKey);
@@ -159,13 +210,8 @@ export function ProfileClient() {
         cache: "no-store",
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      // 触发后立即刷新状态并恢复轮询
-      await fetch("/assets-status.json", { cache: "no-store" })
-        .then(r => r.json())
-        .then(data => setAssetsStatus(data))
-        .catch(() => {});
-      // 重新启动轮询
-      setAssetsStatus(prev => prev ? { ...prev } : null);
+      // 触发重试完成后立即拉一次最新状态 + 重启轮询
+      setRetryTick(t => t + 1);
     } catch (e) {
       console.error("重试失败", e);
     } finally {
