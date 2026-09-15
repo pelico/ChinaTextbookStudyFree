@@ -223,7 +223,7 @@ export default function ShopPage() {
 
           {/* 右侧网格 */}
           <div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(160px,1fr))]">
               {items.map(item => {
                 const owned = !!ownedCosmetics[item.id];
                 const equipped = isEquipped(item);

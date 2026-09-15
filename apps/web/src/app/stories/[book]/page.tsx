@@ -60,7 +60,7 @@ export default async function StoryListPage({
   const units = [...byUnit.entries()].sort((a, b) => a[0] - b[0]);
 
   return (
-    <AppShell centerMaxWidth={720}>
+    <AppShell>
     <main className="min-h-screen bg-bg-soft lg:bg-transparent">
       <InnerHeader
         backHref={`/book/${bookId}/`}
@@ -70,13 +70,13 @@ export default async function StoryListPage({
         flatOnDesktop
       />
 
-      <div className="max-w-md lg:max-w-none px-4 lg:px-0 py-5 lg:pt-2 space-y-6">
+      <div className="px-4 lg:px-0 py-5 lg:pt-2 space-y-6">
         {units.map(([unitNum, stories]) => (
           <div key={unitNum}>
             <div className="text-xs font-extrabold text-ink-softer uppercase tracking-wider mb-2 px-1">
               第{unitNum}单元 · {stories[0].unitTitle}
             </div>
-            <div className="space-y-3 lg:space-y-0 lg:grid lg:grid-cols-2 xl:grid-cols-3 lg:gap-3">
+            <div className="space-y-3 lg:space-y-3 lg:grid lg:gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
               {stories.map(s => (
                 <StoryCard key={s.id} story={s} bookId={bookId} />
               ))}
