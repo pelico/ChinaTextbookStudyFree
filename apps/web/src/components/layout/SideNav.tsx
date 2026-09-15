@@ -83,7 +83,7 @@ export function SideNav({ leftSlot }: SideNavProps = {}) {
   return (
     <nav className="flex flex-col gap-2 w-full h-full" aria-label="主导航">
       {/* Logo + 日/夜切换按钮 同行排列（md 与 lg 都显示） */}
-      <div className="flex items-center gap-2 px-1 py-3 mb-2">
+      <div className="flex items-center gap-3 px-2 py-3 mb-2">
         <Link
           href="/"
           onClick={() => {
@@ -93,7 +93,7 @@ export function SideNav({ leftSlot }: SideNavProps = {}) {
           className="flex-1 min-w-0 px-2"
           aria-label="悠悠学堂 · 回到首页"
         >
-          <span className="hidden lg:inline text-2xl font-extrabold text-primary tracking-tightest">
+          <span className="hidden lg:inline text-4xl font-black text-primary tracking-tightest leading-none">
             悠悠学堂
           </span>
           <span className="lg:hidden inline-flex items-center justify-center w-10 h-10 rounded-2xl bg-primary/10 text-primary font-extrabold text-lg">
