@@ -33,7 +33,7 @@ function getTypeLabel(type: string): string {
   return QUESTION_TYPE_LABELS[type] || type;
 }
 
-export function CustomExamDetail({ examId, onNavigate }: { examId: string; onNavigate?: (path: string) => void } = {}) {
+export function CustomExamDetail({ examId, onNavigate }: { examId: string; onNavigate?: (path: string) => void }) {
   const [exam, setExam] = useState<Exam | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
