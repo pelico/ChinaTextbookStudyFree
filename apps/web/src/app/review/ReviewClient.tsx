@@ -86,7 +86,7 @@ export function ReviewClient() {
       <main className="min-h-screen bg-bg-soft lg:bg-transparent relative">
         {/* Header —— 仅移动端：白底 sticky（lg+ HUD 由左列 SideRail 常驻，不再重复） */}
         <div className="bg-white border-b border-bg-softer sticky top-0 z-10 lg:hidden">
-          <div className="max-w-2xl lg:max-w-5xl mx-auto flex items-center justify-between gap-3 px-4 py-3 lg:px-0 lg:py-2">
+          <div className="mx-auto flex items-center justify-between gap-3 px-4 py-3 lg:px-0 lg:py-2">
           <SoundLink
             href="/"
             aria-label="返回"
@@ -104,7 +104,7 @@ export function ReviewClient() {
         </div>
       </div>
 
-      <div className="max-w-2xl lg:max-w-4xl mx-auto px-4 py-6">
+      <div className="mx-auto px-4 py-6">
         {hydrated && totalMistakes > 0 && (
           <SrsSummary
             todayCount={dueCount}
@@ -166,7 +166,7 @@ export function ReviewClient() {
           transition={{ type: "spring", damping: 20, stiffness: 240, delay: 0.2 }}
           className="fixed bottom-20 lg:bottom-6 left-0 right-0 z-20 px-5 pointer-events-none"
         >
-          <div className="max-w-2xl lg:max-w-4xl mx-auto flex justify-center">
+          <div className="mx-auto flex justify-center">
             <SoundLink
               href="/review/runner/"
               hapticIntensity="medium"

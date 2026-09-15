@@ -31,11 +31,14 @@ interface AppShellProps {
   right?: ReactNode | null;
   /** 自定义左栏（SideNav 下方追加区）。不传则显示默认 SideRail（排行榜 + 每日任务） */
   leftSlot?: ReactNode | null;
-  /** 中央内容栏最大宽度（仅 md+ 生效），默认 640 */
+  /** 中央内容栏最大宽度（仅 md+ 生效），默认 1080。
+   *  lg+ 时 grid 给的可用宽度通常 < 1080，因此 centerMaxWidth 是软上限。
+   *  真正限制内容宽度的，是各页面在 main/div 上加的 max-w-* 类，
+   *  —— 见 rail-left-2：内容页应去除内联 max-w-3xl 让中列跟随 grid 撑开。 */
   centerMaxWidth?: number;
 }
 
-export function AppShell({ children, right, leftSlot, centerMaxWidth = 640 }: AppShellProps) {
+export function AppShell({ children, right, leftSlot, centerMaxWidth = 1080 }: AppShellProps) {
   const showRight = right !== null;
   // leftSlot 默认显示 SideRail；null 显式隐藏；JSX 替换
   const showLeftSlot = leftSlot !== null;
@@ -57,6 +60,7 @@ export function AppShell({ children, right, leftSlot, centerMaxWidth = 640 }: Ap
       </aside>
 
       <div className="min-w-0">
+        {/* 中列 wrapper：md 640px / lg+ 由 grid 1fr 自然撑满，受 centerMaxWidth 软限。 */}
         <div
           className="mx-auto w-full md:max-w-[640px] lg:max-w-[var(--center-max)]"
           style={{ "--center-max": `${centerMaxWidth}px` } as CSSProperties}

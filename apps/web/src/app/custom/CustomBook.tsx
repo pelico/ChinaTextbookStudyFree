@@ -103,7 +103,7 @@ export function CustomBook({ bookId }: { bookId: string }) {
         </div>
       </header>
 
-      <div className="max-w-3xl mx-auto px-4 py-6 space-y-6 md:px-6">
+      <div className="mx-auto px-4 py-6 space-y-6 md:px-6">
         <p className="text-sm text-ink-light">
           {subjectLabels[book.subject] || book.subject} · {book.grade}年级{book.semester === "up" ? "上" : "下"}册
         </p>

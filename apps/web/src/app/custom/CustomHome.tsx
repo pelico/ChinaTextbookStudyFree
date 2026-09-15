@@ -52,7 +52,7 @@ export function CustomHome() {
         </div>
       </header>
 
-      <div className="max-w-3xl mx-auto px-4 py-6 space-y-6 md:px-6">
+      <div className="mx-auto px-4 py-6 space-y-6 md:px-6">
         <div className="grid grid-cols-2 gap-3">
           <button
             onClick={async () => {

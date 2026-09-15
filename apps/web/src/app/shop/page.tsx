@@ -138,7 +138,7 @@ export default function ShopPage() {
     <main className="min-h-screen bg-bg-soft lg:bg-transparent">
       {/* Header —— 仅移动端：白底 sticky（lg+ 宝石数由左列 SideRail HUD 常驻展示） */}
       <div className="bg-white border-b border-bg-softer sticky top-0 z-10 lg:hidden">
-        <div className="max-w-5xl mx-auto px-4 py-2.5 lg:px-0 flex items-center gap-3">
+        <div className="mx-auto px-4 py-2.5 lg:px-0 flex items-center gap-3">
           <Link
             href="/"
             className="inline-flex items-center justify-center w-10 h-10 rounded-full text-ink-light hover:text-primary hover:bg-bg-soft transition-colors shrink-0 lg:hidden"
@@ -155,7 +155,7 @@ export default function ShopPage() {
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-4 py-4 lg:py-2 lg:px-0">
+      <div className="mx-auto px-4 py-4 lg:py-2 lg:px-0">
         {/* ⚡ 红心 & 连胜 —— 功能性道具（护盾 / 补心），与纯美妆分区 */}
         <PowerUpsSection />
 

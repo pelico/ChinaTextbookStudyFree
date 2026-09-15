@@ -88,7 +88,7 @@ export function CustomCreate() {
         </div>
       </header>
 
-      <div className="max-w-3xl mx-auto px-4 py-6 space-y-6 md:px-6">
+      <div className="mx-auto px-4 py-6 space-y-6 md:px-6">
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20">
             <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent mb-4" />

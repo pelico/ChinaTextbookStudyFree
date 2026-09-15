@@ -90,7 +90,7 @@ export function CustomExamCreate() {
         </div>
       </header>
 
-      <div className="max-w-3xl mx-auto px-4 py-6 space-y-5 md:px-6">
+      <div className="mx-auto px-4 py-6 space-y-5 md:px-6">
         <div>
           <label className="block text-sm font-bold text-ink mb-1.5">试卷名称</label>
           <input

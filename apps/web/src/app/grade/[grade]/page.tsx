@@ -85,8 +85,6 @@ export default async function GradePage({ params }: { params: Promise<{ grade: s
   return (
     <AppShell centerMaxWidth={1080}>
     <main className="min-h-screen flex flex-col items-center px-4 pt-4 pb-8 lg:pt-2 lg:px-0">
-      {/* 页头：移动端带 compact StatsBar；lg+ 由左列 SideRail 替代，不再重复。
-          取消之前 max-w-3xl (768px) 的内层宽度限制 —— 右栏腾出后中列应自然变宽。 */}
       <div className="w-full">
         <div className="lg:hidden flex justify-end mb-4">
           <StatsBar compact />
