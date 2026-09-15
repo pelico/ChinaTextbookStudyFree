@@ -31,7 +31,7 @@ export function GradeSwitcher({ current = null, variant = "full" }: Props) {
   return (
     <div
       className={cn(
-        "flex items-center gap-1.5",
+        "flex items-center gap-1.5 px-1",
         variant === "full" && "flex-wrap",
       )}
       role="group"
@@ -58,7 +58,7 @@ export function GradeSwitcher({ current = null, variant = "full" }: Props) {
             aria-current={active ? "page" : undefined}
             aria-label={`${GRADE_NAMES[g]}年级`}
             className={cn(
-              "min-w-[36px] h-9 px-2.5 rounded-xl text-sm font-extrabold leading-none transition-colors select-none",
+              "min-w-[32px] h-8 px-2 rounded-lg text-sm font-extrabold leading-none transition-colors select-none",
               active
                 ? "bg-secondary text-white cursor-default"
                 : "bg-bg-softer text-ink-light hover:bg-secondary/15 hover:text-secondary",

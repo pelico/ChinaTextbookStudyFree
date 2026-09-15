@@ -7,8 +7,8 @@
  * 工具区：打印试卷 / 自定义学习
  *
  * 响应式（web-shell-14）：
- *   - md (768-1023)：icon-only 窄栏（AppShell 给 88px），文字隐藏
- *   - lg+：完整 260px，图标 + 文字
+ *   - md (768-1023)：icon-only 窄栏（AppShell 给 96px），文字隐藏
+ *   - lg+：完整 296px，图标 + 文字
  * 激活态用粗填充图标（web-shell-19），视觉重量对齐 iOS。
  * 顶部 logo 右侧放 LightDarkToggle（二态日/夜切换）；三态切换保留在「我的」页。
  */
@@ -113,7 +113,7 @@ export function SideNav({ leftSlot }: SideNavProps = {}) {
       </div>
 
       {/* 桌面端状态条 —— 红心/连胜/宝石 移到左侧栏顶部，logo 下方、SideRail 上方。
-         *   lg+ 完整宽 260px；三颗胶囊横向铺开，compact 模式省掉 XP / 音频开关。
+         *   lg+ 完整宽 296px；三颗胶囊横向铺开，compact 模式省掉 XP / 音频开关。
          *   移动端 < md 不显示 SideNav，StatsBar 由各页面自己的 PageHeader / InnerHeader
          *   紧凑显示。 */}
       <div className="hidden lg:block mb-3">
@@ -121,15 +121,15 @@ export function SideNav({ leftSlot }: SideNavProps = {}) {
       </div>
 
       {/* 年级快速切换 —— 一排 6 颗紧凑按钮（无"年级"前缀），当前年级高亮
-          md (768-1023) 88px 窄栏里隐藏，lg+ 完整宽 260px 时显示在导航区上方。
+          md (768-1023) 96px 窄栏里隐藏，lg+ 完整宽 296px 时显示在导航区上方。
           用户在切换年级时无需先回首页选年级，顶部直接切。 */}
       <div className="hidden lg:flex justify-center mb-2">
         <GradeSwitcher current={activeGrade ?? selectedGrade ?? null} variant="compact" />
       </div>
 
       {/* 左列追加区（默认 SideRail：排行榜 + 每日任务）—— 紧贴 StatsBar 下方。
-          注意：md (768-1023) 窄栏仅 88px，不显示 leftSlot（移动端由 BottomNav 之外的
-          卡片各自承担），仅 lg+ 完整 260px 时显示。 */}
+          注意：md (768-1023) 窄栏仅 96px，不显示 leftSlot（移动端由 BottomNav 之外的
+          卡片各自承担），仅 lg+ 完整 296px 时显示。 */}
       {leftSlot && (
         <div className="hidden lg:block mb-3">{leftSlot}</div>
       )}

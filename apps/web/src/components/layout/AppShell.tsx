@@ -5,11 +5,11 @@
  *
  * 断点：
  *   - < md：单列，底部 BottomNav（BottomNav 自身 md:hidden）
- *   - md+：两栏布局，左 88px（icon-only）→ lg 260px（含 SideRail / 排行榜 + 每日任务）
+ *   - md+：两栏布局，左 96px（icon-only）→ lg 296px（含 SideRail / 排行榜 + 每日任务 + 6 颗年级切换）
  *   - 容器不设 max-w，沿 viewport 100% 宽度铺开，让中央列 1fr 自然撑到桌面宽度
  *
  * 之前是三栏（左 + 中 + 可选右），右侧 360px 占位过宽，被中间列挤压。
- * 现在简化为两栏：左 260px SideNav + 中 1fr 自适应。
+ * 现在简化为两栏：左 296px SideNav + 中 1fr 自适应。
  * 如果未来某个页面需要右栏，再显式给那个页面套个 flex 即可。
  *
  * 改动记录：
@@ -44,8 +44,8 @@ export function AppShell({ children, centerMaxWidth = 1920 }: AppShellProps) {
     <div
       className={
         "min-h-screen w-full md:mx-auto md:grid md:gap-4 md:px-4 md:py-6 lg:gap-6 lg:px-6 " +
-        "md:[grid-template-columns:88px_minmax(0,1fr)] " +
-        "lg:[grid-template-columns:260px_minmax(0,1fr)]"
+        "md:[grid-template-columns:96px_minmax(0,1fr)] " +
+        "lg:[grid-template-columns:296px_minmax(0,1fr)]"
       }
     >
       <aside className="hidden md:flex md:flex-col md:sticky md:top-6 md:self-start md:h-[calc(100vh-3rem)] md:overflow-y-auto md:pb-6">
