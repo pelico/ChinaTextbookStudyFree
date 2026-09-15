@@ -86,27 +86,28 @@ export function CustomExamHome() {
               📝
             </div>
             <div className="flex-1 min-w-0">
-              <h3 className="font-extrabold text-ink truncate">{exam.title}</h3>
-              <p className="text-sm text-ink-light">
-                {subjectLabels[exam.subject] || exam.subject} · {exam.grade}年级{exam.semester === "up" ? "上" : "下"}册 · {DIFFICULTY_LABELS[exam.difficulty as keyof typeof DIFFICULTY_LABELS] || exam.difficulty}
-              </p>
+                <h3 className="font-extrabold text-ink truncate">{exam.title}</h3>
+                <p className="text-sm text-ink-light">
+                  {subjectLabels[exam.subject] || exam.subject} · {exam.grade}年级{exam.semester === "up" ? "上" : "下"}册 · {DIFFICULTY_LABELS[exam.difficulty as keyof typeof DIFFICULTY_LABELS] || exam.difficulty}
+                </p>
                 <div className="flex items-center gap-2 mt-0.5">
-              {exam.has_text ? (
-                <span className="text-xs text-secondary-dark font-bold">✓ 已识别</span>
-              ) : (
-                <span className="text-xs text-warning font-bold">待识别</span>
-              )}
-              <span className="text-xs text-ink-softer">· {exam.total_pages}页</span>
+                  {exam.has_text ? (
+                    <span className="text-xs text-secondary-dark font-bold">✓ 已识别</span>
+                  ) : (
+                    <span className="text-xs text-warning font-bold">待识别</span>
+                  )}
+                  <span className="text-xs text-ink-softer">· {exam.total_pages}页</span>
+                </div>
+              </div>
+              <button
+                onClick={(e) => { e.stopPropagation(); handleDelete(exam.id, exam.title); }}
+                className="no-print opacity-0 group-hover:opacity-100 text-ink-softer hover:text-danger text-sm px-2 py-1 transition-opacity"
+              >
+                删除
+              </button>
             </div>
-          </div>
-          <button
-            onClick={(e) => { e.stopPropagation(); handleDelete(exam.id, exam.title); }}
-            className="no-print opacity-0 group-hover:opacity-100 text-ink-softer hover:text-danger text-sm px-2 px-1 transition-opacity"
-          >
-            删除
-          </button>
+          ))}
         </div>
-      ))}
     </>
   );
 }
