@@ -52,6 +52,9 @@ export function PassageReader({ passage, backHref, prevHref, prevTitle, nextHref
   const [mode, setMode] = useState<Mode>("idle");
   const [currentIndex, setCurrentIndex] = useState<number | null>(null);
   const [autoPlay, setAutoPlay] = useState(false); // 自动连播下一篇
+  // 同步 mode 到 ref，给一次性 effect（如 URL autoplay）做实时判断用，避免 closure trap
+  const modeRef = useRef<Mode>("idle");
+  useEffect(() => { modeRef.current = mode; }, [mode]);
 
   // 从 localStorage 读取连播偏好 + 保存偏好
   useEffect(() => {
@@ -158,17 +161,23 @@ export function PassageReader({ passage, backHref, prevHref, prevTitle, nextHref
       await sleep(200);
     }
     setCurrentIndex(null);
-    setMode("idle");
+    // 主动中断的或卸载场景下不再连播；正常播完才发 XP + 跳下一篇
+    if (!completed) {
+      setMode("idle");
+      return;
+    }
     // 完整听完整篇 → 首次给 XP
-    if (completed) {
-      grantPassageReward("listen", XP_LISTEN);
-      // 自动连播：播完后跳到下一篇
-      if (autoPlay && nextHref) {
-        await sleep(500);
-        const sep = nextHref.includes("?") ? "&" : "?";
-        router.push(`${nextHref}${sep}autoplay=1`);
-        return;
-      }
+    grantPassageReward("listen", XP_LISTEN);
+    setMode("idle");
+    // 自动连播：播完后跳到下一篇
+    if (autoPlay && nextHref) {
+      // 跳之前主动断开本页 audio + 标记中断，避免旧 Promise 在新页面 mount 后再次触发副作用
+      abortRef.current = true;
+      stopTTS();
+      await sleep(500);
+      const sep = nextHref.includes("?") ? "&" : "?";
+      router.push(`${nextHref}${sep}autoplay=1`);
+      return;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, passage, autoPlay, nextHref, router]);
@@ -258,10 +267,14 @@ export function PassageReader({ passage, backHref, prevHref, prevTitle, nextHref
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get("autoplay") === "1" && hasAnyAudio) {
-      const t = setTimeout(() => playAll(), 600);
-      return () => clearTimeout(t);
-    }
+    if (params.get("autoplay") !== "1") return;
+    if (!hasAnyAudio) return;
+    if (modeRef.current !== "idle") return;
+    // 仅在 mount 时跑一次，避免 hasAnyAudio/props 重渲染时重复触发
+    const t = setTimeout(() => {
+      if (modeRef.current === "idle") playAll();
+    }, 600);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasAnyAudio]);
 

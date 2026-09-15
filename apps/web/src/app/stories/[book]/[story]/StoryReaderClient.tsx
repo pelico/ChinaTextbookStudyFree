@@ -53,6 +53,9 @@ export default function StoryReaderClient({ story, backHref, prevHref, prevTitle
   const [currentIndex, setCurrentIndex] = useState<number | null>(null);
   const abortRef = useRef(false);
   const [autoPlay, setAutoPlay] = useState(false); // 自动连播下一个故事
+  // 同步 mode 到 ref，给一次性 effect（如 URL autoplay）做实时判断用
+  const modeRef = useRef<PlayMode>("idle");
+  useEffect(() => { modeRef.current = mode; }, [mode]);
 
   // 从 localStorage 读取连播偏好 + 保存偏好
   useEffect(() => {
@@ -101,19 +104,34 @@ export default function StoryReaderClient({ story, backHref, prevHref, prevTitle
     }
     abortRef.current = false;
     setMode("playing");
+    let completed = true;
     for (let i = 0; i < story.sentences.length; i++) {
-      if (abortRef.current) break;
+      if (abortRef.current) {
+        completed = false;
+        break;
+      }
       const s = story.sentences[i];
       if (!s.audio) continue;
       setCurrentIndex(i);
       await playTTS(s.audio);
-      if (abortRef.current) break;
+      if (abortRef.current) {
+        completed = false;
+        break;
+      }
     }
     setCurrentIndex(null);
+    // 主动中断的或卸载场景下不再连播；正常播完才跳下一篇
+    if (!completed) {
+      setMode("idle");
+      return;
+    }
     setMode("idle");
 
     // 自动连播：播完后跳到下一个故事
     if (autoPlay && nextHref) {
+      // 跳之前主动断开本页 audio + 标记中断，避免旧 Promise 在新页面 mount 后再次触发副作用
+      abortRef.current = true;
+      stopTTS();
       await new Promise(resolve => setTimeout(resolve, 500));
       const sep = nextHref.includes("?") ? "&" : "?";
       router.push(`${nextHref}${sep}autoplay=1`);
@@ -124,10 +142,13 @@ export default function StoryReaderClient({ story, backHref, prevHref, prevTitle
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get("autoplay") === "1" && hasAudio) {
-      const t = setTimeout(() => playAll(), 600);
-      return () => clearTimeout(t);
-    }
+    if (params.get("autoplay") !== "1") return;
+    if (!hasAudio) return;
+    if (modeRef.current !== "idle") return;
+    const t = setTimeout(() => {
+      if (modeRef.current === "idle") playAll();
+    }, 600);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasAudio]);
 
