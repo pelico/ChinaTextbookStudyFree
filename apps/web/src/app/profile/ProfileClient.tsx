@@ -330,7 +330,8 @@ export function ProfileClient() {
             <div className="text-base font-extrabold text-ink truncate">我的主页</div>
           </div>
           <div className="hidden lg:block flex-1" />
-          <div className="shrink-0">
+          {/* 桌面端隐藏：红心/连胜/宝石 已挪到 SideNav 顶部（见 layout/SideNav.tsx） */}
+          <div className="shrink-0 lg:hidden">
             <StatsBar compact />
           </div>
         </div>

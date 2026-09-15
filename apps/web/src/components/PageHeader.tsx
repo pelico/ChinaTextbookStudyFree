@@ -45,8 +45,10 @@ export function PageHeader({
 }: PageHeaderProps) {
   return (
     <div className={`w-full ${maxWidthClass}`}>
-      {/* 顶部 app bar —— 单行：返回 + stats */}
-      <div className="flex items-center justify-between gap-3 mb-4 lg:mb-6">
+      {/* 顶部 app bar —— 单行：返回 + stats
+       *   桌面端 lg+ 时整行隐藏：返回按钮 lg:hidden，红心/连胜/宝石 胶囊移到了
+       *   SideNav 顶部显示（见 layout/SideNav.tsx），不重复渲染。 */}
+      <div className="flex items-center justify-between gap-3 mb-4 lg:hidden lg:mb-6">
         {backHref ? (
           <SoundLink
             href={backHref}
@@ -59,7 +61,7 @@ export function PageHeader({
         ) : null}
 
         {showStats && (
-          <div className="flex-1 flex justify-end min-w-0">
+          <div className="flex-1 flex justify-end min-w-0 lg:hidden">
             <StatsBar compact />
           </div>
         )}

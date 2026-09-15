@@ -31,6 +31,7 @@ import {
   type IconProps,
 } from "@/components/icons";
 import { ThemeModeToggle } from "@/components/ThemeModeToggle";
+import { StatsBar } from "@/components/StatsBar";
 import { cn } from "@/lib/cn";
 import { playSfx } from "@/lib/sfx";
 import { haptic } from "@/lib/haptic";
@@ -98,7 +99,15 @@ export function SideNav({ leftSlot }: SideNavProps = {}) {
         </span>
       </Link>
 
-      {/* 左列追加区（默认 SideRail：排行榜 + 每日任务）—— 紧贴 logo 下方。
+      {/* 桌面端状态条 —— 红心/连胜/宝石 移到左侧栏顶部，logo 下方、SideRail 上方。
+         *   lg+ 完整宽 260px；三颗胶囊横向铺开，compact 模式省掉 XP / 音频开关。
+         *   移动端 < md 不显示 SideNav，StatsBar 由各页面自己的 PageHeader / InnerHeader
+         *   紧凑显示。 */}
+      <div className="hidden lg:block mb-3">
+        <StatsBar compact />
+      </div>
+
+      {/* 左列追加区（默认 SideRail：排行榜 + 每日任务）—— 紧贴 StatsBar 下方。
           注意：md (768-1023) 窄栏仅 88px，不显示 leftSlot（移动端由 BottomNav 之外的
           卡片各自承担），仅 lg+ 完整 260px 时显示。 */}
       {leftSlot && (
