@@ -14,7 +14,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import {
   Home as HomeIcon,
   HomeFill,
@@ -70,7 +70,12 @@ function isActive(pathname: string, item: NavItem): boolean {
   return pathname.startsWith(item.matchPrefix);
 }
 
-export function SideNav() {
+interface SideNavProps {
+  /** 由 AppShell 注入：渲染在 logo 下方、导航项上方的可滚动容器内同滚动区域 */
+  leftSlot?: React.ReactNode;
+}
+
+export function SideNav({ leftSlot }: SideNavProps = {}) {
   const pathname = usePathname() ?? "/";
 
   return (
@@ -92,6 +97,13 @@ export function SideNav() {
           聪
         </span>
       </Link>
+
+      {/* 左列追加区（默认 SideRail：排行榜 + 每日任务）—— 紧贴 logo 下方。
+          注意：md (768-1023) 窄栏仅 88px，不显示 leftSlot（移动端由 BottomNav 之外的
+          卡片各自承担），仅 lg+ 完整 260px 时显示。 */}
+      {leftSlot && (
+        <div className="hidden lg:block mb-3">{leftSlot}</div>
+      )}
 
       {ITEMS.map(item => {
         const active = isActive(pathname, item);
