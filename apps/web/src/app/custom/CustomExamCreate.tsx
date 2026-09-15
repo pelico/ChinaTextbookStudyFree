@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { navigate, compressImage, createExam } from "@/lib/customApi";
+import { navigate as defaultNavigate, compressImage, createExam } from "@/lib/customApi";
 import { DIFFICULTY_LABELS, type ExamDifficulty } from "@/lib/customApi";
 import { requireParentAuth } from "@/lib/parentAuth";
 
@@ -14,7 +14,7 @@ const subjects = [
 
 const difficulties = Object.entries(DIFFICULTY_LABELS).map(([value, label]) => ({ value, label }));
 
-export function CustomExamCreate() {
+export function CustomExamCreate({ onNavigate }: { onNavigate?: (path: string) => void } = {}) {
   const [title, setTitle] = useState("");
   const [subject, setSubject] = useState("math");
   const [grade, setGrade] = useState(1);
@@ -70,7 +70,7 @@ export function CustomExamCreate() {
     setError("");
     try {
       const exam = await createExam(title.trim(), subject, grade, semester, difficulty, images);
-      navigate(`/custom/exam/${exam.id}`);
+      (onNavigate ? onNavigate(`/custom/exam/${exam.id}`) : defaultNavigate(`/custom/exam/${exam.id}`));
     } catch (e: any) {
       setError(e.message);
     } finally {

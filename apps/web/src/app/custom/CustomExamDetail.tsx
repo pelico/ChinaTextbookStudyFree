@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import {
-  navigate, getExam, extractExamText, getExamExtractStatus, updateExamText,
+  navigate as defaultNavigate, getExam, extractExamText, getExamExtractStatus, updateExamText,
   analyzeExamStructure, getExamAnalyzeStatus,
   type Exam, type ExamStructure, DIFFICULTY_LABELS,
 } from "@/lib/customApi";
@@ -33,7 +33,7 @@ function getTypeLabel(type: string): string {
   return QUESTION_TYPE_LABELS[type] || type;
 }
 
-export function CustomExamDetail({ examId }: { examId: string }) {
+export function CustomExamDetail({ examId, onNavigate }: { examId: string; onNavigate?: (path: string) => void } = {}) {
   const [exam, setExam] = useState<Exam | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -173,7 +173,7 @@ export function CustomExamDetail({ examId }: { examId: string }) {
   if (error || !exam) return (
     <div className="min-h-screen bg-bg-soft flex flex-col items-center justify-center gap-4">
       <p className="text-danger font-bold">{error || "试卷不存在"}</p>
-      <button onClick={() => navigate("/custom/exams")} className="text-primary-dark font-bold">返回</button>
+      <button onClick={() => (onNavigate ? onNavigate("/custom/exams") : defaultNavigate("/custom/exams"))} className="text-primary-dark font-bold">返回</button>
     </div>
   );
 

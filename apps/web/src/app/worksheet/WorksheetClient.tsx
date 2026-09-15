@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useMemo, useCallback, useEffect, type ReactNode } from "react";
-import Link from "next/link";
 import {
   type BookInfo,
   type WorksheetConfig,
@@ -18,6 +17,9 @@ import {
 import type { SubjectId, Outline } from "@cstf/core";
 import { ArrowLeft } from "@/components/icons";
 import { apiGet, type CustomBook, listExams, getExam, type Exam, DIFFICULTY_LABELS, getExamWithStructure } from "@/lib/customApi";
+import { CustomExamHome } from "@/app/custom/CustomExamHome";
+import { CustomExamDetail } from "@/app/custom/CustomExamDetail";
+import { CustomExamCreate } from "@/app/custom/CustomExamCreate";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/PageHeader";
 import { InnerHeader } from "@/components/InnerHeader";
@@ -63,6 +65,16 @@ export function WorksheetClient({ books }: Props) {
   const [selectedExamId, setSelectedExamId] = useState<string>("");
   const [mode, setMode] = useState<"unit_practice" | "exam_simulation">("unit_practice");
   const [examStructure, setExamStructure] = useState<ExamStructure | null>(null);
+  // 内嵌真题库视图：保持在「打印试卷」模块，标头与左侧高亮都不变
+  const [examView, setExamView] = useState<"list" | "create" | "detail">("list");
+  const [examViewId, setExamViewId] = useState<string>("");
+  const [examListOpen, setExamListOpen] = useState(false);
+  const handleExamNavigate = useCallback((path: string) => {
+    if (path === "/custom/exams") { setExamView("list"); setExamViewId(""); return; }
+    if (path === "/custom/exam/create") { setExamView("create"); setExamViewId(""); return; }
+    const m = path.match(/^\/custom\/exam\/([^/]+)$/);
+    if (m) { setExamView("detail"); setExamViewId(m[1]); return; }
+  }, []);
 
   // Fetch custom books and convert to BookInfo format
   useEffect(() => {
@@ -291,19 +303,58 @@ export function WorksheetClient({ books }: Props) {
       </div>
 
       <div className="px-4 py-6 space-y-6 md:px-6">
-        {/* 真题库入口 */}
-        <Link
-          href="/custom/exams"
-          className="flex items-center gap-3 rounded-2xl border-2 border-warning/30 bg-warning/10 px-4 py-3.5 hover:bg-warning/20 transition-colors"
-        >
-          <span className="text-2xl">📝</span>
-          <div className="flex-1 min-w-0">
-            <p className="font-extrabold text-sm text-ink">真题库</p>
-            <p className="text-xs text-ink-light">上传真题试卷，AI 仿照结构出题</p>
-          </div>
-          <span className="text-ink-softer">→</span>
-        </Link>
+        {/* 真题库内嵌视图（create / detail）—— 留在「打印试卷」模块，保持左侧高亮与标头 */}
+        {examView === "create" && (
+          <>
+            <button
+              onClick={() => setExamView("list")}
+              className="text-sm font-bold text-primary-dark"
+            >
+              ← 返回真题库
+            </button>
+            <CustomExamCreate onNavigate={handleExamNavigate} />
+          </>
+        )}
 
+        {examView === "detail" && examViewId && (
+          <>
+            <button
+              onClick={() => setExamView("list")}
+              className="text-sm font-bold text-primary-dark"
+            >
+              ← 返回真题库
+            </button>
+            <CustomExamDetail examId={examViewId} onNavigate={handleExamNavigate} />
+          </>
+        )}
+
+        {/* list 状态 —— 显示入口卡片与下面正常的出题配置 */}
+        {examView === "list" && (
+          <>
+            <button
+              onClick={() => setExamListOpen(o => !o)}
+              className="flex items-center gap-3 rounded-2xl border-2 border-warning/30 bg-warning/10 px-4 py-3.5 hover:bg-warning/20 transition-colors w-full text-left"
+              type="button"
+            >
+              <span className="text-2xl">{examListOpen ? "📋" : "📝"}</span>
+              <div className="flex-1 min-w-0">
+                <p className="font-extrabold text-sm text-ink">真题库</p>
+                <p className="text-xs text-ink-light">
+                  {examListOpen ? "点击收起列表" : "上传真题试卷，AI 仿照结构出题"}
+                </p>
+              </div>
+              <span className="text-ink-softer">{examListOpen ? "▴" : "▾"}</span>
+            </button>
+
+            {examListOpen && (
+              <div className="rounded-2xl border-2 border-warning/20 bg-white p-4">
+                <CustomExamHome onNavigate={handleExamNavigate} />
+              </div>
+            )}
+          </>
+        )}
+
+        {examView === "list" && (<>
         {/* 出题模式 */}
         <div className="bg-white rounded-2xl border-2 border-bg-softer p-4">
           <div className="grid grid-cols-2 gap-3">
@@ -716,6 +767,8 @@ export function WorksheetClient({ books }: Props) {
         >
           {generating ? "AI 正在生成试卷..." : "生成试卷"}
         </button>
+      </div>
+        </>)}
       </div>
     </AppShell>
   );

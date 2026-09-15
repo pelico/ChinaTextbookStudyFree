@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { navigate } from "@/lib/customApi";
+import { navigate as defaultNavigate } from "@/lib/customApi";
 import {
   listExams, deleteExam,
   type Exam, DIFFICULTY_LABELS,
@@ -12,7 +12,13 @@ const subjectLabels: Record<string, string> = {
   math: "数学", chinese: "语文", english: "英语", science: "科学",
 };
 
-export function CustomExamHome() {
+interface Props {
+  /** 自定义导航回调：传入则覆盖默认 navigate('/custom/...')，
+   *  用于在 WorksheetClient 等父组件内嵌入渲染真题库。 */
+  onNavigate?: (path: string) => void;
+}
+
+export function CustomExamHome({ onNavigate }: Props = {}) {
   const [exams, setExams] = useState<Exam[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -42,12 +48,17 @@ export function CustomExamHome() {
     }
   }
 
+  function go(path: string) {
+    if (onNavigate) onNavigate(path);
+    else defaultNavigate(path);
+  }
+
   return (
     <>
       <button
         onClick={async () => {
           const ok = await requireParentAuth("上传真题");
-          if (ok) navigate("/custom/exam/create");
+          if (ok) go("/custom/exam/create");
         }}
         className="w-full flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-primary/40 bg-primary/10 px-4 py-6 text-primary-dark hover:bg-primary/20 transition-colors"
       >
@@ -80,7 +91,7 @@ export function CustomExamHome() {
           <div
             key={exam.id}
             className="group flex items-center gap-3 rounded-2xl border-2 border-bg-softer bg-white p-4 hover:border-primary/20 transition-colors cursor-pointer"
-            onClick={() => navigate(`/custom/exam/${exam.id}`)}
+            onClick={() => go(`/custom/exam/${exam.id}`)}
           >
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-warning/10 text-warning text-xl">
               📝
