@@ -1858,6 +1858,23 @@ export async function initServerSync() {
 
   const kidId = localStorage.getItem("csf-active-kid") || "default";
 
+  // 0. 设备 ID 一次性生成并持久化。这是手机/电脑数据能合并的关键前提：
+  //    每个设备一个稳定 ID，服务端按 (kid_id, device_id) 存行，
+  //    拉取时按 kid 维度把所有 device 行合并成一份最佳状态。
+  let deviceId = localStorage.getItem("csf-device-id");
+  if (!deviceId) {
+    // crypto.randomUUID 在所有现代浏览器（含 iOS Safari 15.4+ / Android Chrome 92+）可用；
+    // 极端情况下退到自造 ID。绝不沿用 "unknown"，否则所有设备挤到同一行覆盖彼此。
+    deviceId = (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
+      ? crypto.randomUUID()
+      : `dev-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    localStorage.setItem("csf-device-id", deviceId);
+  }
+
+  // 0.5 启动顺序：先 push 当前 kid 数据，再 pull 服务端合并结果，
+  //     否则 pull 后的 setState 会覆盖掉本地刚发生的进度变更。
+  await pushProgressToServer(deviceId, kidId);
+
   // 1. 拉取服务端防沉迷设置，覆盖本地
   try {
     const res = await fetch("/api/custom/parent/public-settings");
@@ -1872,7 +1889,7 @@ export async function initServerSync() {
     }
   } catch {}
 
-  // 2. 拉取服务端进度并合并（按 kid_id）
+  // 2. 拉取服务端进度并合并（按 kid_id，服务端负责跨设备合并）
   try {
     const res = await fetch("/api/custom/sync/progress", {
       headers: { "X-Kid-Id": kidId },
@@ -1887,12 +1904,12 @@ export async function initServerSync() {
     }
   } catch {}
 
-  // 3. 首次上报
-  pushProgressToServer();
+  // 3. 首次 pull 后再上报一次合并结果，确保服务端最终也持有最新视图
+  pushProgressToServer(deviceId, kidId);
 
   // 4. 定时上报（每 60 秒）
   if (_syncTimer) clearInterval(_syncTimer);
-  _syncTimer = setInterval(pushProgressToServer, 60_000);
+  _syncTimer = setInterval(() => pushProgressToServer(deviceId, kidId), 60_000);
 
   // 5. 每 30 秒同步防沉迷设置（防止改本地绕过）
   if (_antiAddictionTimer) clearInterval(_antiAddictionTimer);
@@ -1911,8 +1928,12 @@ export async function initServerSync() {
 
   // 6. 监听 kid 切换事件
   const onKidChanged = () => {
-    // Reload to rehydrate from new kid's localStorage key
-    window.location.reload();
+    // 切换前先 push 当前 kid 的最新状态，再 reload，避免最后一笔消费丢失。
+    void (async () => {
+      const curKid = localStorage.getItem("csf-active-kid") || "default";
+      await pushProgressToServer(deviceId, curKid);
+      window.location.reload();
+    })();
   };
   // 先清理可能的旧监听器，避免 HMR / 二次初始化时重复绑定
   if (_kidChangedListener) {
@@ -1924,16 +1945,67 @@ export async function initServerSync() {
 
 function mergeProgressState(server: Record<string, any>, local: any): Partial<any> {
   const merged: Record<string, any> = {};
+
+  // === 数值类：取最优（更大值代表更多进度）===
   for (const key of ["xp", "gems", "streak", "lifetimeGems", "streakFreezes"]) {
     merged[key] = Math.max(server[key] ?? 0, (local as any)[key] ?? 0);
   }
-  // Object-type keys: merge via spread
+
+  // === 集合类（Object-as-Set）：并集 ===
+  // 任何一端出现的 id 都保留，不会被"对方没记录"覆盖为空
   for (const key of ["completedLessons", "unlockedAchievements",
                       "xpHistory", "lessonHistory", "claimedQuests", "claimedChests",
                       "completedReadings", "perfectedLessons"]) {
     merged[key] = { ...(server[key] ?? {}), ...((local as any)[key] ?? {}) };
   }
-  // Array-type key: mistakesBank — concat and deduplicate by lessonId+questionId
+
+  // === 装备类（非空优先）：本地未装备但服务端装备了 → 沿用服务端；反之亦然 ===
+  // 解决"在手机上买皮肤、电脑一拉就没了"的根本问题
+  for (const key of ["equippedMascotSkin", "equippedTheme", "equippedBackdrop"]) {
+    const sv = server[key];
+    const lv = (local as any)[key];
+    merged[key] = (lv && lv !== "") ? lv : (sv || lv || "");
+  }
+
+  // === 集合类（ownedCosmetics）：并集，买了就不能丢 ===
+  const svOwned = (server.ownedCosmetics && typeof server.ownedCosmetics === "object") ? server.ownedCosmetics : {};
+  const lvOwned = (local && local.ownedCosmetics && typeof local.ownedCosmetics === "object") ? local.ownedCosmetics : {};
+  merged.ownedCosmetics = { ...svOwned, ...lvOwned };
+
+  // === claimedStreakRewards：并集，奖励不可重复领取但也不应丢 ===
+  merged.claimedStreakRewards = {
+    ...(server.claimedStreakRewards ?? {}),
+    ...((local && local.claimedStreakRewards) ?? {}),
+  };
+
+  // === reports（题目报错列表）：按时间戳去重并集 ===
+  const svReports = Array.isArray(server.reports) ? server.reports : [];
+  const lvReports = Array.isArray((local as any).reports) ? (local as any).reports : [];
+  const reportSeen = new Set<string>();
+  merged.reports = [...lvReports, ...svReports].filter(r => {
+    const k = `${r.questionId || ""}@${r.ts || r.timestamp || ""}`;
+    if (!k || k === "@") return true;
+    if (reportSeen.has(k)) return false;
+    reportSeen.add(k);
+    return true;
+  });
+
+  // === 联赛状态：取最新的（按 weekKey 字典序）===
+  const svWk = server.leagueWeekKey || "";
+  const lvWk = (local && local.leagueWeekKey) || "";
+  if (svWk > lvWk) {
+    merged.leagueWeekKey = svWk;
+    merged.leagueTier = server.leagueTier || (local && local.leagueTier);
+    merged.leagueSalt = server.leagueSalt || (local && local.leagueSalt);
+    merged.pendingLeagueResult = server.pendingLeagueResult || null;
+  } else {
+    merged.leagueWeekKey = lvWk;
+    merged.leagueTier = (local && local.leagueTier) || server.leagueTier;
+    merged.leagueSalt = (local && local.leagueSalt) || server.leagueSalt;
+    merged.pendingLeagueResult = (local && local.pendingLeagueResult) || server.pendingLeagueResult || null;
+  }
+
+  // === Array-type key: mistakesBank — concat and deduplicate by lessonId+questionId ===
   const localMistakes = Array.isArray((local as any).mistakesBank) ? (local as any).mistakesBank : [];
   const serverMistakes = Array.isArray(server.mistakesBank) ? server.mistakesBank : [];
   const seen = new Set<string>();
@@ -1947,17 +2019,19 @@ function mergeProgressState(server: Record<string, any>, local: any): Partial<an
   return merged;
 }
 
-async function pushProgressToServer() {
+async function pushProgressToServer(deviceId?: string, kidId?: string) {
   try {
     const state = useProgressStore.getState() as any;
-    const deviceId = localStorage.getItem("csf-device-id") || "unknown";
-    const kidId = localStorage.getItem("csf-active-kid") || "default";
+    // 兜底：理论上 initServerSync 已经注入并持久化 deviceId；这里仅在
+    // 非预期路径（如被外部直接调用）下回退，不使用 "unknown" 避免覆盖冲突
+    const devId = deviceId || localStorage.getItem("csf-device-id") || `dev-${Date.now()}`;
+    const kId = kidId || localStorage.getItem("csf-active-kid") || "default";
     await fetch("/api/custom/sync/progress", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        device_id: deviceId,
-        kid_id: kidId,
+        device_id: devId,
+        kid_id: kId,
         device_name: navigator.userAgent.includes("Mobile") ? "手机" : "电脑",
         progress: state,
       }),

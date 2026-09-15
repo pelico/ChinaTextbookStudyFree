@@ -356,21 +356,122 @@ def delete_kid(kid_id):
 
 
 def merge_progress(server_state, client_state):
-    """跨设备进度合并：取最优值"""
-    merged = dict(client_state)
+    """跨设备进度合并：取最优值
+
+    服务端用此函数把多台设备（手机/电脑）上报的 progress_json 合并成
+    一份最佳视图下发，保证任一设备消费的装扮/积分/解锁不会因为另一端
+    的空对象 spread 而被覆盖丢失。
+
+    合并规则：
+    - 数值（xp/gems/streak/lifetimeGems/streakFreezes）：取 max
+    - 集合类 object（completedLessons 等）：并集
+    - 装备类单值（equippedMascotSkin/equippedTheme/equippedBackdrop）：非空优先
+    - 集合类 object（ownedCosmetics/claimedStreakRewards）：并集
+    - 今日数据（todayXp 等）：取客户端（实时更准）
+    """
+    merged = dict(client_state) if client_state else {}
+
+    sv = server_state or {}
+    cv = client_state or {}
+
+    # 数值类 — max
     for key in ("xp", "gems", "streak", "lifetimeGems", "streakFreezes"):
-        sv = server_state.get(key, 0) if server_state else 0
-        cv = client_state.get(key, 0)
-        merged[key] = max(sv, cv)
-    for key in ("completedLessons", "mistakesBank", "unlockedAchievements",
+        sv_v = sv.get(key, 0) if isinstance(sv, dict) else 0
+        cv_v = cv.get(key, 0) if isinstance(cv, dict) else 0
+        try:
+            merged[key] = max(int(sv_v or 0), int(cv_v or 0))
+        except (TypeError, ValueError):
+            merged[key] = int(cv_v or 0)
+
+    # 集合类（Object-as-Set）— 并集
+    for key in ("completedLessons", "unlockedAchievements",
                 "xpHistory", "lessonHistory", "claimedQuests", "claimedChests",
-                "completedReadings"):
-        sv = server_state.get(key, {}) if server_state else {}
-        cv = client_state.get(key, {})
-        merged[key] = {**sv, **cv}
-    # 今日数据取客户端值（本地实时更准）
+                "completedReadings", "perfectedLessons", "claimedStreakRewards"):
+        sv_obj = sv.get(key, {}) if isinstance(sv, dict) else {}
+        cv_obj = cv.get(key, {}) if isinstance(cv, dict) else {}
+        if not isinstance(sv_obj, dict):
+            sv_obj = {}
+        if not isinstance(cv_obj, dict):
+            cv_obj = {}
+        merged[key] = {**sv_obj, **cv_obj}
+
+    # 装备类单值 — 非空优先（解决"买的皮肤被覆盖丢失"的核心问题）
+    for key in ("equippedMascotSkin", "equippedTheme", "equippedBackdrop"):
+        sv_v = sv.get(key, "") if isinstance(sv, dict) else ""
+        cv_v = cv.get(key, "") if isinstance(cv, dict) else ""
+        if cv_v:
+            merged[key] = cv_v
+        elif sv_v:
+            merged[key] = sv_v
+
+    # ownedCosmetics — 并集
+    sv_owned = sv.get("ownedCosmetics", {}) if isinstance(sv, dict) else {}
+    cv_owned = cv.get("ownedCosmetics", {}) if isinstance(cv, dict) else {}
+    if not isinstance(sv_owned, dict):
+        sv_owned = {}
+    if not isinstance(cv_owned, dict):
+        cv_owned = {}
+    merged["ownedCosmetics"] = {**sv_owned, **cv_owned}
+
+    # reports — 按 questionId+timestamp 去重并集
+    sv_r = sv.get("reports", []) if isinstance(sv, dict) else []
+    cv_r = cv.get("reports", []) if isinstance(cv, dict) else []
+    if not isinstance(sv_r, list):
+        sv_r = []
+    if not isinstance(cv_r, list):
+        cv_r = []
+    seen = set()
+    merged_reports = []
+    for r in cv_r + sv_r:
+        if not isinstance(r, dict):
+            continue
+        k = f"{r.get('questionId','')}@{r.get('ts', r.get('timestamp',''))}"
+        if k == "@":
+            merged_reports.append(r)
+            continue
+        if k in seen:
+            continue
+        seen.add(k)
+        merged_reports.append(r)
+    merged["reports"] = merged_reports
+
+    # 联赛状态 — 按 weekKey 字典序取最新
+    sv_wk = sv.get("leagueWeekKey", "") if isinstance(sv, dict) else ""
+    cv_wk = cv.get("leagueWeekKey", "") if isinstance(cv, dict) else ""
+    if sv_wk > cv_wk:
+        merged["leagueWeekKey"] = sv_wk
+        merged["leagueTier"] = sv.get("leagueTier") or cv.get("leagueTier")
+        merged["leagueSalt"] = sv.get("leagueSalt") or cv.get("leagueSalt")
+        merged["pendingLeagueResult"] = sv.get("pendingLeagueResult")
+    else:
+        merged["leagueWeekKey"] = cv_wk
+        merged["leagueTier"] = cv.get("leagueTier") or sv.get("leagueTier")
+        merged["leagueSalt"] = cv.get("leagueSalt") or sv.get("leagueSalt")
+        merged["pendingLeagueResult"] = cv.get("pendingLeagueResult") or sv.get("pendingLeagueResult")
+
+    # mistakesBank — 数组，按 lessonId+questionId 去重并集
+    sv_m = sv.get("mistakesBank", []) if isinstance(sv, dict) else []
+    cv_m = cv.get("mistakesBank", []) if isinstance(cv, dict) else []
+    if not isinstance(sv_m, list):
+        sv_m = []
+    if not isinstance(cv_m, list):
+        cv_m = []
+    m_seen = set()
+    merged_mistakes = []
+    for m in cv_m + sv_m:
+        if not isinstance(m, dict):
+            continue
+        k = f"{m.get('lessonId','')}:{m.get('questionId','')}"
+        if k in m_seen:
+            continue
+        m_seen.add(k)
+        merged_mistakes.append(m)
+    merged["mistakesBank"] = merged_mistakes
+
+    # 今日数据 — 取客户端（实时更准，避免切换设备后今日数据被旧值覆盖）
     for key in ("todayXp", "todayTimeMs", "dailyLessons", "dailyReviews", "dailyReadings"):
-        merged[key] = client_state.get(key, 0)
+        merged[key] = cv.get(key, 0) if isinstance(cv, dict) else 0
+
     return merged
 
 
