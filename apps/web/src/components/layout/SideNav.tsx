@@ -3,13 +3,14 @@
 /**
  * SideNav —— 桌面端左侧导航
  *
- * 5 个真实页面：学习 / 排行榜 / 错题本 / 商店 / 我的
+ * 真实页面：学习 / 阅读 / 排行榜 / 错题本 / 商店 / 我的
+ * 工具区：打印试卷 / 自定义学习
  *
  * 响应式（web-shell-14）：
  *   - md (768-1023)：icon-only 窄栏（AppShell 给 88px），文字隐藏
  *   - lg+：完整 260px，图标 + 文字
  * 激活态用粗填充图标（web-shell-19），视觉重量对齐 iOS。
- * 底部：免费深色模式三态开关。
+ * 顶部 logo 右侧放 LightDarkToggle（二态日/夜切换）；三态切换保留在「我的」页。
  */
 
 import Link from "next/link";
@@ -30,7 +31,7 @@ import {
   Sparkle,
   type IconProps,
 } from "@/components/icons";
-import { ThemeModeToggle } from "@/components/ThemeModeToggle";
+import { LightDarkToggle } from "@/components/LightDarkToggle";
 import { StatsBar } from "@/components/StatsBar";
 import { cn } from "@/lib/cn";
 import { playSfx } from "@/lib/sfx";
@@ -81,23 +82,26 @@ export function SideNav({ leftSlot }: SideNavProps = {}) {
 
   return (
     <nav className="flex flex-col gap-2 w-full h-full" aria-label="主导航">
-      {/* Logo —— 文字 wordmark（lg+）；md 窄栏显示熊猫图标 */}
-      <Link
-        href="/"
-        onClick={() => {
-          playSfx("tap");
-          haptic("light");
-        }}
-        className="block px-3 py-3 mb-2"
-        aria-label="悠悠学堂 · 回到首页"
-      >
-        <span className="hidden lg:inline text-2xl font-extrabold text-primary tracking-tightest">
-          悠悠学堂
-        </span>
-        <span className="lg:hidden inline-flex items-center justify-center w-10 h-10 rounded-2xl bg-primary/10 text-primary font-extrabold text-lg">
-          聪
-        </span>
-      </Link>
+      {/* Logo + 日/夜切换按钮 同行排列（md 与 lg 都显示） */}
+      <div className="flex items-center gap-2 px-1 py-3 mb-2">
+        <Link
+          href="/"
+          onClick={() => {
+            playSfx("tap");
+            haptic("light");
+          }}
+          className="flex-1 min-w-0 px-2"
+          aria-label="悠悠学堂 · 回到首页"
+        >
+          <span className="hidden lg:inline text-2xl font-extrabold text-primary tracking-tightest">
+            悠悠学堂
+          </span>
+          <span className="lg:hidden inline-flex items-center justify-center w-10 h-10 rounded-2xl bg-primary/10 text-primary font-extrabold text-lg">
+            聪
+          </span>
+        </Link>
+        <LightDarkToggle />
+      </div>
 
       {/* 桌面端状态条 —— 红心/连胜/宝石 移到左侧栏顶部，logo 下方、SideRail 上方。
          *   lg+ 完整宽 260px；三颗胶囊横向铺开，compact 模式省掉 XP / 音频开关。
@@ -188,10 +192,38 @@ export function SideNav({ leftSlot }: SideNavProps = {}) {
         </span>
       </Link>
 
-      {/* 底部：深色模式三态开关（md 窄栏收成纯图标） */}
-      <div className="mt-auto pt-4 pb-2 px-1">
-        <ThemeModeToggle compact />
-      </div>
-    </nav>
+      {/* 自定义学习入口 —— 拍课本/整理真题/跟读录入同链路 */}
+      <Link
+        href="/custom/"
+        onClick={() => {
+          playSfx("tap");
+          haptic("light");
+        }}
+        className={cn(
+          "group flex items-center justify-center lg:justify-start gap-3 px-3 h-14 rounded-2xl border-2 transition-colors select-none",
+          pathname.startsWith("/custom/")
+            ? "border-primary/50 bg-primary/10 text-primary-dark"
+            : "border-transparent text-ink-light hover:bg-bg-soft"
+        )}
+        aria-current={pathname.startsWith("/custom/") ? "page" : undefined}
+        title="自定义学习"
+      >
+        <BookOpen
+          className={cn(
+            "w-7 h-7 shrink-0",
+            pathname.startsWith("/custom/") ? "text-primary" : "text-ink-softer group-hover:text-ink-light"
+          )}
+        />
+        <span
+          className={cn(
+            "hidden lg:inline text-base font-extrabold",
+            pathname.startsWith("/custom/") ? "text-primary-dark" : "text-ink-light group-hover:text-ink"
+          )}
+        >
+          自定义学习
+        </span>
+      </Link>
+
+      </nav>
   );
 }
