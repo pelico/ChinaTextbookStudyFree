@@ -7,7 +7,6 @@ import {
   type Exam, type ExamStructure, DIFFICULTY_LABELS,
 } from "@/lib/customApi";
 import { requireParentAuth } from "@/lib/parentAuth";
-import { ArrowLeft } from "@/components/icons";
 
 const subjectLabels: Record<string, string> = {
   math: "数学", chinese: "语文", english: "英语", science: "科学",
@@ -182,27 +181,17 @@ export function CustomExamDetail({ examId }: { examId: string }) {
   const hasStructure = !!structure;
 
   return (
-    <main className="min-h-screen bg-bg-soft pb-20 md:pb-8">
-      <header className="sticky top-0 z-30 bg-white border-b border-bg-softer px-4 py-3 md:px-6">
-        <div className="flex items-center gap-3">
-          <button onClick={() => navigate("/custom/exams")} className="text-ink-softer hover:text-ink transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <h1 className="text-lg font-extrabold text-ink truncate">{exam.title}</h1>
-        </div>
-      </header>
-
-      <div className="px-4 py-6 space-y-6 md:px-6">
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="px-2.5 py-1 rounded-lg bg-primary/10 text-primary-dark font-bold">
-            {subjectLabels[exam.subject] || exam.subject}
-          </span>
-          <span className="px-2.5 py-1 rounded-lg bg-secondary/10 text-secondary-dark font-bold">
-            {exam.grade}年级{exam.semester === "up" ? "上" : "下"}册
-          </span>
-          <span className="px-2.5 py-1 rounded-lg bg-warning/10 text-warning font-bold">
-            {DIFFICULTY_LABELS[exam.difficulty as keyof typeof DIFFICULTY_LABELS] || exam.difficulty}
-          </span>
+    <>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="px-2.5 py-1 rounded-lg bg-primary/10 text-primary-dark font-bold">
+          {subjectLabels[exam.subject] || exam.subject}
+        </span>
+        <span className="px-2.5 py-1 rounded-lg bg-secondary/10 text-secondary-dark font-bold">
+          {exam.grade}年级{exam.semester === "up" ? "上" : "下"}册
+        </span>
+        <span className="px-2.5 py-1 rounded-lg bg-warning/10 text-warning font-bold">
+          {DIFFICULTY_LABELS[exam.difficulty as keyof typeof DIFFICULTY_LABELS] || exam.difficulty}
+        </span>
           <span className="px-2.5 py-1 rounded-lg bg-bg-softer text-ink-light">
             {exam.total_pages}页
           </span>
@@ -384,6 +373,6 @@ export function CustomExamDetail({ examId }: { examId: string }) {
           </div>
         )}
       </div>
-    </main>
+    </>
   );
 }

@@ -5,7 +5,6 @@ import dynamic from "next/dynamic";
 import { apiGet, apiPost, navigate, type CustomBook, type QuestionSet } from "@/lib/customApi";
 import type { Lesson, Question } from "@/types";
 import { requireParentAuth } from "@/lib/parentAuth";
-import { ArrowLeft } from "@/components/icons";
 
 const LessonRunner = dynamic(
   () => import("@/components/LessonRunner").then(m => ({ default: m.LessonRunner })),

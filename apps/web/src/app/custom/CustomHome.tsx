@@ -1,10 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Link from "next/link";
 import { apiGet, navigate, apiDelete, type CustomBook } from "@/lib/customApi";
 import { requireParentAuth } from "@/lib/parentAuth";
-import { ArrowLeft } from "@/components/icons";
 
 const subjectLabels: Record<string, string> = {
   math: "数学", chinese: "语文", english: "英语", science: "科学",
@@ -41,19 +39,8 @@ export function CustomHome() {
   }
 
   return (
-    <main className="min-h-screen bg-bg-soft pb-20 md:pb-8">
-      <header className="sticky top-0 z-30 bg-white border-b border-bg-softer px-4 py-3 md:px-6">
-        <div className="flex items-center gap-3 max-w-3xl mx-auto">
-          <Link href="/" className="text-ink-softer hover:text-ink transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-          </Link>
-          <h1 className="text-lg font-extrabold text-ink">自定义学习</h1>
-          <span className="text-xs text-ink-light ml-auto hidden sm:inline">拍照上传 · AI 出题</span>
-        </div>
-      </header>
-
-      <div className="px-4 py-6 space-y-6 md:px-6">
-        <div className="grid grid-cols-2 gap-3">
+    <>
+      <div className="grid grid-cols-2 gap-3">
           <button
             onClick={async () => {
               const ok = await requireParentAuth("拍照上传");
@@ -121,7 +108,6 @@ export function CustomHome() {
             </div>
           ))}
         </div>
-      </div>
-    </main>
+    </>
   );
 }

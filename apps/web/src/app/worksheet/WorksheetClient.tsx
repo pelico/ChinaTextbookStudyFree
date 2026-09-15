@@ -18,6 +18,9 @@ import {
 import type { SubjectId, Outline } from "@cstf/core";
 import { ArrowLeft } from "@/components/icons";
 import { apiGet, type CustomBook, listExams, getExam, type Exam, DIFFICULTY_LABELS, getExamWithStructure } from "@/lib/customApi";
+import { AppShell } from "@/components/layout/AppShell";
+import { PageHeader } from "@/components/PageHeader";
+import { InnerHeader } from "@/components/InnerHeader";
 
 const SUBJECT_LIST: SubjectId[] = ["chinese", "math", "english", "science"];
 
@@ -250,38 +253,42 @@ export function WorksheetClient({ books }: Props) {
 
   if (showPreview && questions.length > 0) {
     return (
-      <PrintPreview
-        questions={questions}
-        config={{
-          mode,
-          subject: selectedSubject,
-          bookId: selectedGrade === 0 ? "all-grades" : (selectedBook?.id ?? ""),
-          textbookName: selectedGrade === 0
-            ? `${SUBJECT_LABELS[selectedSubject]}全年级综合`
-            : (selectedBook?.textbookName ?? ""),
-          unitNumbers: Array.from(selectedUnits).sort((a, b) => a - b),
-          questionTypes,
-          difficultyMax,
-          includeAnswerKey,
-          examStructure: examStructure ?? undefined,
-        }}
-        onBack={() => setShowPreview(false)}
-      />
+      <AppShell>
+        <PrintPreview
+          questions={questions}
+          config={{
+            mode,
+            subject: selectedSubject,
+            bookId: selectedGrade === 0 ? "all-grades" : (selectedBook?.id ?? ""),
+            textbookName: selectedGrade === 0
+              ? `${SUBJECT_LABELS[selectedSubject]}全年级综合`
+              : (selectedBook?.textbookName ?? ""),
+            unitNumbers: Array.from(selectedUnits).sort((a, b) => a - b),
+            questionTypes,
+            difficultyMax,
+            includeAnswerKey,
+            examStructure: examStructure ?? undefined,
+          }}
+          onBack={() => setShowPreview(false)}
+        />
+      </AppShell>
     );
   }
 
   return (
-    <main className="min-h-screen bg-bg-soft pb-20 md:pb-8">
-      {/* 顶栏 */}
-      <header className="sticky top-0 z-30 bg-white border-b border-bg-softer px-4 py-3 md:px-6">
-        <div className="flex items-center gap-3">
-          <Link href="/" className="text-ink-softer hover:text-ink transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-          </Link>
-          <h1 className="text-lg font-extrabold text-ink">打印试卷</h1>
-          <span className="text-xs text-ink-light ml-auto hidden sm:inline">AI 生成 · 可打印 A4</span>
-        </div>
-      </header>
+    <AppShell>
+      {/* 移动端 sticky 顶栏（与 /grade/[grade]/ /reading/ 内部页面风格一致），
+       *   桌面端改 <PageHeader> 占主列顶部、跟排行榜对齐 */}
+      <div className="lg:hidden sticky top-0 z-30 bg-white border-b border-bg-softer px-4 py-3">
+        <InnerHeader title="打印试卷" backHref="/" />
+      </div>
+      <div className="px-4 pt-2 lg:px-0 lg:pt-0 md:px-6">
+        <PageHeader
+          backHref="/"
+          title="打印试卷"
+          subtitle="AI 生成 · 可打印 A4 · 任意学科/年级/题型"
+        />
+      </div>
 
       <div className="px-4 py-6 space-y-6 md:px-6">
         {/* 真题库入口 */}
@@ -710,7 +717,7 @@ export function WorksheetClient({ books }: Props) {
           {generating ? "AI 正在生成试卷..." : "生成试卷"}
         </button>
       </div>
-    </main>
+    </AppShell>
   );
 }
 

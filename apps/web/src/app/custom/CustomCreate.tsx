@@ -2,7 +2,6 @@
 
 import { useState, useRef } from "react";
 import { apiPost, navigate, compressImage, type CustomBook } from "@/lib/customApi";
-import { ArrowLeft } from "@/components/icons";
 
 const subjects = [
   { value: "math", label: "数学" },
@@ -78,18 +77,8 @@ export function CustomCreate() {
   }
 
   return (
-    <main className="min-h-screen bg-bg-soft pb-20 md:pb-8">
-      <header className="sticky top-0 z-30 bg-white border-b border-bg-softer px-4 py-3 md:px-6">
-        <div className="flex items-center gap-3">
-          <button onClick={() => navigate("/custom/")} className="text-ink-softer hover:text-ink transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <h1 className="text-lg font-extrabold text-ink">创建自定义教材</h1>
-        </div>
-      </header>
-
-      <div className="px-4 py-6 space-y-6 md:px-6">
-        {loading ? (
+    <>
+      {loading ? (
           <div className="flex flex-col items-center justify-center py-20">
             <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent mb-4" />
             <p className="text-ink font-extrabold">AI 正在识别教材内容</p>
@@ -185,9 +174,7 @@ export function CustomCreate() {
             >
               AI 识别并创建
             </button>
-          </div>
-        )}
-      </div>
-    </main>
+          </div>}
+    </>
   );
 }

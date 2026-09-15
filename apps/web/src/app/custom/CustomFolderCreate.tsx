@@ -5,7 +5,6 @@ import {
   navigate, listFolders, createBookFromFolder,
   type FolderInfo,
 } from "@/lib/customApi";
-import { ArrowLeft } from "@/components/icons";
 
 const subjectOptions = [
   { value: "chinese", label: "语文" },
@@ -71,19 +70,9 @@ export function CustomFolderCreate() {
   }
 
   return (
-    <main className="min-h-screen bg-bg-soft pb-20 md:pb-8">
-      <header className="sticky top-0 z-30 bg-white border-b border-bg-softer px-4 py-3 md:px-6">
-        <div className="flex items-center gap-3 max-w-3xl mx-auto">
-          <button onClick={() => navigate("/custom/")} className="text-ink-softer hover:text-ink transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <h1 className="text-lg font-extrabold text-ink">从文件夹创建教材</h1>
-        </div>
-      </header>
-
-      <div className="px-4 py-6 space-y-5 md:px-6">
-        <div>
-          <label className="block text-sm font-extrabold text-ink mb-2">教材名称</label>
+    <>
+      <div>
+        <label className="block text-sm font-extrabold text-ink mb-2">教材名称</label>
           <input
             type="text"
             value={title}
@@ -204,7 +193,6 @@ export function CustomFolderCreate() {
         >
           {loading ? "创建中..." : "创建教材"}
         </button>
-      </div>
-    </main>
+    </>
   );
 }

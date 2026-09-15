@@ -4,7 +4,6 @@ import { useState, useRef } from "react";
 import { navigate, compressImage, createExam } from "@/lib/customApi";
 import { DIFFICULTY_LABELS, type ExamDifficulty } from "@/lib/customApi";
 import { requireParentAuth } from "@/lib/parentAuth";
-import { ArrowLeft } from "@/components/icons";
 
 const subjects = [
   { value: "math", label: "数学" },
@@ -80,24 +79,14 @@ export function CustomExamCreate() {
   }
 
   return (
-    <main className="min-h-screen bg-bg-soft pb-20 md:pb-8">
-      <header className="sticky top-0 z-30 bg-white border-b border-bg-softer px-4 py-3 md:px-6">
-        <div className="flex items-center gap-3 max-w-3xl mx-auto">
-          <button onClick={() => window.location.assign("/custom/exams")} className="text-ink-softer hover:text-ink transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <h1 className="text-lg font-extrabold text-ink">上传真题</h1>
-        </div>
-      </header>
-
-      <div className="px-4 py-6 space-y-5 md:px-6">
-        <div>
-          <label className="block text-sm font-bold text-ink mb-1.5">试卷名称</label>
-          <input
-            type="text"
-            value={title}
-            onChange={e => setTitle(e.target.value)}
-            placeholder="如：二年级数学上册期末真题"
+    <>
+      <div>
+        <label className="block text-sm font-bold text-ink mb-1.5">试卷名称</label>
+        <input
+          type="text"
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          placeholder="如：二年级数学上册期末真题"
             className="w-full rounded-xl border-2 border-bg-softer bg-white px-4 py-2.5 text-sm text-ink focus:border-primary focus:outline-none"
           />
         </div>
@@ -208,7 +197,6 @@ export function CustomExamCreate() {
             <>创建真题</>
           )}
         </button>
-      </div>
-    </main>
+    </>
   );
 }

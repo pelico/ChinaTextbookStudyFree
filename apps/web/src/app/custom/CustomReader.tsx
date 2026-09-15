@@ -10,7 +10,6 @@ import {
   isSpeechSupported, type SpeakOptions,
 } from "@/lib/speechTts";
 import { requireParentAuth } from "@/lib/parentAuth";
-import { ArrowLeft } from "@/components/icons";
 
 export function CustomReader({ bookId }: { bookId: string }) {
   const [data, setData] = useState<BookReadData | null>(null);

@@ -7,7 +7,6 @@ import {
 } from "@/lib/customApi";
 import { requireParentAuth } from "@/lib/parentAuth";
 import { useProgressStore } from "@/store/progress";
-import { ArrowLeft } from "@/components/icons";
 
 const subjectLabels: Record<string, string> = {
   math: "数学", chinese: "语文", english: "英语", science: "科学",
@@ -93,20 +92,10 @@ export function CustomBook({ bookId }: { bookId: string }) {
   const allTextExtracted = !!textStatus && textStatus.text_pages === textStatus.total_pages && textStatus.total_pages > 0;
 
   return (
-    <main className="min-h-screen bg-bg-soft pb-20 md:pb-8">
-      <header className="sticky top-0 z-30 bg-white border-b border-bg-softer px-4 py-3 md:px-6">
-        <div className="flex items-center gap-3 max-w-3xl mx-auto">
-          <button onClick={() => navigate("/custom/")} className="text-ink-softer hover:text-ink transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <h1 className="text-lg font-extrabold text-ink truncate">{book.title}</h1>
-        </div>
-      </header>
-
-      <div className="px-4 py-6 space-y-6 md:px-6">
-        <p className="text-sm text-ink-light">
-          {subjectLabels[book.subject] || book.subject} · {book.grade}年级{book.semester === "up" ? "上" : "下"}册
-        </p>
+    <>
+      <p className="text-sm text-ink-light">
+        {subjectLabels[book.subject] || book.subject} · {book.grade}年级{book.semester === "up" ? "上" : "下"}册
+      </p>
 
         {/* 阅读按钮 */}
         <button
@@ -257,7 +246,6 @@ export function CustomBook({ bookId }: { bookId: string }) {
             </button>
           </div>
         )}
-      </div>
-    </main>
+    </>
   );
 }
