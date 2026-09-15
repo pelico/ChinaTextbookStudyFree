@@ -51,7 +51,10 @@ const bootScript = `
     var DARK_THEMES = { theme_midnight: "#0F1419", theme_obsidian: "#08090C" };
     var equipped = "";
     try {
-      var raw = localStorage.getItem("csf-progress-v1");
+      var kidId = localStorage.getItem("csf-active-kid") || "default";
+      var key = kidId === "default" ? "csf-progress-v1" : ("csf-progress-v1-" + kidId);
+      var raw = localStorage.getItem(key);
+      if (!raw) raw = localStorage.getItem("csf-progress-v1");
       if (raw) equipped = (JSON.parse(raw).state || {}).equippedTheme || "";
     } catch (e) {}
     var mode = localStorage.getItem("csf-theme-mode");

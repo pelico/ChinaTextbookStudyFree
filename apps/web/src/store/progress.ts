@@ -1834,6 +1834,24 @@ export const useProgressStore = create<ProgressState>()(
 // ============================================================
 let _syncTimer: ReturnType<typeof setInterval> | null = null;
 let _antiAddictionTimer: ReturnType<typeof setInterval> | null = null;
+let _kidChangedListener: (() => void) | null = null;
+
+export function teardownServerSync() {
+  // C2: 全局定时器/监听器卸载清理。组件 unmount 或 HMR 时释放资源，
+  // 避免 SSR 反复初始化后留下多个孤儿定时器。
+  if (_syncTimer) {
+    clearInterval(_syncTimer);
+    _syncTimer = null;
+  }
+  if (_antiAddictionTimer) {
+    clearInterval(_antiAddictionTimer);
+    _antiAddictionTimer = null;
+  }
+  if (_kidChangedListener && typeof window !== "undefined") {
+    window.removeEventListener("kid-changed", _kidChangedListener);
+    _kidChangedListener = null;
+  }
+}
 
 export async function initServerSync() {
   if (typeof window === "undefined") return;
@@ -1892,10 +1910,16 @@ export async function initServerSync() {
   }, 30_000);
 
   // 6. 监听 kid 切换事件
-  window.addEventListener("kid-changed", () => {
+  const onKidChanged = () => {
     // Reload to rehydrate from new kid's localStorage key
     window.location.reload();
-  });
+  };
+  // 先清理可能的旧监听器，避免 HMR / 二次初始化时重复绑定
+  if (_kidChangedListener) {
+    window.removeEventListener("kid-changed", _kidChangedListener);
+  }
+  window.addEventListener("kid-changed", onKidChanged);
+  _kidChangedListener = onKidChanged;
 }
 
 function mergeProgressState(server: Record<string, any>, local: any): Partial<any> {

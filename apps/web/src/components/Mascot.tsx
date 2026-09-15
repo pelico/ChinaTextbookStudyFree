@@ -57,23 +57,29 @@ export function Mascot({
 
   useEffect(() => {
     if (!animate || prefersReduced) return;
-    let timer: ReturnType<typeof setTimeout>;
+    let outer: ReturnType<typeof setTimeout> | null = null;
+    let inner: ReturnType<typeof setTimeout> | null = null;
     const schedule = () => {
       const next = 2500 + Math.random() * 3500;
-      timer = setTimeout(() => {
+      outer = setTimeout(() => {
         setBlinkClose(true);
-        setTimeout(() => setBlinkClose(false), 120);
+        inner = setTimeout(() => setBlinkClose(false), 120);
         schedule();
       }, next);
     };
     schedule();
-    return () => clearTimeout(timer);
+    return () => {
+      if (outer) clearTimeout(outer);
+      if (inner) clearTimeout(inner);
+    };
   }, [animate, prefersReduced]);
 
   useEffect(() => {
     if (!reactTo || prefersReduced) return;
     setShowSweat(false);
     setShowGlow(false);
+    // A1: 一次性定时器也跟踪，便于卸载时清理
+    const timers: ReturnType<typeof setTimeout>[] = [];
     if (reactTo === "correct") {
       controls.start({
         scale: [1, 1.18, 0.95, 1.05, 1],
@@ -91,7 +97,7 @@ export function Mascot({
         transition: { duration: 0.55 },
       });
       setShowSweat(true);
-      setTimeout(() => setShowSweat(false), 1200);
+      timers.push(setTimeout(() => setShowSweat(false), 1200));
     } else if (reactTo === "levelup") {
       setShowGlow(true);
       controls.start({
@@ -103,8 +109,11 @@ export function Mascot({
         rotate: [0, -30, 0, -30, 0],
         transition: { duration: 0.9 },
       });
-      setTimeout(() => setShowGlow(false), 1400);
+      timers.push(setTimeout(() => setShowGlow(false), 1400));
     }
+    return () => {
+      timers.forEach(clearTimeout);
+    };
   }, [reactTo, reactKey, controls, armControls, prefersReduced]);
 
   return (

@@ -246,6 +246,8 @@ def init_db():
         conn.execute("ALTER TABLE exams ADD COLUMN structure TEXT")
     if "analyze_status" not in cols_exams:
         conn.execute("ALTER TABLE exams ADD COLUMN analyze_status TEXT DEFAULT 'idle'")
+    if "started_at" not in cols_exams:
+        conn.execute("ALTER TABLE exams ADD COLUMN started_at TEXT")
 
     conn.commit()
     conn.close()
@@ -401,14 +403,23 @@ def call_ai(messages, timeout=120, api_key=None):
 
     try:
         resp = _urlopen(req, timeout=timeout)
-        data = json.loads(resp.read().decode("utf-8"))
+        # 校验返回 Content-Type，避免上游返回 HTML/纯文本时下游解析炸裂
+        ctype = (resp.headers.get("Content-Type") or "").lower()
+        if "application/json" not in ctype:
+            sample = resp.read(200).decode("utf-8", errors="replace")
+            raise RuntimeError(f"AI 接口返回非 JSON（{ctype or '未知类型'}），请检查 API Base 配置")
+        raw = resp.read()
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as e:
+            raise RuntimeError(f"AI 接口返回内容无法解析: {e}")
         content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
         if not content:
             raise RuntimeError("AI 返回空内容，请检查模型名或 API Key")
         return content
     except urllib.error.HTTPError as e:
-        err_body = e.read().decode("utf-8", errors="replace")[:300]
-        raise RuntimeError(f"AI 接口错误 ({e.code}): {err_body}")
+        # 只暴露 HTTP 状态码，不透传原始 body（可能含敏感信息）
+        raise RuntimeError(f"AI 接口错误 HTTP {e.code}")
     except urllib.error.URLError as e:
         raise RuntimeError(f"AI 接口连接失败: {e.reason}")
 
@@ -1470,12 +1481,15 @@ def extract_exam_text(exam_id, api_key=None):
 
 
 def update_exam_structure(exam_id, structure_json, status="done"):
+    """更新真题结构。同时维护 started_at / updated_at，供前端判断任务是否已超时卡死。"""
     now = now_iso()
     conn = get_db()
     try:
+        # 仅当从未启动过时写入 started_at，避免反复覆盖
         conn.execute(
-            "UPDATE exams SET structure = ?, analyze_status = ?, updated_at = ? WHERE id = ?",
-            (structure_json, status, now, exam_id)
+            "UPDATE exams SET structure = ?, analyze_status = ?, updated_at = ?, "
+            "started_at = COALESCE(started_at, ?) WHERE id = ?",
+            (structure_json, status, now, now, exam_id)
         )
         conn.commit()
     finally:
@@ -1554,17 +1568,26 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
         print(sys_msg, flush=True)
 
     def _send_json(self, data, status=200):
+        # E6: 防止同一连接上重复发送响应（异常分支也会调 send_error）
+        if getattr(self, "_response_started", False):
+            return
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Kid-Id, X-AI-Key, X-Parent-Auth")
+            self.end_headers()
+            self.wfile.write(body)
+            self._response_started = True
+        except (BrokenPipeError, ConnectionResetError):
+            # 客户端中途断开 — 不再尝试继续写
+            pass
 
     def _send_error(self, msg, status=500):
+        # 仅透传业务可控的错误消息；底层异常不要把 str(e) 直接给前端。
         self._send_json({"error": msg}, status)
 
     def _read_body(self):
@@ -1574,6 +1597,19 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
         if length == 0:
             return b""
         return self.rfile.read(length)
+
+    def _read_json(self):
+        """读取并解析 JSON body。失败抛 RuntimeError，由调用方转为 400 错误。"""
+        raw = self._read_body()
+        if not raw:
+            return {}
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise RuntimeError("请求体不是合法 JSON")
+        if not isinstance(data, dict):
+            raise RuntimeError("请求体必须是 JSON 对象")
+        return data
 
     def _ai_key(self):
         """从请求头读取前端传入的 AI Key，回退到环境变量"""
@@ -1663,9 +1699,44 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                 return
 
             # /books/:id/extract-status — 查询异步提取任务状态
+            # #3 兜底：服务重启后内存 dict 已丢，需要根据 DB 真实情况推断状态
             if len(parts) == 3 and parts[0] == "books" and parts[2] == "extract-status":
-                job = _extract_jobs.get(parts[1], {"status": "idle"})
-                self._send_json(job)
+                book_id = parts[1]
+                job = _extract_jobs.get(book_id)
+                # 内存里有就直接返回
+                if job:
+                    self._send_json(job)
+                    return
+
+                # 否则查 DB：以 page_texts 行数 vs page_images 行数判定
+                conn = get_db()
+                try:
+                    book = conn.execute(
+                        "SELECT id FROM books WHERE id = ?", (book_id,)
+                    ).fetchone()
+                    if not book:
+                        self._send_json({"status": "idle"})
+                        return
+                    total = conn.execute(
+                        "SELECT COUNT(*) as c FROM page_images WHERE book_id = ? AND page_number IS NOT NULL",
+                        (book_id,)
+                    ).fetchone()["c"]
+                    text_pages = conn.execute(
+                        "SELECT COUNT(*) as c FROM page_texts WHERE book_id = ?",
+                        (book_id,)
+                    ).fetchone()["c"]
+                finally:
+                    conn.close()
+
+                if total == 0:
+                    self._send_json({"status": "idle"})
+                elif text_pages >= total:
+                    self._send_json({"status": "done", "result": {"total": total, "extracted": text_pages}})
+                elif text_pages > 0:
+                    # 部分提取 — 中断遗留状态，对前端表现为 done（已有部分文字可用）
+                    self._send_json({"status": "done", "result": {"total": total, "extracted": text_pages, "partial": True}})
+                else:
+                    self._send_json({"status": "idle"})
                 return
 
             # /folders — 列出 textbooks 目录下的子目录
@@ -1771,19 +1842,55 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                 return
 
             # /exams/:id/analyze-status — 查询试卷结构分析任务状态
+            # #2 兜底：以 DB 为准；服务重启 / 进程崩溃时，内存 dict 已丢
+            # 但 DB analyze_status 可能永远停留在 processing。判定规则：
+            #   - 如果 DB 有 structure，直接 done
+            #   - 如果 DB 处于 processing 且 started_at 超过 10 分钟，判为超时（error）
+            #   - 否则以内存 dict 为准
             if len(parts) == 3 and parts[0] == "exams" and parts[2] == "analyze-status":
                 exam = get_exam(parts[1])
-                job = _exam_analyze_jobs.get(parts[1], {"status": exam.get("analyze_status", "idle") if exam else "idle"})
-                # 如果数据库里已经有 structure，直接返回 done
-                if exam and exam.get("structure") and job.get("status") != "processing":
-                    job = {"status": "done", "structure": json.loads(exam["structure"]) if exam["structure"] else None}
-                self._send_json(job)
+                if not exam:
+                    self._send_error("试卷不存在", 404)
+                    return
+
+                # 已完成 — 直接以 DB structure 为准
+                if exam.get("structure"):
+                    try:
+                        self._send_json({
+                            "status": "done",
+                            "structure": json.loads(exam["structure"]) if exam["structure"] else None,
+                        })
+                    except json.JSONDecodeError:
+                        self._send_json({"status": "done", "structure": None, "warning": "structure 解析失败"})
+                    return
+
+                # DB 处于 processing 但实际已超时（10 分钟）— 兜底为 error
+                db_status = exam.get("analyze_status") or "idle"
+                started_at = exam.get("started_at")
+                if db_status == "processing" and started_at:
+                    try:
+                        from datetime import datetime as _dt
+                        started_ts = _dt.fromisoformat(started_at).timestamp()
+                        if time.time() - started_ts > 600:  # 10 分钟兜底阈值
+                            db_status = "error"
+                            # 顺手回写一次 DB，避免下次又算超时
+                            update_exam_structure(parts[1], None, "error")
+                    except (ValueError, TypeError):
+                        pass
+
+                mem_job = _exam_analyze_jobs.get(parts[1])
+                # 若内存里没记录但 DB 标 idle，统一返回 idle（前端轮询会自然停）
+                if mem_job:
+                    self._send_json(mem_job)
+                else:
+                    self._send_json({"status": db_status})
                 return
 
             self._send_error("未知路径", 404)
 
-        except Exception as e:
-            self._send_error(str(e))
+        except Exception:
+            # E5: 顶层兜底，绝不把底层异常细节透传给前端
+            self._send_error("服务暂时不可用，请稍后再试", 500)
 
     def do_POST(self):
         path = self.path.split("?")[0].rstrip("/")
@@ -1792,15 +1899,13 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
         try:
             # /books
             if parts == ["books"]:
-                body = self._read_body()
-                data = json.loads(body)
+                data = self._read_json()
                 title = data.get("title", "自定义教材")
                 subject = data.get("subject", "math")
                 grade = data.get("grade", 1)
                 semester = data.get("semester", "up")
                 images = data.get("images", [])
-
-                if not images:
+                if not isinstance(images, list) or not images:
                     self._send_error("请上传至少一张教材照片", 400)
                     return
 
@@ -1810,15 +1915,13 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
 
             # /books/from-folder
             if parts == ["books", "from-folder"]:
-                body = self._read_body()
-                data = json.loads(body)
+                data = self._read_json()
                 title = data.get("title", "自定义教材")
                 subject = data.get("subject", "math")
                 grade = data.get("grade", 1)
                 semester = data.get("semester", "up")
                 folder = data.get("folder_path", "")
-
-                if not folder:
+                if not folder or not isinstance(folder, str):
                     self._send_error("请指定教材图片目录", 400)
                     return
 
@@ -1828,15 +1931,10 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
 
             # /books/:id/extract-text — 提取页面文字（异步）
             if len(parts) == 3 and parts[0] == "books" and parts[2] == "extract-text":
-                body = self._read_body()
-                force = False
-                if body:
-                    try:
-                        force = json.loads(body).get("force", False)
-                    except Exception:
-                        pass
                 book_id = parts[1]
-                job_key = f"{book_id}"
+                data = self._read_json() if self.headers.get("Content-Length", "0") != "0" else {}
+                force = bool(data.get("force", False)) if isinstance(data, dict) else False
+                job_key = book_id
                 # 已在跑？返回当前状态
                 if job_key in _extract_jobs and _extract_jobs[job_key].get("status") == "processing":
                     self._send_json({"status": "processing", "message": "正在识别中..."})
@@ -1861,10 +1959,21 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
             if (len(parts) == 5 and parts[0] == "books" and parts[2] == "pages"
                     and parts[4] == "text"):
                 book_id = parts[1]
-                page_number = int(parts[3])
-                body = self._read_body()
-                data = json.loads(body)
+                # E1: page_number 必须为正整数；URL 里随便传 "abc" 会让 int() 抛出 ValueError
+                # 这里捕获后转为 RuntimeError，统一返回业务可控错误
+                try:
+                    page_number = int(parts[3])
+                except (ValueError, TypeError):
+                    self._send_error("页码必须为整数", 400)
+                    return
+                if page_number <= 0:
+                    self._send_error("页码必须为正整数", 400)
+                    return
+                data = self._read_json()
                 text = data.get("text", "")
+                if not isinstance(text, str):
+                    self._send_error("text 必须是字符串", 400)
+                    return
                 result = update_page_text(book_id, page_number, text)
                 self._send_json(result)
                 return
@@ -1890,10 +1999,9 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
 
             # /parent/setup — 首次设置密码 + 默认配置
             if parts == ["parent", "setup"]:
-                body = self._read_body()
-                data = json.loads(body)
+                data = self._read_json()
                 password = data.get("password", "")
-                if len(password) < 4:
+                if not isinstance(password, str) or len(password) < 4:
                     self._send_error("密码至少 4 位", 400)
                     return
                 salt = secrets.token_hex(8)
@@ -1925,9 +2033,11 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
 
             # /parent/verify — 验证密码，返回 token
             if parts == ["parent", "verify"]:
-                body = self._read_body()
-                data = json.loads(body)
+                data = self._read_json()
                 password = data.get("password", "")
+                if not isinstance(password, str):
+                    self._send_error("密码格式不正确", 400)
+                    return
                 s = get_parent_settings()
                 if not s or not s.get("is_setup"):
                     self._send_error("尚未设置家长密码", 400)
@@ -1946,8 +2056,7 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                 if not verify_token(token):
                     self._send_error("需要家长授权", 403)
                     return
-                body = self._read_body()
-                data = json.loads(body)
+                data = self._read_json()
                 s = get_parent_settings() or {}
                 now = now_iso()
                 conn = get_db()
@@ -1979,8 +2088,7 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                 if not verify_token(token):
                     self._send_error("需要家长授权", 403)
                     return
-                body = self._read_body()
-                data = json.loads(body)
+                data = self._read_json()
                 kid = create_kid(data.get("name", "未命名"), data.get("avatar", "default"))
                 self._send_json(kid)
                 return
@@ -1992,22 +2100,28 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                     self._send_error("需要家长授权", 403)
                     return
                 kid_id = parts[1]
-                body = self._read_body()
-                data = json.loads(body)
+                data = self._read_json()
                 update_kid(kid_id, data.get("name"), data.get("avatar"))
                 self._send_json({"ok": True})
                 return
 
             # /sync/progress — 上报进度（含 kid_id）
             if parts == ["sync", "progress"]:
-                body = self._read_body()
-                data = json.loads(body)
-                device_id = data.get("device_id", "unknown")
-                kid_id = data.get("kid_id", "default")
-                device_name = data.get("device_name", "")
+                data = self._read_json()
+                device_id = str(data.get("device_id", "unknown"))[:64]
+                kid_id = str(data.get("kid_id", "default"))[:64]
+                device_name = str(data.get("device_name", ""))[:128]
                 progress = data.get("progress", {})
-                xp = progress.get("xp", 0)
-                gems = progress.get("gems", 0)
+                if not isinstance(progress, dict):
+                    progress = {}
+                try:
+                    xp = int(progress.get("xp", 0))
+                except (TypeError, ValueError):
+                    xp = 0
+                try:
+                    gems = int(progress.get("gems", 0))
+                except (TypeError, ValueError):
+                    gems = 0
                 now = now_iso()
                 row_id = f"{kid_id}:{device_id}"
                 conn = get_db()
@@ -2025,15 +2139,14 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
 
             # /exams — 创建真题
             if parts == ["exams"]:
-                body = self._read_body()
-                data = json.loads(body)
+                data = self._read_json()
                 title = data.get("title", "真题试卷")
                 subject = data.get("subject", "math")
                 grade = data.get("grade", 1)
                 semester = data.get("semester", "up")
                 difficulty = data.get("difficulty", "normal")
                 images = data.get("images", [])
-                if not images:
+                if not isinstance(images, list) or not images:
                     self._send_error("请上传至少一张试卷照片", 400)
                     return
                 exam = create_exam(title, subject, grade, semester, difficulty, images)
@@ -2042,9 +2155,12 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
 
             # /exams/:id/text — 更新真题文本
             if len(parts) == 3 and parts[0] == "exams" and parts[2] == "text":
-                body = self._read_body()
-                data = json.loads(body)
-                result = update_exam_text(parts[1], data.get("text", ""))
+                data = self._read_json()
+                text = data.get("text", "")
+                if not isinstance(text, str):
+                    self._send_error("text 必须是字符串", 400)
+                    return
+                result = update_exam_text(parts[1], text)
                 self._send_json(result)
                 return
 
@@ -2091,11 +2207,13 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
             self._send_error("未知路径", 404)
 
         except RuntimeError as e:
-            self._send_error(str(e), 500)
-        except json.JSONDecodeError as e:
-            self._send_error(f"JSON 解析失败: {e}", 400)
-        except Exception as e:
-            self._send_error(f"内部错误: {e}", 500)
+            # 业务可控错误（raise RuntimeError("...")）— 透传给前端
+            self._send_error(str(e), 400)
+        except json.JSONDecodeError:
+            self._send_error("请求体不是合法 JSON", 400)
+        except Exception:
+            # E5: 顶层兜底，绝不把底层异常细节透传给前端
+            self._send_error("服务暂时不可用，请稍后再试", 500)
 
     def do_DELETE(self):
         path = self.path.split("?")[0].rstrip("/")
@@ -2126,8 +2244,12 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
 
             self._send_error("未知路径", 404)
 
-        except Exception as e:
-            self._send_error(str(e), 500)
+        except RuntimeError as e:
+            # 业务可控错误透传
+            self._send_error(str(e), 400)
+        except Exception:
+            # E5: 顶层兜底，不暴露底层异常
+            self._send_error("服务暂时不可用，请稍后再试", 500)
 
 
 # ============================================================
