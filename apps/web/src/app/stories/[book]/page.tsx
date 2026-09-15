@@ -2,7 +2,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { notFound } from "next/navigation";
 import { SubjectBadge } from "@/components/SubjectBadge";
-import { InnerHeader } from "@/components/InnerHeader";
+import { PageHeader } from "@/components/PageHeader";
 import { AppShell } from "@/components/layout/AppShell";
 import type { BookStories, SiteIndex } from "@/types";
 import { StoryCard } from "./StoryCard";
@@ -62,12 +62,11 @@ export default async function StoryListPage({
   return (
     <AppShell>
     <main className="min-h-screen bg-bg-soft lg:bg-transparent">
-      <InnerHeader
+      <PageHeader
         backHref={`/book/${bookId}/`}
         title={`${book.textbookName}·故事`}
         subtitle={`${doc.stories.length} 篇故事 · 阅读理解`}
-        badge={<SubjectBadge book={book} />}
-        flatOnDesktop
+        rightExtra={<SubjectBadge book={book} />}
       />
 
       <div className="px-4 lg:px-0 py-5 lg:pt-2 space-y-6">

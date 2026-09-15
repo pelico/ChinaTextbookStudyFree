@@ -1,7 +1,7 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { AppShell } from "@/components/layout/AppShell";
-import { InnerHeader } from "@/components/InnerHeader";
+import { PageHeader } from "@/components/PageHeader";
 import { SoundLink } from "@/components/SoundLink";
 import { BookOpen, Bookmark, Volume } from "@/components/icons";
 import type { SiteIndex, Book } from "@/types";
@@ -45,7 +45,7 @@ export default async function ReadingHomePage() {
   return (
     <AppShell>
       <main className="px-4 md:px-6 py-6">
-        <InnerHeader title="阅读中心" subtitle="课文听读 · 故事阅读" backHref="/" />
+        <PageHeader backHref="/" title="阅读中心" subtitle="课文听读 · 故事阅读" />
 
         {/* 课文听读 */}
         <section className="mt-8">

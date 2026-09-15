@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { BookOpen, Volume } from "@/components/icons";
 import { SoundLink } from "@/components/SoundLink";
 import { SubjectBadge } from "@/components/SubjectBadge";
-import { InnerHeader } from "@/components/InnerHeader";
+import { PageHeader } from "@/components/PageHeader";
 import { AppShell } from "@/components/layout/AppShell";
 import type { BookPassages, SiteIndex } from "@/types";
 
@@ -77,12 +77,11 @@ export default async function ReadingListPage({
   return (
     <AppShell>
     <main className="min-h-screen bg-bg-soft lg:bg-transparent">
-      <InnerHeader
+      <PageHeader
         backHref={`/book/${bookId}/`}
         title={`${book.textbookName}·课文`}
         subtitle={`${doc.passages.length} 篇课文 · 听读 / 跟读`}
-        badge={<SubjectBadge book={book} />}
-        flatOnDesktop
+        rightExtra={<SubjectBadge book={book} />}
       />
 
       <div className="px-4 lg:px-0 py-5 lg:pt-2 space-y-3 lg:grid lg:gap-3 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
