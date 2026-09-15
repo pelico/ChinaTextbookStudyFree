@@ -354,7 +354,8 @@ export function WorksheetClient({ books }: Props) {
           </>
         )}
 
-        {examView === "list" && (<>
+        {examView === "list" && (
+          <div className="space-y-6">
         {/* 出题模式 */}
         <div className="bg-white rounded-2xl border-2 border-bg-softer p-4">
           <div className="grid grid-cols-2 gap-3">
@@ -485,9 +486,7 @@ export function WorksheetClient({ books }: Props) {
                   }`}
                 >
                   {b.textbookName}
-                  {b.isCustom && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary/20 text-secondary-dark font-extrabold">自定义</span>
-                  )}
+                  {b.isCustom ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary/20 text-secondary-dark font-extrabold">自定义</span> : null}
                 </button>
               ))}
             </div>
@@ -767,8 +766,8 @@ export function WorksheetClient({ books }: Props) {
         >
           {generating ? "AI 正在生成试卷..." : "生成试卷"}
         </button>
-      </div>
-        </>)}
+          </div>
+        )}
       </div>
     </AppShell>
   );
