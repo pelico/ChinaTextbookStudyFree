@@ -38,6 +38,12 @@ MAX_BODY = 60 * 1024 * 1024  # 60MB
 
 db_lock = threading.Lock()
 
+# public-settings 短 TTL 内存缓存：防沉迷参数几乎不变，前端每次进页/30s 轮询都会拉，
+# 直接缓存几秒可避免每次初始化一条 SQLite 连接（实测单次 ~300-400ms 的最大项）。
+PUBLIC_SETTINGS_CACHE_TTL = 5  # 秒
+_public_settings_cache = {"ts": 0.0, "data": None}
+_public_settings_cache_lock = threading.Lock()
+
 # ============================================================
 # Proxy
 # ============================================================
@@ -696,6 +702,29 @@ def get_parent_settings():
         return dict(row)
     finally:
         conn.close()
+
+
+def get_public_settings_cached():
+    """public-settings 用：短 TTL 内存缓存，避免每次初始化 SQLite 连接。
+
+    家长端改防沉迷后前台每隔 30s 轮询一次，所以 5s 缓存最多延迟 5s 生效，可忽略；
+    但能挡住高并发窗口下每次都新开连接的开销。
+    """
+    now = time.time()
+    with _public_settings_cache_lock:
+        cache = _public_settings_cache
+        if cache["data"] is not None and now - cache["ts"] < PUBLIC_SETTINGS_CACHE_TTL:
+            return cache["data"]
+    # 未命中 → 查库（锁外执行，避免长时间占用）
+    s = get_parent_settings() or {}
+    data = {
+        "daily_limit_ms": s.get("daily_limit_ms", 0),
+        "session_limit_ms": s.get("session_limit_ms", 0),
+    }
+    with _public_settings_cache_lock:
+        _public_settings_cache["ts"] = now
+        _public_settings_cache["data"] = data
+    return data
 
 def get_default_ai_key():
     """从 parent_settings 表读取默认 AI Key"""
@@ -2290,11 +2319,7 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
 
             # /parent/public-settings — 获取防沉迷参数（无需 token，前端启动时覆盖 localStorage）
             if parts == ["parent", "public-settings"]:
-                s = get_parent_settings() or {}
-                self._send_json({
-                    "daily_limit_ms": s.get("daily_limit_ms", 0),
-                    "session_limit_ms": s.get("session_limit_ms", 0),
-                })
+                self._send_json(get_public_settings_cached())
                 return
 
             # /kids — 列出所有学生档案

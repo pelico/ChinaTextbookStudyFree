@@ -2057,68 +2057,78 @@ export async function initServerSync() {
   //     delta 模式下服务端是单一权威源：pull 拿 progress_baseline 的快照，
   //     直接覆盖 localStorage 即可。无需客户端 merge max —— 服务端已经维护
   //     跨设备的权威状态（多设备的 +delta 已经在服务端累加完毕）。
-  try {
-    const res = await fetch("/api/custom/sync/progress", {
-      headers: { "X-Kid-Id": kidId },
-    });
-    if (res.ok) {
-      const { progress } = await res.json();
-      if (progress && typeof progress === "object") {
-        // 直接覆盖本地状态（不含设备特定字段）
-        const local = useProgressStore.getState();
-        const sanitized: any = { ...progress };
-        // 客户端独占字段（不动）
-        const clientOnlyKeys = [
-          "muted", "autoNarrate", "hearts", "nextHeartAt", "lastReviewHeartDate",
-          "activeLesson", "lastQuizAt", "activeBookId", "todayXp", "lastXpDate",
-          "dailyLessons", "dailyTimeLimitMs", "sessionTimeLimitMs",
-          "todayTimeMs", "lastTimeDate", "pendingStreakMilestone",
-        ];
-        for (const k of clientOnlyKeys) {
-          if (k in local) sanitized[k] = (local as any)[k];
+  // 0.5+ 并行拉取两个互不依赖的只读接口（原为串行 await，会叠加两个 ~400ms 请求 ≈800ms）：
+  //   1) 服务端权威 progress 快照（覆盖本地）
+  //   2) 防沉迷设置
+  //   并行后总耗时≈单个最长请求，明显缩短“进学习/启动”时的白屏等待。
+  //   注意：progress 快照叠加逻辑与时序保持原样，仅把两个请求并发发出。
+  await Promise.all([
+    (async () => {
+      try {
+        const res = await fetch("/api/custom/sync/progress", {
+          headers: { "X-Kid-Id": kidId },
+        });
+        if (res.ok) {
+          const { progress } = await res.json();
+          if (progress && typeof progress === "object") {
+            // 直接覆盖本地状态（不含设备特定字段）
+            const local = useProgressStore.getState();
+            const sanitized: any = { ...progress };
+            // 客户端独占字段（不动）
+            const clientOnlyKeys = [
+              "muted", "autoNarrate", "hearts", "nextHeartAt", "lastReviewHeartDate",
+              "activeLesson", "lastQuizAt", "activeBookId", "todayXp", "lastXpDate",
+              "dailyLessons", "dailyTimeLimitMs", "sessionTimeLimitMs",
+              "todayTimeMs", "lastTimeDate", "pendingStreakMilestone",
+            ];
+            for (const k of clientOnlyKeys) {
+              if (k in local) sanitized[k] = (local as any)[k];
+            }
+            // 错题本：服务端为空但本地有数据 → 保留本地并补推到服务端（防止覆盖丢数据，
+            // 同时把首次的错题库播种到服务端）；服务端非空 → 以服务端为权威。
+            const serverMB = Array.isArray(progress.mistakesBank) ? progress.mistakesBank : [];
+            if (serverMB.length === 0 && Array.isArray(local.mistakesBank) && local.mistakesBank.length > 0) {
+              sanitized.mistakesBank = local.mistakesBank;
+              queueDelta({ type: "mistakes_bank", value: local.mistakesBank });
+            }
+            // 设备无关标量：本地有值而服务端为空时，保留本地并补推到服务端（防空覆盖丢数据）
+            if (!progress.lastActiveDate && local.lastActiveDate) {
+              sanitized.lastActiveDate = local.lastActiveDate;
+              queueDelta({ type: "state", key: "lastActiveDate", value: local.lastActiveDate });
+            }
+            if (!progress.lastDailyRewardDate && local.lastDailyRewardDate) {
+              sanitized.lastDailyRewardDate = local.lastDailyRewardDate;
+              queueDelta({ type: "state", key: "lastDailyRewardDate", value: local.lastDailyRewardDate });
+            }
+            if ((!progress.dailyGoal || progress.dailyGoal === 0) && local.dailyGoal) {
+              sanitized.dailyGoal = local.dailyGoal;
+              queueDelta({ type: "state", key: "dailyGoal", value: local.dailyGoal });
+            }
+            if ((!progress.streak || progress.streak === 0) && local.streak > 0) {
+              sanitized.streak = local.streak;
+              queueDelta({ type: "state", key: "streak", value: local.streak });
+            }
+            useProgressStore.setState(sanitized);
+          }
         }
-        // 错题本：服务端为空但本地有数据 → 保留本地并补推到服务端（防止覆盖丢数据，
-        // 同时把首次的错题库播种到服务端）；服务端非空 → 以服务端为权威。
-        const serverMB = Array.isArray(progress.mistakesBank) ? progress.mistakesBank : [];
-        if (serverMB.length === 0 && Array.isArray(local.mistakesBank) && local.mistakesBank.length > 0) {
-          sanitized.mistakesBank = local.mistakesBank;
-          queueDelta({ type: "mistakes_bank", value: local.mistakesBank });
+      } catch {}
+    })(),
+    // 防沉迷设置（与 progress 无依赖，并行拉取）
+    (async () => {
+      try {
+        const res = await fetch("/api/custom/parent/public-settings");
+        if (res.ok) {
+          const s = await res.json();
+          if (s.daily_limit_ms !== undefined) {
+            useProgressStore.setState({ dailyTimeLimitMs: s.daily_limit_ms });
+          }
+          if (s.session_limit_ms !== undefined) {
+            useProgressStore.setState({ sessionTimeLimitMs: s.session_limit_ms });
+          }
         }
-        // 设备无关标量：本地有值而服务端为空时，保留本地并补推到服务端（防空覆盖丢数据）
-        if (!progress.lastActiveDate && local.lastActiveDate) {
-          sanitized.lastActiveDate = local.lastActiveDate;
-          queueDelta({ type: "state", key: "lastActiveDate", value: local.lastActiveDate });
-        }
-        if (!progress.lastDailyRewardDate && local.lastDailyRewardDate) {
-          sanitized.lastDailyRewardDate = local.lastDailyRewardDate;
-          queueDelta({ type: "state", key: "lastDailyRewardDate", value: local.lastDailyRewardDate });
-        }
-        if ((!progress.dailyGoal || progress.dailyGoal === 0) && local.dailyGoal) {
-          sanitized.dailyGoal = local.dailyGoal;
-          queueDelta({ type: "state", key: "dailyGoal", value: local.dailyGoal });
-        }
-        if ((!progress.streak || progress.streak === 0) && local.streak > 0) {
-          sanitized.streak = local.streak;
-          queueDelta({ type: "state", key: "streak", value: local.streak });
-        }
-        useProgressStore.setState(sanitized);
-      }
-    }
-  } catch {}
-
-  // 1. 拉取服务端防沉迷设置
-  try {
-    const res = await fetch("/api/custom/parent/public-settings");
-    if (res.ok) {
-      const s = await res.json();
-      if (s.daily_limit_ms !== undefined) {
-        useProgressStore.setState({ dailyTimeLimitMs: s.daily_limit_ms });
-      }
-      if (s.session_limit_ms !== undefined) {
-        useProgressStore.setState({ sessionTimeLimitMs: s.session_limit_ms });
-      }
-    }
-  } catch {}
+      } catch {}
+    })(),
+  ]);
 
   // 2. flush 本地 delta 队列到服务端（如果有未上报的 delta）
   await flushDeltas(deviceId, kidId).catch(() => {});
