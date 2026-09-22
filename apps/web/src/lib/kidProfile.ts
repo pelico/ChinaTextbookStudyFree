@@ -1,6 +1,8 @@
 "use client";
 
 const ACTIVE_KID_KEY = "csf-active-kid";
+/** 名单本地缓存：服务端连不上/离线时也能恢复身份，避免掉回 default 访客桶 */
+const KIDS_CACHE_KEY = "csf-kids-cache";
 
 export interface Kid {
   id: string;
@@ -35,6 +37,27 @@ export async function listKids(): Promise<Kid[]> {
   } catch {
     return [];
   }
+}
+
+export async function listKidsCached(): Promise<Kid[]> {
+  // 优先实时拉服务端；拿到名单就写缓存。
+  const server = await listKids();
+  if (server.length > 0) {
+    try {
+      localStorage.setItem(KIDS_CACHE_KEY, JSON.stringify(server));
+    } catch {
+      /* noop */
+    }
+    return server;
+  }
+  // 服务端返回空 / 连不上 → 回退本地缓存（离线也能恢复身份）
+  try {
+    const raw = localStorage.getItem(KIDS_CACHE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {
+    /* noop */
+  }
+  return [];
 }
 
 export async function createKid(name: string, avatar = "default"): Promise<Kid | null> {

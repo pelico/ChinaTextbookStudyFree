@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import {
-  getActiveKidId, listKids, type Kid,
+  getActiveKidId, listKidsCached, type Kid,
 } from "@/lib/kidProfile";
 import { switchKid } from "@/store/progress";
 
@@ -22,12 +22,34 @@ export function KidPicker() {
   }, []);
 
   async function loadKids() {
-    const k = await listKids();
+    // 用缓存版拉取名单：服务端连不上/离线时也能拿到账号，避免回退 default 访客桶
+    const k = await listKidsCached();
     setKids(k);
-    setLoaded(true);
-    if (k.length === 0 && getActiveKidId() === "default") {
+
+    const active = getActiveKidId();
+
+    if (k.length === 0) {
+      // 没有任何学习者 → 维持 default 访客，不打扰
       setShowPicker(false);
+      setLoaded(true);
+      return;
     }
+
+    // 「是否已确认身份」：当前 csf-active-kid 是否对应一个名单里真实存在的学习者。
+    // 同机切换场景天然满足 —— csf-active-kid 就是这台机器最后一次选的账号，直接恢复。
+    const activeIsReal = k.some(kid => kid.id === active);
+    if (!activeIsReal) {
+      // 未确认身份：当前是 default 或指向已删除账号 → 需要补一次确认，别默默用访客桶
+      if (k.length === 1) {
+        // 只有一个账号 → 自动选中并持久化（switchKid 写 csf-active-kid 后 reload）
+        switchKid(k[0].id);
+        return;
+      }
+      // 多个账号、无已确认身份 → 强制弹选择器，让用户明确挑一个
+      setShowPicker(true);
+    }
+
+    setLoaded(true);
   }
 
   // Not loaded yet or no kids configured — don't show picker
