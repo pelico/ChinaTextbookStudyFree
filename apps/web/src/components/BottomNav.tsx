@@ -125,6 +125,7 @@ export function BottomNav() {
   useEffect(() => setHydrated(true), []);
 
   const mistakes = useProgressStore(s => s.mistakesBank);
+  const activeBookId = useProgressStore(s => s.activeBookId);
   const gems = useProgressStore(s => s.gems);
   const ownedCosmetics = useProgressStore(s => s.ownedCosmetics);
   const claimableQuestCount = useProgressStore(s => s.claimableQuestCount);
@@ -152,6 +153,9 @@ export function BottomNav() {
   // 沉浸式路径（课程 / 跳级 / 复习 runner / 阅读器）隐藏底部导航，
   // 否则固定底栏会盖住这些页面底部的「检查 / 继续」按钮。
   if (isImmersivePath(pathname)) return null;
+
+  // 学习 tab 有「当前教材」时直接软跳转该教材，避免经空壳首页( / )二次跳转造成的白屏闪一次
+  const learnHref = activeBookId ? `/book/${activeBookId}/` : "/";
 
   function getBadge(item: NavItem): { count?: number; dot?: boolean } | null {
     if (item.matchPrefix === "/review" && reviewBadge > 0) return { count: reviewBadge };
@@ -188,7 +192,7 @@ export function BottomNav() {
           return (
             <Link
               key={item.href}
-              href={item.href}
+              href={item.href === "/" ? learnHref : item.href}
               onClick={() => {
                 playSfx("tap");
                 haptic("light");

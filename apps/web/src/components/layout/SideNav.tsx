@@ -88,6 +88,9 @@ export function SideNav({ leftSlot }: SideNavProps = {}) {
     return null;
   }, [pathname]);
   const selectedGrade = useProgressStore(s => s.selectedGrade);
+  // 学习 tab 有「当前教材」时直接软跳转该教材，避免经空壳首页( / )二次跳转造成的白屏闪一次
+  const activeBookId = useProgressStore(s => s.activeBookId);
+  const learnHref = activeBookId ? `/book/${activeBookId}/` : "/";
 
   return (
     <nav className="flex flex-col gap-2 w-full h-full" aria-label="主导航">
@@ -140,7 +143,7 @@ export function SideNav({ leftSlot }: SideNavProps = {}) {
         return (
           <Link
             key={item.label}
-            href={item.href}
+            href={item.href === "/" ? learnHref : item.href}
             onClick={() => {
               playSfx("tap");
               haptic("light");
