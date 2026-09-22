@@ -1,6 +1,7 @@
 package com.cstf.app
 
 import android.annotation.SuppressLint
+import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Bundle
 import android.view.GestureDetector
@@ -23,6 +24,7 @@ import androidx.core.view.GestureDetectorCompat
 import androidx.core.view.WindowCompat
 import androidx.webkit.ServiceWorkerClientCompat
 import androidx.webkit.ServiceWorkerControllerCompat
+import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
 
 class MainActivity : AppCompatActivity() {
@@ -37,6 +39,19 @@ class MainActivity : AppCompatActivity() {
 
     private val PREFS_NAME = "CSTFSettings"
     private val KEY_SERVER_URL = "server_url"
+
+    // 与 Web 端 globals.css 的底色保持一致，避免加载时白/黑帧闪烁
+    private val LIGHT_BG = Color.parseColor("#F7F7F7")
+    private val DARK_BG = Color.parseColor("#131F24")
+
+    /** 系统是否处于深色模式（WebView 会据此决定 prefers-color-scheme） */
+    private fun isNightMode(): Boolean {
+        val uiMode = resources.configuration.uiMode
+        return (uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+    }
+
+    /** 当前应使用的原生背景色：深色跟随系统，与网页最终主题一致，消除闪烁 */
+    private fun currentBg(): Int = if (isNightMode()) DARK_BG else LIGHT_BG
 
     // 三击检测
     private var tripleTapDetector: GestureDetectorCompat? = null
@@ -241,11 +256,12 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
         webContainer = FrameLayout(this).apply {
-            setBackgroundColor(Color.parseColor("#FFFFFF"))
+            setBackgroundColor(currentBg())
         }
 
         webView = WebView(this).apply {
-            setBackgroundColor(Color.parseColor("#FFFFFF"))
+            // 初始背景跟随系统深浅模式：深色时不再先白屏再变深
+            setBackgroundColor(currentBg())
 
             settings.apply {
                 javaScriptEnabled = true
@@ -264,6 +280,16 @@ class MainActivity : AppCompatActivity() {
                 textZoom = 100
                 setSupportZoom(true)
                 builtInZoomControls = false
+
+                // 让 `prefers-color-scheme` 稳定跟随系统深浅模式，避免深色用户在
+                // 页面加载中「先浅色→再深色→又翻回浅色」的闪烁。
+                // 网页自身（bootScript + ThemeProvider）设置 colorScheme=dark 后会
+                // 接管深色渲染，WebView 的自动反色不会叠加成双重变暗。
+                try {
+                    if (WebViewFeature.isFeatureSupported(WebViewFeature.FORCE_DARK)) {
+                        WebSettingsCompat.setForceDark(this, WebSettingsCompat.FORCE_DARK_AUTO)
+                    }
+                } catch (_: Exception) {}
             }
 
             // 注入 JS Bridge，让 Web 端可以控制后台播放保活
@@ -454,18 +480,23 @@ class MainActivity : AppCompatActivity() {
      */
     private fun showLoading() {
         if (!::loadingView.isInitialized) {
+            val bg = currentBg()
+            val textColor = if (isNightMode()) Color.parseColor("#94A3B8") else Color.parseColor("#888888")
             loadingView = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = android.view.Gravity.CENTER
-                setBackgroundColor(Color.parseColor("#F7F7F7"))
+                setBackgroundColor(bg)
             }
             loadingProgress = ProgressBar(this).apply {
                 setPadding(0, 0, 0, 32)
+                if (isNightMode()) {
+                    indeterminateTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#94A3B8"))
+                }
             }
             val loadingText = TextView(this).apply {
                 text = "正在连接..."
                 textSize = 14f
-                setTextColor(Color.parseColor("#888888"))
+                setTextColor(textColor)
                 gravity = android.view.Gravity.CENTER
             }
             loadingView.addView(loadingProgress)
