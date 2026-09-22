@@ -11,7 +11,7 @@
  * next 静态导出（output: "export"）下手写注册即可，注册脚本在 layout.tsx。
  */
 
-const VERSION = "v3";
+const VERSION = "v4";
 const SHELL_CACHE = `ctsf-shell-${VERSION}`;
 const DATA_CACHE = `ctsf-data-${VERSION}`;
 const STATIC_CACHE = `ctsf-static-${VERSION}`;
@@ -103,6 +103,14 @@ self.addEventListener("fetch", event => {
   // 内容寻址静态产物：缓存优先
   if (url.pathname.startsWith("/_next/static/")) {
     event.respondWith(cacheFirst(STATIC_CACHE, request));
+    return;
+  }
+
+  // RSC 载荷（next 静态导出每条路由的 *.txt）：网络透传，绝不缓存。
+  // 若被下方 SWR 吸入 SHELL_CACHE，跨发版会把引用旧 chunk hash 的旧载荷秒回，
+  // 客户端动态 import 到已被替换的 chunk → 404 → Next 回退成整页硬刷新
+  // （手机端“点学习就整页重新加载”的根因）。
+  if (url.pathname.endsWith(".txt")) {
     return;
   }
 
