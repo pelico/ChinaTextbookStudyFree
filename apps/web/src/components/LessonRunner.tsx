@@ -25,7 +25,7 @@ import { gradeAnswer } from "@/lib/grade";
 import { cn } from "@/lib/cn";
 import { MathText } from "@/components/MathText";
 import { useProgressStore, MAX_HEARTS, HEART_REFILL_COST, type LessonOutcome } from "@/store/progress";
-import { useThemeMode, useSystemPrefersDark } from "@/lib/themeMode";
+import { useThemeMode } from "@/lib/themeMode";
 import {
   XP_PER_CORRECT,
   PERFECT_XP_BONUS,
@@ -284,14 +284,13 @@ export function LessonRunner({ lesson, chestSlot = null, backHref, navigateFn, s
   const backdropId = useProgressStore(s => s.equippedBackdrop);
   const themeId = useProgressStore(s => s.equippedTheme);
   const mode = useThemeMode();
-  const systemDark = useSystemPrefersDark();
 
-  // 判断当前是否暗色模式（与 ThemeProvider 逻辑一致）
+  // 判断当前是否暗色模式（与 ThemeProvider 逻辑一致，不再跟随系统）
   const isDark = useMemo(() => {
     const item = getCosmeticById(themeId) as UiTheme | undefined;
-    const freeDark = mode === "dark" || (mode === "system" && systemDark);
+    const freeDark = mode === "dark";
     return !!(item && item.type === "ui_theme" && item.data.isDark) || freeDark;
-  }, [themeId, mode, systemDark]);
+  }, [themeId, mode]);
 
   const backdropItem = useMemo(
     () => getCosmeticById(backdropId) as LessonBackdrop | undefined,

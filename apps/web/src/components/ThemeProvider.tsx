@@ -1,15 +1,15 @@
 "use client";
 
 /**
- * ThemeProvider —— 三态深色模式 + 美妆主题的统一应用层。
+ * ThemeProvider —— 二态深色模式 + 美妆主题的统一应用层。
  *
- * 深色的三个来源（优先级从高到低）：
+ * 深色的来源（优先级从高到低）：
  *   1. 装备了暗色美妆主题（theme_midnight / theme_obsidian，isDark）
  *      → 「强制暗色」，用主题自带的色板覆盖同一套 --app-* token
- *   2. 免费三态偏好 = dark（手动开关）
- *   3. 免费三态偏好 = system 且系统 prefers-color-scheme: dark
- *   后两种情况只挂 .theme-dark 类，night 色板（与 iOS DuoColors 同 hex：
- *   bg #131F24 / surface #202F36 / border #37464F）由 globals.css 提供缺省值。
+ *   2. 手动偏好 = dark
+ *   只挂 .theme-dark 类，night 色板（bg #131F24 / surface #202F36 /
+ *   border #37464F）由 globals.css 提供缺省值。不再有「跟随系统」自动档，
+ *   默认浅色 —— 避免 app/系统切深色时闪变。
  *
  * 亮色美妆主题只影响 --theme-primary / --theme-accent / --theme-bg 等
  * 强调色；处于深色时保留强调色、页面底色走 night token。
@@ -25,14 +25,13 @@ import { useEffect } from "react";
 import { MotionConfig } from "framer-motion";
 import { useProgressStore } from "@/store/progress";
 import { getCosmeticById, type UiTheme } from "@/lib/cosmetics";
-import { useThemeMode, useSystemPrefersDark } from "@/lib/themeMode";
+import { useThemeMode } from "@/lib/themeMode";
 
 const NIGHT_BG = "#131F24";
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const themeId = useProgressStore(s => s.equippedTheme);
   const mode = useThemeMode();
-  const systemDark = useSystemPrefersDark();
 
   useEffect(() => {
     const item = getCosmeticById(themeId) as UiTheme | undefined;
@@ -46,7 +45,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     root.style.setProperty("--theme-accent", d.accent);
     root.style.setProperty("--theme-bg", d.bg);
 
-    const freeDark = mode === "dark" || (mode === "system" && systemDark);
+    const freeDark = mode === "dark";
     const isDark = !!d.isDark || freeDark;
 
     if (d.isDark) {
@@ -90,7 +89,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       : freeDark
         ? NIGHT_BG
         : d.bg;
-  }, [themeId, mode, systemDark]);
+  }, [themeId, mode]);
 
   return <MotionConfig reducedMotion="user">{children}</MotionConfig>;
 }

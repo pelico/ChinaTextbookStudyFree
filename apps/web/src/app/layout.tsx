@@ -41,7 +41,9 @@ export const viewport: Viewport = {
 /**
  * 首屏内联脚本：水合前读 localStorage，提前把 .theme-dark 挂到 <html>，
  * 防止深色用户看到一帧白底闪屏。逻辑与 ThemeProvider 保持一致：
- *   装备暗色美妆主题 强制暗；否则看三态偏好（dark / system+系统深色）。
+ *   装备暗色美妆主题 强制暗；否则看二态偏好（仅 dark 为暗，默认浅色）。
+ * 不再跟随系统 —— 避免 app（WebView prefers-color-scheme 不稳定）或桌面
+ * 系统切深色时页面闪变。
  * 顺带注册 Service Worker（壳层预缓存 + 课程 JSON/音频 SWR）。
  */
 const bootScript = `
@@ -57,9 +59,8 @@ const bootScript = `
       if (raw) equipped = (JSON.parse(raw).state || {}).equippedTheme || "";
     } catch (e) {}
     var mode = localStorage.getItem("csf-theme-mode");
-    var sysDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
     var cosmeticDark = Object.prototype.hasOwnProperty.call(DARK_THEMES, equipped);
-    var dark = cosmeticDark || mode === "dark" || (mode !== "light" && sysDark);
+    var dark = cosmeticDark || mode === "dark";
     if (dark) {
       var root = document.documentElement;
       root.classList.add("theme-dark");

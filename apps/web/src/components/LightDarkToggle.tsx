@@ -3,14 +3,14 @@
 /**
  * LightDarkToggle —— 一键亮 / 暗切换，放在 SideNav logo 旁边。
  *
- * 老的 ThemeModeToggle 三态（跟随系统 / 亮 / 暗）保留在「我的」页外观设置里，
- * 这里只做常用二态快速切换，避免占用顶部空间。
+ * 二态快速切换；ThemeModeToggle（亮/暗）保留在「我的」页外观设置里。
+ * 不再跟随系统，默认浅色；只在用户显式切暗时进入暗色。
  *
  * 装备了暗色美妆主题时强制暗色 —— 这时按钮 disabled，避免点击后表象变化让用户困惑。
  */
 
 import { useEffect, useState } from "react";
-import { useThemeMode, setThemeMode, type ThemeMode } from "@/lib/themeMode";
+import { useThemeMode, setThemeMode } from "@/lib/themeMode";
 import { useProgressStore } from "@/store/progress";
 import { getCosmeticById, type UiTheme } from "@/lib/cosmetics";
 import { Sun, Moon } from "@/components/icons";
@@ -18,13 +18,9 @@ import { playSfx } from "@/lib/sfx";
 import { haptic } from "@/lib/haptic";
 import { cn } from "@/lib/cn";
 
-/** 当前模式是不是「暗」展示口径：system + 系统暗 = 视为暗；light = 亮；dark = 暗 */
-function isDarkMode(mode: ThemeMode): boolean {
-  if (mode === "dark") return true;
-  if (mode === "light") return false;
-  // system：跟随 prefers-color-scheme
-  if (typeof window === "undefined") return false;
-  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+/** 当前是不是「暗」：仅显式 dark 才算暗，其余一律亮 */
+function isDarkMode(mode: "light" | "dark"): boolean {
+  return mode === "dark";
 }
 
 export function LightDarkToggle() {

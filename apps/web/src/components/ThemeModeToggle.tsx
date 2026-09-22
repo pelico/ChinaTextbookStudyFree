@@ -1,17 +1,18 @@
 "use client";
 
 /**
- * ThemeModeToggle —— 免费深色模式的三态开关（跟随系统 / 亮 / 暗）。
+ * ThemeModeToggle —— 免费深色模式的二态开关（亮 / 暗），默认亮。
  *
  * 出现在 SideNav 底部（桌面）和 我的 页外观设置（移动端可达）。
  * 装备了暗色美妆主题时强制暗色，这里的选择暂不生效 —— 给出提示。
+ * 不再有「跟随系统」档：避免 app/系统切深色时页面闪变。
  */
 
 import { useEffect, useState } from "react";
 import { useThemeMode, setThemeMode, type ThemeMode } from "@/lib/themeMode";
 import { useProgressStore } from "@/store/progress";
 import { getCosmeticById, type UiTheme } from "@/lib/cosmetics";
-import { Sun, Moon, MonitorIcon } from "@/components/icons";
+import { Sun, Moon } from "@/components/icons";
 import { playSfx } from "@/lib/sfx";
 import { haptic } from "@/lib/haptic";
 import { cn } from "@/lib/cn";
@@ -21,7 +22,6 @@ const OPTIONS: Array<{
   label: string;
   Icon: React.ComponentType<{ className?: string }>;
 }> = [
-  { mode: "system", label: "自动", Icon: MonitorIcon },
   { mode: "light", label: "亮", Icon: Sun },
   { mode: "dark", label: "暗", Icon: Moon },
 ];
@@ -34,12 +34,12 @@ export function ThemeModeToggle({ compact = false }: { compact?: boolean }) {
 
   const equipped = getCosmeticById(themeId) as UiTheme | undefined;
   const forcedDark = hydrated && !!(equipped?.type === "ui_theme" && equipped.data.isDark);
-  const active = hydrated ? mode : "system";
+  const active = hydrated ? mode : "light";
 
   return (
     <div>
       <div
-        className="grid grid-cols-3 gap-1 p-1 rounded-2xl border-2 border-bg-softer bg-bg-soft"
+        className="grid grid-cols-2 gap-1 p-1 rounded-2xl border-2 border-bg-softer bg-bg-soft"
         role="radiogroup"
         aria-label="外观模式"
       >
