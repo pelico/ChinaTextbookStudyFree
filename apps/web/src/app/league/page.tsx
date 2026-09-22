@@ -83,9 +83,11 @@ export default function LeaguePage() {
 
   return (
     <AppShell>
-      <main className="min-h-screen bg-bg-soft lg:bg-transparent pb-8">
+      {/* px 参考阅读中心（reading/page.tsx）：让标头与内容同水平对齐，
+          避免移动端标头比正文更靠左。 */}
+      <main className="min-h-screen bg-bg-soft lg:bg-transparent px-4 md:px-6 pb-8">
         <PageHeader backHref={null} title="排行榜" subtitle="和影子同学比一比" />
-        <div className="px-4 lg:px-0 pt-4">
+        <div className="pt-4">
           {!hydrated ? (
             <div className="animate-pulse space-y-3">
               <div className="h-28 rounded-3xl bg-bg-softer/60" />
@@ -190,7 +192,8 @@ function LeagueBoard({
         className="rounded-3xl border-2 border-bg-softer bg-white p-5"
         style={{ boxShadow: "0 4px 0 0 var(--shadow-card-color)" }}
       >
-        <div className="flex items-end justify-center gap-2 sm:gap-3">
+        {/* 移动端缩小圆片与间距，防止窄屏（<340px）横向溢出跑出屏幕；md+ 恢复原尺寸 */}
+        <div className="flex items-end justify-center gap-1 sm:gap-2 md:gap-3">
           {LEAGUE_TIERS.map(t => {
             const isCurrent = t.id === tier.id;
             const passed = t.order < tier.order;
@@ -205,7 +208,7 @@ function LeagueBoard({
                   }
                   className={cn(
                     "rounded-full flex items-center justify-center",
-                    isCurrent ? "w-14 h-14" : "w-9 h-9",
+                    isCurrent ? "w-11 h-11 md:w-14 md:h-14" : "w-7 h-7 md:w-9 md:h-9",
                   )}
                   style={{
                     backgroundColor: isCurrent || passed ? t.color : "#E5E5E5",
@@ -218,7 +221,7 @@ function LeagueBoard({
                 >
                   <Trophy
                     className={cn(
-                      isCurrent ? "w-7 h-7" : "w-4 h-4",
+                      isCurrent ? "w-6 h-6 md:w-7 md:h-7" : "w-3.5 h-3.5 md:w-4 md:h-4",
                       isCurrent || passed ? "text-white" : "text-ink-softer",
                     )}
                   />
