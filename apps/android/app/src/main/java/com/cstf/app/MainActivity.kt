@@ -270,7 +270,10 @@ class MainActivity : AppCompatActivity() {
                 allowFileAccess = true
                 allowContentAccess = true
                 mediaPlaybackRequiresUserGesture = false
-                cacheMode = WebSettings.LOAD_NO_CACHE
+                // 遵循服务端缓存头：/_next/static 不可变长缓存（重进教材页秒开、
+                // 不再每次重下 JS/CSS 造成"重新加载"感）；HTML 为 no-cache 保持新鲜；
+                // Service Worker 已在下方禁用，不会重蹈坏缓存白屏。
+                cacheMode = WebSettings.LOAD_DEFAULT
                 setSupportMultipleWindows(false)
                 javaScriptCanOpenWindowsAutomatically = false
                 mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
