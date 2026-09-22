@@ -9,6 +9,7 @@ import { AchievementWatcher } from "@/components/AchievementWatcher";
 import { LeagueWatcher } from "@/components/LeagueWatcher";
 import { ServerSyncInit } from "@/components/ServerSyncInit";
 import { KidPicker } from "@/components/KidPicker";
+import { PrefetchLearnRoutes } from "@/components/layout/PrefetchLearnRoutes";
 
 const nunito = localFont({
   src: "./fonts/Nunito-Variable.ttf",
@@ -92,6 +93,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <LeagueWatcher />
             <ServerSyncInit />
             <KidPicker />
+            <PrefetchLearnRoutes />
             {children}
             <BottomNav />
           </ToastProvider>
