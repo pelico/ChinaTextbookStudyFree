@@ -314,7 +314,7 @@ export function ProfileClient() {
   const mistakesCount = hydrated ? mistakes.length : 0;
 
   return (
-    <AppShell centerMaxWidth={1280}>
+    <AppShell>
     <main className="min-h-screen bg-bg-soft lg:bg-transparent relative">
       {/* Header —— 移动端白底 sticky；桌面端简化为 标题 + compact HUD */}
       <div className="bg-white border-b border-bg-softer sticky top-0 z-10 lg:bg-transparent lg:border-0 lg:static lg:mb-2">

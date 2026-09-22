@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Home as HomeIcon,
@@ -121,6 +121,7 @@ function todayStr(): string {
 
 export function BottomNav() {
   const pathname = usePathname() ?? "/";
+  const router = useRouter();
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => setHydrated(true), []);
 
@@ -193,7 +194,15 @@ export function BottomNav() {
             <Link
               key={item.href}
               href={item.href === "/" ? learnHref : item.href}
-              onClick={() => {
+              onClick={(e) => {
+                // 强制走客户端路由（SPA）：阻止 `<a>` 默认整页跳转，改用 router.push。
+                // 否则 WebView 下动态路由 /book/[id]/ 可能退化成整页刷新，
+                // 导致 AchievementWatcher 每次切到「学习」都重跑一遍成就提示。
+                const target = item.href === "/" ? learnHref : item.href;
+                if (target && target !== pathname) {
+                  e.preventDefault();
+                  router.push(target);
+                }
                 playSfx("tap");
                 haptic("light");
               }}

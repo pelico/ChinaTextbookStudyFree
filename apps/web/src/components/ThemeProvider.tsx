@@ -25,7 +25,7 @@ import { useEffect } from "react";
 import { MotionConfig } from "framer-motion";
 import { useProgressStore } from "@/store/progress";
 import { getCosmeticById, type UiTheme } from "@/lib/cosmetics";
-import { useThemeMode } from "@/lib/themeMode";
+import { useThemeMode, getThemeMode } from "@/lib/themeMode";
 
 const NIGHT_BG = "#131F24";
 
@@ -45,7 +45,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     root.style.setProperty("--theme-accent", d.accent);
     root.style.setProperty("--theme-bg", d.bg);
 
-    const freeDark = mode === "dark";
+    // freeDark：优先 reactive 偏好；额外用 getThemeMode() 兜底 ——
+    // 水合首帧 useThemeMode 的 server snapshot 是 "light"，若仅看它，
+    // 会把 bootScript 已挂好的 .theme-dark 先摘掉一帧再补上（WebView 下
+    // 会画出一闪的亮帧 =「黑一下又立马变亮」）。直接读 localStorage 让
+    // 已保存的暗色偏好立即生效，不再摘类。
+    const freeDark = mode === "dark" || getThemeMode() === "dark";
     const isDark = !!d.isDark || freeDark;
 
     if (d.isDark) {

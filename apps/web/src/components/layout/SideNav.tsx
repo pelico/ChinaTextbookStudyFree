@@ -14,7 +14,7 @@
  */
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useMemo, type ComponentType, type ReactNode } from "react";
 import { useProgressStore } from "@/store/progress";
 import {
@@ -81,6 +81,7 @@ interface SideNavProps {
 
 export function SideNav({ leftSlot }: SideNavProps = {}) {
   const pathname = usePathname() ?? "/";
+  const router = useRouter();
   // 当前所在年级：/grade/N/、/book/{id}/、/lesson/{unit}/{lesson}/ 三种路径都能反推到年级
   const activeGrade = useMemo(() => {
     const m = pathname.match(/^\/grade\/(\d+)/);
@@ -144,7 +145,13 @@ export function SideNav({ leftSlot }: SideNavProps = {}) {
           <Link
             key={item.label}
             href={item.href === "/" ? learnHref : item.href}
-            onClick={() => {
+            onClick={(e) => {
+              // 强制走客户端路由（SPA），避免 WebView/老连接下动态路由退化为整页刷新
+              const target = item.href === "/" ? learnHref : item.href;
+              if (target && target !== pathname) {
+                e.preventDefault();
+                router.push(target);
+              }
               playSfx("tap");
               haptic("light");
             }}
