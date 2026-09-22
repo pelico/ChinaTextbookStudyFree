@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Nunito } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { BottomNav } from "@/components/BottomNav";
@@ -10,9 +10,8 @@ import { LeagueWatcher } from "@/components/LeagueWatcher";
 import { ServerSyncInit } from "@/components/ServerSyncInit";
 import { KidPicker } from "@/components/KidPicker";
 
-const nunito = Nunito({
-  subsets: ["latin"],
-  weight: ["600", "700", "800", "900"],
+const nunito = localFont({
+  src: "./fonts/Nunito-Variable.ttf",
   variable: "--font-display",
   display: "swap",
 });
