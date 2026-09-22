@@ -20,6 +20,7 @@ import {
   useProgressStore,
 } from "@/store/progress";
 import { Heart, Flame, Lightning, Snowflake, Gem } from "@/components/icons";
+import { SyncStatusIcon } from "./SyncStatusIcon";
 import { useToast } from "./Toast";
 import { MuteToggle, AutoNarrateToggle, useSyncMute } from "./MuteToggle";
 import { Modal } from "./Modal";
@@ -131,6 +132,9 @@ export function StatsBar({ compact = false }: StatsBarProps = {}) {
 
         {/* 宝石 */}
         <GemBadge />
+
+        {/* 云端同步状态 */}
+        <SyncStatusIcon />
 
         {/* 分割竖线 + 音频开关 —— compact 模式隐藏 */}
         {!compact && (

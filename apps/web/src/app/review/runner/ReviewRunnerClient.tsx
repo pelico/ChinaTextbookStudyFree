@@ -122,6 +122,9 @@ export function ReviewRunnerClient() {
   const [answer, setAnswer] = useState("");
   const [phase, setPhase] = useState<QuestionPhase>("answering");
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
+  // 每次出题 +1：保证答错重排回队尾、再次回到该题时强制重新 mount 题目组件，
+  // 清掉 WordOrder/Matching 等组件的内部状态（picked/matched），否则内容空白。
+  const [serveSeq, setServeSeq] = useState(0);
   const [solvedCount, setSolvedCount] = useState(0);
   const [stats, setStats] = useState<ReviewStats | null>(null);
   // 首答记录：key → 是否答对（SRS/XP 只认首答；重练不再记账）
@@ -169,6 +172,9 @@ export function ReviewRunnerClient() {
     if (!current) return;
     playSfx("tap");
     haptic("light");
+
+    // 每次继续出题都推进序号，强制重 mount 题目组件（见 serveSeq 注释）
+    setServeSeq(s => s + 1);
 
     let nextQueue: ReviewItem[];
     let nextSolved = solvedCount;
@@ -299,7 +305,7 @@ export function ReviewRunnerClient() {
         <div className="w-full max-w-md lg:max-w-2xl">
           <AnimatePresence mode="wait">
             <motion.div
-              key={`${current.key}-${solvedCount}-${queue.length}`}
+              key={`${current.key}-${serveSeq}`}
               initial={{ x: 30, y: 8, opacity: 0 }}
               animate={{ x: 0, y: 0, opacity: 1 }}
               exit={{ x: -30, y: 0, opacity: 0 }}

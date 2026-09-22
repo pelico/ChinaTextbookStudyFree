@@ -231,10 +231,24 @@ def init_db():
             league_week_key     TEXT NOT NULL DEFAULT '',
             league_salt         TEXT NOT NULL DEFAULT '',
             selected_grade      TEXT NOT NULL DEFAULT '',
+            mistakes_bank       TEXT NOT NULL DEFAULT '',
+            last_active_date    TEXT NOT NULL DEFAULT '',
+            last_daily_reward_date TEXT NOT NULL DEFAULT '',
+            daily_goal          INTEGER NOT NULL DEFAULT 0,
             created_at          TEXT NOT NULL,
             updated_at          TEXT NOT NULL
         );
     """)
+    # 兼容旧库：progress_baseline 可能没有 mistakes_bank 列
+    cols_bl = {r[1] for r in conn.execute("PRAGMA table_info(progress_baseline)")}
+    if "mistakes_bank" not in cols_bl:
+        conn.execute("ALTER TABLE progress_baseline ADD COLUMN mistakes_bank TEXT NOT NULL DEFAULT ''")
+    if "last_active_date" not in cols_bl:
+        conn.execute("ALTER TABLE progress_baseline ADD COLUMN last_active_date TEXT NOT NULL DEFAULT ''")
+    if "last_daily_reward_date" not in cols_bl:
+        conn.execute("ALTER TABLE progress_baseline ADD COLUMN last_daily_reward_date TEXT NOT NULL DEFAULT ''")
+    if "daily_goal" not in cols_bl:
+        conn.execute("ALTER TABLE progress_baseline ADD COLUMN daily_goal INTEGER NOT NULL DEFAULT 0")
     # delta 审计日志（可重算、可追溯）
     conn.execute("""
         CREATE TABLE IF NOT EXISTS progress_ledger (
@@ -425,6 +439,15 @@ _DELTA_INT_FIELDS = {
     "streak_freezes_delta": "streak_freezes",
 }
 
+# 设备无关的标量状态：客户端直接整体覆盖（与 reset 无关、不入账，仅保证跨端一致）。
+# 值为字符串/整数，按 latest-writer-wins 写入对应列。
+_STATE_FIELDS = {
+    "lastActiveDate": "last_active_date",
+    "lastDailyRewardDate": "last_daily_reward_date",
+    "dailyGoal": "daily_goal",
+    "streak": "streak",
+}
+
 
 def _ensure_baseline(conn, kid_id):
     """确保该 kid 的 baseline 行存在，返回行 dict。"""
@@ -509,6 +532,40 @@ def apply_delta(conn, kid_id, device_id, deltas):
                 "INSERT INTO progress_ledger (kid_id, device_id, delta_type, delta_key, delta_value, created_at) VALUES (?, ?, ?, ?, ?, ?)",
                 (kid_id, device_id, "set_add", dkey, sv, now),
             )
+        # 错题本：整个数组整体替换（单人 scratchpad，last-writer-wins）
+        elif dtype == "mistakes_bank":
+            try:
+                # value 应是数组；非数组/异常时跳过，避免污染
+                lst = raw_value if isinstance(raw_value, list) else []
+                sv_json = json.dumps(lst, ensure_ascii=False)
+            except Exception:
+                continue
+            conn.execute(
+                "UPDATE progress_baseline SET mistakes_bank = ? WHERE kid_id = ?",
+                (sv_json, kid_id),
+            )
+            conn.commit()
+            baseline["mistakes_bank"] = sv_json
+            conn.execute(
+                "INSERT INTO progress_ledger (kid_id, device_id, delta_type, delta_key, delta_value, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (kid_id, device_id, "mistakes_bank", "mistakesBank", "", now),
+            )
+        # 设备无关标量：整体覆盖（lastActiveDate / lastDailyRewardDate / dailyGoal / streak）
+        elif dtype == "state":
+            if dkey not in _STATE_FIELDS:
+                continue
+            col = _STATE_FIELDS[dkey]
+            sv = str(raw_value)[:64] if not isinstance(raw_value, (int, float)) else raw_value
+            conn.execute(
+                "UPDATE progress_baseline SET {col} = ?, updated_at = ? WHERE kid_id = ?".format(col=col),
+                (sv, now, kid_id),
+            )
+            conn.commit()
+            baseline[col] = sv
+            conn.execute(
+                "INSERT INTO progress_ledger (kid_id, device_id, delta_type, delta_key, delta_value, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (kid_id, device_id, "state", dkey, sv, now),
+            )
         # 紧急重置（家长授权后可调）
         elif dtype == "reset":
             int_updates = {k: 0 for k in _DELTA_INT_FIELDS.values()}
@@ -590,6 +647,17 @@ def get_progress_for_kid(conn, kid_id):
             bucket[sn][r["set_key"]] = True
     for sn, obj in bucket.items():
         progress[sn] = obj
+    # 错题本：JSON 数组整体读回（空串/解析失败 → 空数组，客户端自然显示空）
+    try:
+        mb_raw = baseline.get("mistakes_bank") or ""
+        mb = json.loads(mb_raw) if mb_raw else []
+        progress["mistakesBank"] = mb if isinstance(mb, list) else []
+    except (ValueError, TypeError):
+        progress["mistakesBank"] = []
+    # 设备无关标量状态（跨端一致）
+    progress["lastActiveDate"] = str(baseline.get("last_active_date") or "")
+    progress["lastDailyRewardDate"] = str(baseline.get("last_daily_reward_date") or "")
+    progress["dailyGoal"] = int(baseline.get("daily_goal") or 0)
     return progress
 
 

@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { useSyncStatus } from "./syncStatus";
 import type { Question, LessonResult } from "@/types";
 import { DEFAULT_EQUIPPED, getCosmeticById, getStarterCosmetics } from "@/lib/cosmetics";
 import {
@@ -633,6 +634,8 @@ let _deltaTimer: ReturnType<typeof setTimeout> | null = null;
 
 function queueDelta(delta: { type: string; key?: string; value: any }) {
   _deltaQueue.push(delta);
+  // 有变更待上传 → 标记「待同步」
+  useSyncStatus.getState().setStatus("pending");
   // 防抖：5 秒内没有新 delta 就 flush
   if (_deltaTimer) clearTimeout(_deltaTimer);
   _deltaTimer = setTimeout(() => flushDeltas(), 5000);
@@ -647,7 +650,12 @@ async function flushDeltas(deviceId?: string, kidId?: string) {
   const deltas = _deltaQueue.splice(0, _deltaQueue.length);
   const devId = deviceId || (typeof window !== "undefined" ? localStorage.getItem("csf-device-id") : null);
   const kId = kidId || (typeof window !== "undefined" ? localStorage.getItem("csf-active-kid") : null);
-  if (!devId || !kId) return;
+  if (!devId || !kId) {
+    // 没有可用的设备/用户上下文，先回到「待同步」，由后续队列 flush 承接
+    useSyncStatus.getState().setStatus("pending");
+    return;
+  }
+  useSyncStatus.getState().setStatus("syncing");
   try {
     await fetch("/api/custom/sync/progress", {
       method: "POST",
@@ -659,9 +667,15 @@ async function flushDeltas(deviceId?: string, kidId?: string) {
         deltas,
       }),
     });
+    const online = typeof navigator !== "undefined" ? navigator.onLine : true;
+    useSyncStatus
+      .getState()
+      .setStatus(_deltaQueue.length > 0 ? "pending" : online ? "synced" : "pending");
   } catch (e) {
     // 失败不丢：把 delta 重新压回队列头
     _deltaQueue = [...deltas, ..._deltaQueue];
+    const online = typeof navigator !== "undefined" ? navigator.onLine : true;
+    useSyncStatus.getState().setStatus(online ? "pending" : "offline");
   }
 }
 
@@ -1264,6 +1278,8 @@ export const useProgressStore = create<ProgressState>()(
           }
           return { mistakesBank: next };
         });
+        // 错题本整体替换同步到服务端（跨设备一致）
+        queueDelta({ type: "mistakes_bank", value: get().mistakesBank });
       },
 
       removeMistake: (lessonId, questionId) => {
@@ -1272,12 +1288,14 @@ export const useProgressStore = create<ProgressState>()(
             m => !(m.lessonId === lessonId && m.question.id === questionId),
           ),
         }));
+        queueDelta({ type: "mistakes_bank", value: get().mistakesBank });
       },
 
       clearMistakesForLesson: lessonId => {
         set(state => ({
           mistakesBank: state.mistakesBank.filter(m => m.lessonId !== lessonId),
         }));
+        queueDelta({ type: "mistakes_bank", value: get().mistakesBank });
       },
 
       bumpStreakIfNeeded: () => {
@@ -1326,6 +1344,10 @@ export const useProgressStore = create<ProgressState>()(
             pendingStreakMilestone: { streak: newStreak, gems: reward },
           }));
         }
+        // 同步连胜 + 活跃日（跨端一致，防止另一台设备把 streak 清零）
+        const st2 = get();
+        queueDelta({ type: "state", key: "streak", value: st2.streak });
+        queueDelta({ type: "state", key: "lastActiveDate", value: st2.lastActiveDate });
       },
 
       toggleMute: () => {
@@ -1432,7 +1454,9 @@ export const useProgressStore = create<ProgressState>()(
       },
 
       setDailyGoal: goal => {
-        set({ dailyGoal: Math.max(10, Math.min(500, goal)) });
+        const v = Math.max(10, Math.min(500, goal));
+        set({ dailyGoal: v });
+        queueDelta({ type: "state", key: "dailyGoal", value: v });
       },
 
       upsertLessonSession: session => {
@@ -1596,6 +1620,8 @@ export const useProgressStore = create<ProgressState>()(
             return updated;
           }),
         }));
+        // SRS 更新同样整体替换同步到服务端
+        queueDelta({ type: "mistakes_bank", value: get().mistakesBank });
         return newlyGraduated;
       },
 
@@ -1692,6 +1718,8 @@ export const useProgressStore = create<ProgressState>()(
           lifetimeGems: state.lifetimeGems + reward,
           lastDailyRewardDate: today,
         }));
+        // 同步每日登陆领取日（跨端防重复刷宝石）
+        queueDelta({ type: "state", key: "lastDailyRewardDate", value: today });
         return { gems: reward, effectiveStreak };
       },
 
@@ -1731,6 +1759,8 @@ export const useProgressStore = create<ProgressState>()(
           })(),
           streak,
         });
+        queueDelta({ type: "state", key: "lastActiveDate", value: get().lastActiveDate });
+        queueDelta({ type: "state", key: "streak", value: get().streak });
         return true;
       },
     }),
@@ -1967,10 +1997,20 @@ export async function switchKid(newKidId: string) {
 
 let _syncTimer: ReturnType<typeof setInterval> | null = null;
 let _antiAddictionTimer: ReturnType<typeof setInterval> | null = null;
+let _onlineOfflineBound = false;
+let _onlineHandler: (() => void) | null = null;
+let _offlineHandler: (() => void) | null = null;
 let _kidChangedListener: (() => void) | null = null;
 
 export function teardownServerSync() {
   // C2: 全局定时器/监听器卸载清理。组件 unmount 或 HMR 时释放资源，
+  if (_onlineHandler && _offlineHandler && typeof window !== "undefined") {
+    window.removeEventListener("online", _onlineHandler);
+    window.removeEventListener("offline", _offlineHandler);
+    _onlineHandler = null;
+    _offlineHandler = null;
+    _onlineOfflineBound = false;
+  }
   // 避免 SSR 反复初始化后留下多个孤儿定时器。
   if (_syncTimer) {
     clearInterval(_syncTimer);
@@ -1990,6 +2030,19 @@ export async function initServerSync() {
   if (typeof window === "undefined") return;
 
   const kidId = localStorage.getItem("csf-active-kid") || "default";
+
+  // 联网状态监听：恢复联机→回「待同步/已同步」，掉线→「未连接」
+  useSyncStatus.getState().setStatus("syncing");
+  if (!_onlineOfflineBound) {
+    _onlineOfflineBound = true;
+    _onlineHandler = () =>
+      useSyncStatus
+        .getState()
+        .setStatus(_deltaQueue.length > 0 ? "pending" : navigator.onLine ? "synced" : "offline");
+    _offlineHandler = () => useSyncStatus.getState().setStatus("offline");
+    window.addEventListener("online", _onlineHandler);
+    window.addEventListener("offline", _offlineHandler);
+  }
 
   // 0. 设备 ID 一次性生成并持久化。
   let deviceId = localStorage.getItem("csf-device-id");
@@ -2018,11 +2071,35 @@ export async function initServerSync() {
         const clientOnlyKeys = [
           "muted", "autoNarrate", "hearts", "nextHeartAt", "lastReviewHeartDate",
           "activeLesson", "lastQuizAt", "activeBookId", "todayXp", "lastXpDate",
-          "dailyLessons", "dailyGoal", "dailyTimeLimitMs", "sessionTimeLimitMs",
+          "dailyLessons", "dailyTimeLimitMs", "sessionTimeLimitMs",
           "todayTimeMs", "lastTimeDate", "pendingStreakMilestone",
         ];
         for (const k of clientOnlyKeys) {
           if (k in local) sanitized[k] = (local as any)[k];
+        }
+        // 错题本：服务端为空但本地有数据 → 保留本地并补推到服务端（防止覆盖丢数据，
+        // 同时把首次的错题库播种到服务端）；服务端非空 → 以服务端为权威。
+        const serverMB = Array.isArray(progress.mistakesBank) ? progress.mistakesBank : [];
+        if (serverMB.length === 0 && Array.isArray(local.mistakesBank) && local.mistakesBank.length > 0) {
+          sanitized.mistakesBank = local.mistakesBank;
+          queueDelta({ type: "mistakes_bank", value: local.mistakesBank });
+        }
+        // 设备无关标量：本地有值而服务端为空时，保留本地并补推到服务端（防空覆盖丢数据）
+        if (!progress.lastActiveDate && local.lastActiveDate) {
+          sanitized.lastActiveDate = local.lastActiveDate;
+          queueDelta({ type: "state", key: "lastActiveDate", value: local.lastActiveDate });
+        }
+        if (!progress.lastDailyRewardDate && local.lastDailyRewardDate) {
+          sanitized.lastDailyRewardDate = local.lastDailyRewardDate;
+          queueDelta({ type: "state", key: "lastDailyRewardDate", value: local.lastDailyRewardDate });
+        }
+        if ((!progress.dailyGoal || progress.dailyGoal === 0) && local.dailyGoal) {
+          sanitized.dailyGoal = local.dailyGoal;
+          queueDelta({ type: "state", key: "dailyGoal", value: local.dailyGoal });
+        }
+        if ((!progress.streak || progress.streak === 0) && local.streak > 0) {
+          sanitized.streak = local.streak;
+          queueDelta({ type: "state", key: "streak", value: local.streak });
         }
         useProgressStore.setState(sanitized);
       }
@@ -2044,7 +2121,10 @@ export async function initServerSync() {
   } catch {}
 
   // 2. flush 本地 delta 队列到服务端（如果有未上报的 delta）
-  flushDeltas(deviceId, kidId).catch(() => {});
+  await flushDeltas(deviceId, kidId).catch(() => {});
+  // 最终态：队列已空且在线 → 已同步；否则由后续 flush / 联网监听兜底
+  const onlineEnd = typeof navigator !== "undefined" ? navigator.onLine : true;
+  useSyncStatus.getState().setStatus(_deltaQueue.length === 0 && onlineEnd ? "synced" : "pending");
 
   // 3. 定时上报（每 60 秒）—— 触发 delta flush 而非 push snapshot
   if (_syncTimer) clearInterval(_syncTimer);
