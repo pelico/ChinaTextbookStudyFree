@@ -25,13 +25,16 @@ import { useEffect } from "react";
 import { MotionConfig } from "framer-motion";
 import { useProgressStore } from "@/store/progress";
 import { getCosmeticById, type UiTheme } from "@/lib/cosmetics";
-import { useThemeMode, getThemeMode } from "@/lib/themeMode";
+import { useThemeMode, getThemeMode, useThemeVersion } from "@/lib/themeMode";
 
 const NIGHT_BG = "#131F24";
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const themeId = useProgressStore(s => s.equippedTheme);
   const mode = useThemeMode();
+  // 每次 setThemeMode 都 +1：无论 useThemeMode 的同步信号是否被 React 消费，
+  // 只要用户切了亮/暗，这里就重跑一次副作用把主题真正应用到 <html>。
+  const themeTick = useThemeVersion();
 
   useEffect(() => {
     const item = getCosmeticById(themeId) as UiTheme | undefined;
@@ -94,7 +97,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       : freeDark
         ? NIGHT_BG
         : d.bg;
-  }, [themeId, mode]);
+  }, [themeId, mode, themeTick]);
 
   return <MotionConfig reducedMotion="user">{children}</MotionConfig>;
 }

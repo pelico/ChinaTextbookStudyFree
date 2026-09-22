@@ -20,6 +20,8 @@ import { useProgressStore } from "@/store/progress";
 import {
   ALL_ACHIEVEMENTS,
   computeUnlockedAchievementIds,
+  isAchievementSeen,
+  markAchievementSeen,
 } from "@/lib/achievements";
 import { useToast } from "./Toast";
 import { playSfx } from "@/lib/sfx";
@@ -56,14 +58,17 @@ export function AchievementWatcher() {
           );
           if (newly.length === 0) break;
           for (const id of newly) {
-            // 写账本 + 发奖励（幂等；已在账本返回 0）
+            // 写账本 + 发奖励（幂等；已在账本返回 0）。回报只发一次宝石；
+            // 但「弹庆祝」用已读台账（seen）去重——整页刷新/重挂载时账本可能
+            // 尚未恢复，会再算出一批"新"，seen 保证它们不会被当成新成就重播。
             const reward = useProgressStore.getState().claimAchievement(id);
             const ach = ALL_ACHIEVEMENTS.find(a => a.id === id);
-            if (ach && reward > 0) {
-              const message = `🏆 解锁成就：${ach.name} +${reward}💎`;
-              if (immersiveRef.current) pendingToasts.current.push(message);
-              else celebrate(message);
-            }
+            if (!ach || reward <= 0) continue;
+            if (isAchievementSeen(id)) continue;
+            markAchievementSeen(id);
+            const message = `🏆 解锁成就：${ach.name} +${reward}💎`;
+            if (immersiveRef.current) pendingToasts.current.push(message);
+            else celebrate(message);
           }
         }
       } finally {

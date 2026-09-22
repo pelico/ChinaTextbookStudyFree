@@ -14,7 +14,7 @@
  *   - 历史遗留的 "system" / 空值一律按浅色处理。
  */
 
-import { useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 export type ThemeMode = "light" | "dark";
 
@@ -56,3 +56,18 @@ function subscribe(cb: () => void): () => void {
 export function useThemeMode(): ThemeMode {
   return useSyncExternalStore(subscribe, getThemeMode, () => "light" as ThemeMode);
 }
+
+/**
+ * 主题版本号——每次 setThemeMode 都 +1。
+ * 供 ThemeProvider 当作 effect 依赖，保证「切到暗/亮」即使 useSyncExternalStore
+ * 的信号没被 React 如期消费，也一定能触发一次副作用把 .theme-dark 重新应用上，
+ * 避免用户反馈的「切换后要刷新才生效」。
+ */
+export function useThemeVersion(): number {
+  const [v, setV] = useState(0);
+  useEffect(() => subscribe(() => setV(x => x + 1)), []);
+  return v;
+}
+
+// 稳定引用，供 ThemeProvider 等显式订阅时复用
+export { subscribe as subscribeThemeMode };
