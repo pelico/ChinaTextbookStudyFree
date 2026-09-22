@@ -318,7 +318,7 @@ export function ProfileClient() {
     <main className="min-h-screen bg-bg-soft lg:bg-transparent relative">
       {/* Header —— 移动端白底 sticky；桌面端简化为 标题 + compact HUD */}
       <div className="bg-white border-b border-bg-softer sticky top-0 z-10 lg:bg-transparent lg:border-0 lg:static lg:mb-2">
-        <div className="max-w-2xl lg:max-w-5xl flex items-center justify-between gap-3 px-4 py-3 lg:px-0 lg:py-2">
+        <div className="w-full flex items-center justify-between gap-3 px-4 py-3 lg:px-0 lg:py-2">
           <SoundLink
             href="/"
             aria-label="返回"
@@ -337,7 +337,7 @@ export function ProfileClient() {
         </div>
       </div>
 
-      <div className="max-w-2xl lg:max-w-5xl px-4 py-8">
+      <div className="w-full px-4 py-8">
         {/* 📋 每日任务（移动端专属入口；桌面端在首页右栏 RightRail 展示同一组件） */}
         <div className="lg:hidden mb-6">
           <DailyQuestsPanel />
