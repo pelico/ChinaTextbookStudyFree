@@ -71,8 +71,14 @@ def _urlopen_ai(req, timeout=120):
     指向特定出口；若 AI 服务域名（如 aiapi.fonken.net）也走该代理，会因
     代理连不上目标而报 Connection refused(111)。因此 AI 一律直连，GitHub
     下载沿用 _urlopen（保留代理）。
+
+    注意：不能用裸 urllib.request.urlopen —— 它会自动读环境变量代理；
+    必须显式 ProxyHandler({})（空字典即禁用代理）构建 opener 才真正直连。
     """
-    return urllib.request.urlopen(req, timeout=timeout)
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({})
+    )
+    return opener.open(req, timeout=timeout)
 
 
 # ============================================================
