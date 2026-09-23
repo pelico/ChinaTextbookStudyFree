@@ -30,9 +30,11 @@ import {
   weekKeyFor,
 } from "@cstf/core/league";
 import { AppShell } from "@/components/layout/AppShell";
-import { PageHeader } from "@/components/PageHeader";
+import { StatsBar } from "@/components/StatsBar";
 import { SoundLink } from "@/components/SoundLink";
-import { Trophy, Lightning, Gem, Lock } from "@/components/icons";
+import { ArrowLeft, Trophy, Lightning, Gem, Lock } from "@/components/icons";
+import { playSfx } from "@/lib/sfx";
+import Link from "next/link";
 import { useProgressStore, weekXpFromHistory } from "@/store/progress";
 import { cn } from "@/lib/cn";
 
@@ -83,11 +85,39 @@ export default function LeaguePage() {
 
   return (
     <AppShell>
-      {/* px 参考阅读中心（reading/page.tsx）：让标头与内容同水平对齐，
-          避免移动端标头比正文更靠左。 */}
+      {/* 与商店/书页/复习页一致的版式：灰底 main + 顶部白底 sticky 顶栏条。
+          红心/连胜/宝石放入白色条内，避免胶囊直接贴灰底顶缘；px 对齐阅读中心。 */}
       <main className="min-h-screen bg-bg-soft lg:bg-transparent px-4 md:px-6 pb-8">
-        <PageHeader backHref={null} title="排行榜" subtitle="和影子同学比一比" />
-        <div className="pt-4">
+        {/* 顶部白底 sticky 顶栏条（手机端）—— 与商店/书页/复习页一致：
+          返回首页 + 标题 + StatsBar(compact)。红心/连胜/宝石在白色条内，
+          不再直接贴灰底顶缘。lg+ 隐藏，由左列 SideNav HUD 常驻展示。 */}
+      <div className="bg-white border-b border-bg-softer sticky top-0 z-30 lg:hidden">
+        <div className="px-4 py-2.5 flex items-center gap-3">
+          <Link
+            href="/"
+            className="inline-flex items-center justify-center w-10 h-10 rounded-full text-ink-light hover:text-primary hover:bg-bg-soft transition-colors shrink-0"
+            onClick={() => playSfx("tap")}
+            aria-label="返回首页"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </Link>
+          <div className="flex-1 min-w-0">
+            <div className="text-base font-extrabold text-ink leading-tight">排行榜</div>
+            <div className="text-[11px] text-ink-light leading-tight truncate">
+              和影子同学比一比
+            </div>
+          </div>
+          <StatsBar compact />
+        </div>
+      </div>
+
+      {/* 桌面端标题（lg 内页由 SideNav HUD 顶栏承担 stats） */}
+      <div className="hidden lg:flex items-baseline justify-between gap-3 mb-6 pt-2">
+        <h1 className="text-3xl font-extrabold text-ink">排行榜</h1>
+        <span className="text-sm text-ink-light">和影子同学比一比</span>
+      </div>
+
+        <div className="pt-4 lg:pt-0">
           {!hydrated ? (
             <div className="animate-pulse space-y-3">
               <div className="h-28 rounded-3xl bg-bg-softer/60" />
