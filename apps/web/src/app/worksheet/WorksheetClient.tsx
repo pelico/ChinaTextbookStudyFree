@@ -699,7 +699,7 @@ export function WorksheetClient({ books }: Props) {
                     setAiConfig(cfg);
                     saveAIConfig(cfg);
                   }}
-                  placeholder="https://你的AI网关/v1（如 https://yunwu.ai/v1）"
+                  placeholder="https://你的AI网关/v1（如自建/中转服务的 OpenAI 兼容地址）"
                   className="w-full px-3 py-2 rounded-lg border-2 border-bg-softer text-sm text-ink focus:border-primary focus:outline-none"
                 />
               </div>

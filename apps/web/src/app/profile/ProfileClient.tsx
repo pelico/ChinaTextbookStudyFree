@@ -195,7 +195,7 @@ export function ProfileClient() {
           && ["ready", "skipped", "error"].includes(cur.storyImages);
         if (allDone) { stopped = true; return; }
         schedule();
-      }, 10000);
+      }, 2000);
     }
     schedule();
 
@@ -204,6 +204,17 @@ export function ProfileClient() {
 
   async function handleRetry(resourceKey: string) {
     setRetryingKey(resourceKey);
+    // 乐观更新：点击后立即把该资源置为「下载中」、进度条从 0 重新开始、清除错误，
+    // 避免点完毫无反馈（随后由轮询的真实状态覆盖）
+    setAssetsStatus(prev => {
+      if (!prev) return prev;
+      const map: Record<string, Partial<AssetsStatus>> = {
+        audio: { audio: "downloading", audioPercent: 0, audioError: "" },
+        pages: { textbookPages: "downloading", pagesPercent: 0, pagesError: "" },
+        stories: { storyImages: "downloading", storiesPercent: 0, storiesError: "" },
+      };
+      return { ...prev, ...(map[resourceKey] || {}) };
+    });
     try {
       const res = await fetch(`/api/retry?resource=${resourceKey}`, {
         method: "POST",
@@ -214,6 +225,7 @@ export function ProfileClient() {
       setRetryTick(t => t + 1);
     } catch (e) {
       console.error("重试失败", e);
+      setAssetsError((e as Error).message);
     } finally {
       setRetryingKey(null);
     }
