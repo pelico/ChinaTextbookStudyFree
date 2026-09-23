@@ -1720,6 +1720,11 @@ export const useProgressStore = create<ProgressState>()(
         }));
         // 同步每日登陆领取日（跨端防重复刷宝石）
         queueDelta({ type: "state", key: "lastDailyRewardDate", value: today });
+        // 每日奖励宝石也走 delta 同步：否则 pull 会用服务端基线整体覆盖本地，
+        // 导致"只发本地的奖励"被回退（web 与手机宝石短暂不一致/闪现）。
+        // 幂等靠 lastDailyRewardDate 已置 today（本分支只在今日首次进入时执行）。
+        queueDelta({ type: "gems_delta", value: reward });
+        queueDelta({ type: "lifetime_gems_delta", value: reward });
         return { gems: reward, effectiveStreak };
       },
 
@@ -1733,6 +1738,12 @@ export const useProgressStore = create<ProgressState>()(
           gems: state.gems + ach.reward,
           lifetimeGems: state.lifetimeGems + ach.reward,
         }));
+        // 成就宝石 + 账本同步到服务端：否则只发本地、pull 被服务端基线覆盖回退，
+        // 且账本不同步会让其它端/下次加载重复判定解锁。
+        // 幂等靠 unlockedAchievements 账本（本函数开头已判重，账本有该 id 直接 return 0）。
+        queueDelta({ type: "gems_delta", value: ach.reward });
+        queueDelta({ type: "lifetime_gems_delta", value: ach.reward });
+        queueDelta({ type: "set_add", key: "unlockedAchievements", value: id });
         return ach.reward;
       },
 
