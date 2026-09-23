@@ -193,47 +193,24 @@ export function PathMap({
     return () => window.removeEventListener("resize", measure);
   }, []);
 
-  // 记录/恢复学习地图的滚动位置：答完一关返回时不用再从上往下滑
-  // 滚动值按书隔离存到 sessionStorage（浏览器进程内有效）
-  const scrollKey = useMemo(() => {
-    if (typeof window === "undefined") return "";
-    return `cstf:pathmap:scroll:${bookId}`;
-  }, [bookId]);
-
-  // 随滚动实时保存
+  // 进入学习地图时，自动定位到「当前待闯的关」（status === current）节点，
+  // 让下一关正好出现在屏幕中上部，无需手动从上往下滑。
+  // current 节点滚动兜底：书或课程列表变化（如答完返回）时重新定位。
   useEffect(() => {
-    if (typeof window === "undefined" || !scrollKey) return;
-    let t: ReturnType<typeof setTimeout> | undefined;
-    function onScroll() {
-      if (t) clearTimeout(t);
-      t = setTimeout(() => {
-        try {
-          sessionStorage.setItem(scrollKey, String(window.scrollY));
-        } catch {}
-      }, 200);
-    }
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      window.removeEventListener("scroll", onScroll);
-      if (t) clearTimeout(t);
-    };
-  }, [scrollKey]);
-
-  // 挂载时恢复到上次位置（仅一次，避开用户手动滚动）
-  useEffect(() => {
-    if (typeof window === "undefined" || !scrollKey) return;
-    let saved = 0;
-    try {
-      saved = Number(sessionStorage.getItem(scrollKey) || "0");
-    } catch {}
-    if (saved > 0) {
-      const t = window.setTimeout(() => {
-        window.scrollTo({ top: saved, left: 0 });
-      }, 150);
-      return () => window.clearTimeout(t);
-    }
+    if (typeof window === "undefined") return;
+    const t = window.setTimeout(() => {
+      const el = document.querySelector<HTMLElement>("[data-cstf-current='true']");
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      // 当前关已经落在可视区中部附近则不打扰（用户可能正浏览别处）
+      if (rect.top > 0 && rect.top < window.innerHeight * 0.7) return;
+      // 目标 = 节点顶部 - 顶部栏/banner 高度偏移，让节点贴近屏幕顶部一点点
+      const target = rect.top + window.scrollY - 130;
+      window.scrollTo({ top: Math.max(0, target), left: 0 });
+    }, 150);
+    return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scrollKey]);
+  }, [bookId, lessons]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -845,6 +822,7 @@ function PathNode({ lesson, status, stars, breatheDelay, color, onSelect }: Path
         haptic("light");
         onSelect();
       }}
+      data-cstf-current={isCurrent ? "true" : undefined}
       className="block w-full"
       title={lesson.title}
     >
