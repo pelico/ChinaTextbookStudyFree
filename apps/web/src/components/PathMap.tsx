@@ -278,7 +278,11 @@ export function PathMap({
       <div
         ref={stickyRef}
         className="sticky top-0 z-20 -mx-4 px-4 lg:mx-0 lg:px-0 pt-2 pb-3 bg-bg-soft/0 lg:bg-transparent"
-        style={stickyTop !== null ? { top: stickyTop } : undefined}
+        style={
+          stickyTop !== null
+            ? { top: stickyTop }
+            : { top: "var(--cstf-top-bar-h, 0)" }
+        }
       >
         {topSlot && <div className="hidden lg:block mb-3">{topSlot}</div>}
         <AnimatePresence mode="wait">

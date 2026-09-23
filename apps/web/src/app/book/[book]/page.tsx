@@ -1,5 +1,6 @@
 import { promises as fs } from "fs";
 import path from "path";
+import type { CSSProperties } from "react";
 import { BookOpen } from "@/components/icons";
 import { StatsBar } from "@/components/StatsBar";
 import { SoundLink } from "@/components/SoundLink";
@@ -43,8 +44,13 @@ export default async function BookPage({ params }: { params: Promise<{ book: str
       {/* 访问即成为「当前教材」（首页据此直达本页） */}
       <ActiveBookSync bookId={bookId} grade={book.grade} />
 
-      {/* 移动端顶栏：当前教材徽章（可换书） + stats */}
-      <div className="lg:hidden bg-white border-b border-bg-softer sticky top-0 z-30">
+      {/* 移动端顶栏：当前教材徽章（可换书） + stats
+          --cstf-top-bar-h 暴露白条真实高度，供下方 PathMap sticky banner
+          吸附于白条正下方（避免被白条盖住）。 */}
+      <div
+        className="lg:hidden bg-white border-b border-bg-softer sticky top-0 z-30"
+        style={{ "--cstf-top-bar-h": "53px" } as CSSProperties}
+      >
         <div className="max-w-md mx-auto px-4 py-2 flex items-center justify-between gap-2">
           <CurrentBookBadge book={book} gradeBooks={gradeBooks} />
           <StatsBar compact />
