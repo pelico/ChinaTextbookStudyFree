@@ -3,6 +3,8 @@ name: Build and Push Docker Image
 on:
   push:
     branches: [main]
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
     paths-ignore:
       - 'scripts/**/*.py'
       - 'docs/**'
@@ -50,6 +52,7 @@ jobs:
           tags: |
             type=raw,value=latest
             type=sha,prefix=,format=short
+            type=ref,event=tag
           labels: |
             org.opencontainers.image.title=ChinaStudyFree
             org.opencontainers.image.description=小学全科 AI 学习平台
@@ -79,3 +82,40 @@ jobs:
             SKIP_ASSETS=true
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # ---- 版本 Tag：导出 amd64 / arm64 / armv7l 镜像 tar 包并上传到 Release ----
+      - name: Export platform image tarballs
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          IMG="${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:${GITHUB_REF_NAME}"
+          mkdir -p /tmp/tars
+          for entry in "linux/amd64 amd64" "linux/arm64 arm64" "linux/arm/v7 armv7l"; do
+            plat="${entry%% *}"
+            arch="${entry##* }"
+            echo "=== ${arch} (${plat}) ==="
+            docker pull --platform "$plat" "${IMG}"
+            docker save "${IMG}" | gzip -1 > "/tmp/tars/ChinaTextbookStudyFree-${GITHUB_REF_NAME}-${arch}.tar.gz"
+          done
+          ls -lh /tmp/tars
+
+      - name: Upload tarballs to Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: |
+            版本 ${{ github.ref_name }}
+
+            **Docker 镜像 tar 包（轻量版，运行时自动下载资源）**
+            - amd64：`ChinaTextbookStudyFree-${{ github.ref_name }}-amd64.tar.gz`
+            - arm64：`ChinaTextbookStudyFree-${{ github.ref_name }}-arm64.tar.gz`
+            - armv7l：`ChinaTextbookStudyFree-${{ github.ref_name }}-armv7l.tar.gz`
+
+            载入方式：`docker load -i <tar.gz>`
+
+            也可直接拉取：`docker pull ghcr.io/pelico/chinatextbookstudyfree:${{ github.ref_name }}`
+          files: /tmp/tars/*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

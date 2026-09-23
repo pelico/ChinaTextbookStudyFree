@@ -3,7 +3,7 @@ services:
     image: ghcr.io/pelico/chinatextbookstudyfree:latest
     container_name: china-study-free
     ports:
-      - "${PORT:-5231}:80"
+      - "${PORT:-3088}:80"
     restart: unless-stopped
     environment:
       HTTP_PROXY: ${HTTP_PROXY:-}
