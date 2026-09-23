@@ -23,7 +23,7 @@
 - 📚 **课外故事**：AI 生成 284 篇分级读物 + 阅读理解题 + 配图，巩固课内知识
 - 🎮 **在玩中学**：题目形式生动、即时反馈，让孩子在闯关和互动中建立对知识的兴趣
 - 🎁 **奖励系统**：宝石、成就、皮肤装扮、商店、排行榜、连胜激励，营造持续学习的动力
-- 📱 **多端可用**：Web / 原生 Android App，支持连接局域网或公网（Cloudflare Tunnel）
+- 📱 **多端可用**：Web / 原生 Android App，支持连接局域网或公网地址
 - 🌏 **服务每一个孩子**：从一年级到六年级，只要有一台能上网的设备，就能用
 
 ---
@@ -284,7 +284,7 @@ cd apps/web && npx tsx scripts/build-data.ts
 
 - **构建**：由 `.github/workflows/android-build.yml` 在打 Tag / main 变更时自动产出 APK。
 - **数据持久化**：WebView 使用 `LOAD_DEFAULT` + 禁用 Service Worker 防坏缓存；`csf-active-kid`（当前学习者）等偏好存于 localStorage 并**持久保留**，冷启动不再要求反复选择。
-- **使用**：安装后填入你的部署地址（局域网 `http://主机IP:3088` 或公网 Cloudflare Tunnel 地址）即可。
+- **使用**：安装后填入你的部署地址（局域网 `http://主机IP:3088` 或公网地址）即可。
 
 ---
 
