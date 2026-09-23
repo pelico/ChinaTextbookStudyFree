@@ -60,6 +60,7 @@ export default async function ReadingPage({
 
   return (
     <PassageReader
+      key={passage.id}
       passage={passage}
       backHref={`/reading/${bookId}/`}
       prevHref={prev ? `/reading/${bookId}/${prev.id}/` : null}

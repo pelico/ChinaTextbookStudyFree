@@ -60,6 +60,7 @@ export default async function StoryPage({
 
   return (
     <StoryReaderClient
+      key={story.id}
       story={story}
       backHref={`/stories/${bookId}/`}
       prevHref={prev ? `/stories/${bookId}/${prev.id}/` : null}
