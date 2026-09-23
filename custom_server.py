@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 DB_PATH = os.environ.get("CUSTOM_DB_PATH", "/data/custom.db")
 IMAGES_DIR = os.environ.get("CUSTOM_IMAGES_DIR", "/data/images")
 TEXTBOOKS_DIR = os.environ.get("CUSTOM_TEXTBOOKS_DIR", "/data/textbooks")
-AI_BASE = os.environ.get("AI_API_BASE", "https://aiapi.fonken.net/v1")
+AI_BASE = os.environ.get("AI_API_BASE", "")
 AI_KEY = os.environ.get("AI_API_KEY", "")
 AI_MODEL = os.environ.get("AI_MODEL", "gemini-3.1-flash-lite")
 PORT = int(os.environ.get("CUSTOM_API_PORT", "18081"))
@@ -68,7 +68,7 @@ def _urlopen_ai(req, timeout=120):
     """AI 出题/生成请求专用：强制直连，不走 HTTP(S)_PROXY。
 
     部署环境里的 HTTP(S)_PROXY 通常只给「下载 GitHub 语音资源」等用途，
-    指向特定出口；若 AI 服务域名（如 aiapi.fonken.net）也走该代理，会因
+    指向特定出口；若 AI 服务域名（如你配的 AI 网关）也走该代理，会因
     代理连不上目标而报 Connection refused(111)。因此 AI 一律直连，GitHub
     下载沿用 _urlopen（保留代理）。
 
@@ -186,7 +186,7 @@ def init_db():
         password_salt   TEXT,
         is_setup        INTEGER DEFAULT 0,
         ai_api_key      TEXT,
-        ai_base_url     TEXT DEFAULT 'https://aiapi.fonken.net/v1',
+        ai_base_url     TEXT DEFAULT '',
         ai_model        TEXT DEFAULT 'gemini-3.1-flash-lite',
         daily_limit_ms  INTEGER DEFAULT 0,
         session_limit_ms INTEGER DEFAULT 0,
@@ -2327,7 +2327,7 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                 self._send_json({
                     "is_setup": bool(s.get("is_setup")),
                     "ai_key_set": bool(s.get("ai_api_key")),
-                    "ai_base_url": s.get("ai_base_url", "https://aiapi.fonken.net/v1"),
+                    "ai_base_url": s.get("ai_base_url", ""),
                     "ai_model": s.get("ai_model", "gemini-3.1-flash-lite"),
                     "daily_limit_ms": s.get("daily_limit_ms", 0),
                     "session_limit_ms": s.get("session_limit_ms", 0),
@@ -2623,7 +2623,7 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                     """, (
                         pwd_hash, salt,
                         data.get("ai_api_key", ""),
-                        data.get("ai_base_url", "https://aiapi.fonken.net/v1"),
+                        data.get("ai_base_url", ""),
                         data.get("ai_model", "gemini-3.1-flash-lite"),
                         data.get("daily_limit_ms", 0),
                         data.get("session_limit_ms", 0),

@@ -14,9 +14,9 @@
 #   # 交叉构建 armv7l 镜像（在 x64/arm64 Mac 上构建，部署到 armv7l 设备）
 #   docker buildx build --platform linux/arm/v7 -t china-study-free --load .
 #
-#   # 使用代理（国内）+ armv7l
+#   # 使用代理 + armv7l
 #   docker buildx build --platform linux/arm/v7 \
-#     --build-arg HTTP_PROXY=http://192.168.2.88:10809 \
+#     --build-arg HTTP_PROXY=http://你的代理IP:端口 \
 #     -t china-study-free --load .
 #
 #   # 轻量镜像（~50MB，跳过 1.4GB 资源下载，运行时用 volume 挂载）
@@ -28,7 +28,7 @@
 # ---- Build stage：在宿主机原生平台运行（避免 QEMU 模拟，构建快）----
 FROM --platform=$BUILDPLATFORM node:22-alpine AS builder
 
-# 代理支持（国内构建可传入 http://192.168.2.88:10809）
+# 代理支持（国内构建可传入 http://你的代理IP:端口）
 ARG HTTP_PROXY=""
 ARG HTTPS_PROXY=""
 ENV http_proxy=$HTTP_PROXY \

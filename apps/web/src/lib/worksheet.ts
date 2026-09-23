@@ -60,7 +60,7 @@ export interface AIConfig {
 }
 
 export const DEFAULT_AI_CONFIG: AIConfig = {
-  baseURL: "https://aiapi.fonken.net/v1",
+  baseURL: "",
   apiKey: "",
   model: "gemini-3.1-flash-lite",
 };

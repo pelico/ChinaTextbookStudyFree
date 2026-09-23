@@ -5,13 +5,13 @@ services:
       dockerfile: Dockerfile
       args:
         SKIP_ASSETS: "true"
-        HTTP_PROXY: "http://192.168.2.88:10809"
+        HTTP_PROXY: "http://你的代理IP:端口"
     container_name: china-study-free-test
     ports:
       - "5230:80"
     restart: unless-stopped
     environment:
-      HTTP_PROXY: "http://192.168.2.88:10809"
+      HTTP_PROXY: "http://你的代理IP:端口"
       RELEASE_URL: "https://github.com/pelico/ChinaTextbookStudyFree/releases/download/v1.1.0-assets"
     volumes:
       - assets-audio-test:/usr/share/nginx/html/audio

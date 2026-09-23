@@ -428,7 +428,7 @@ python3 /app/custom_server.py &amp;
 import http.server, sqlite3, json, os, urllib.request, uuid, time
 
 DB_PATH = os.environ.get("CUSTOM_DB_PATH", "/data/custom.db")
-AI_BASE = os.environ.get("AI_API_BASE", "https://aiapi.fonken.net/v1")
+AI_BASE = os.environ.get("AI_API_BASE", "")
 AI_KEY  = os.environ.get("AI_API_KEY", "")
 AI_MODEL = os.environ.get("AI_MODEL", "gemini-3.1-flash-lite")
 
@@ -514,7 +514,7 @@ add_header Permissions-Policy "camera=(self), microphone=(), geolocation=()" alw
       - "${PORT:-5231}:80"
     environment:
       HTTP_PROXY: ${HTTP_PROXY:-}
-      AI_API_BASE: ${AI_API_BASE:-https://aiapi.fonken.net/v1}
+      AI_API_BASE: ${AI_API_BASE:-}
       AI_API_KEY: ${AI_API_KEY:-}
       AI_MODEL: ${AI_MODEL:-gemini-3.1-flash-lite}
     volumes:
@@ -531,8 +531,8 @@ volumes:
 
 <h3>.env 变更</h3>
 <pre><code>PORT=5231
-HTTP_PROXY=http://192.168.2.88:10809
-AI_API_BASE=https://aiapi.fonken.net/v1
+HTTP_PROXY=http://你的代理IP:端口
+AI_API_BASE=https://你的AI网关/v1
 AI_API_KEY=sk-your-key-here
 AI_MODEL=gemini-3.1-flash-lite</code></pre>
 

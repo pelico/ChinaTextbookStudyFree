@@ -591,7 +591,7 @@ export function ProfileClient() {
   cnstudy:
     image: ghcr.io/pelico/chinatextbookstudyfree:latest
     environment:
-      - HTTP_PROXY=http://192.168.2.88:10809
+      - HTTP_PROXY=http://你的代理IP:端口
       # HTTPS_PROXY 会自动从 HTTP_PROXY 同步
       # 也可单独设置 HTTPS_PROXY`}
               </pre>

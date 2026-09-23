@@ -30,25 +30,20 @@
 
 ## 📸 功能预览
 
-### Web 端（支持手机浏览器添加到主屏幕，体验类原生 App）
+### 产品截图
 
 <table>
   <tr>
-    <td align="center"><img src="docs/screenshots/screen-0.png" width="200" /><br/><b>年级选择</b></td>
-    <td align="center"><img src="docs/screenshots/screen-1.png" width="400" /><br/><b>学科总览</b></td>
-    <td align="center"><img src="docs/screenshots/screen-3.png" width="400" /><br/><b>学习路径</b></td>
+    <td align="center"><img src="docs/screenshots/screen-courses.jpg" width="450" /><br/><b>学科总览</b></td>
+    <td align="center"><img src="docs/screenshots/screen-reading.jpg" width="450" /><br/><b>阅读中心</b></td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/screen-2.png" width="200" /><br/><b>单元答题</b></td>
-    <td align="center"><img src="docs/screenshots/screen-6.png" width="400" /><br/><b>课文听读</b></td>
-    <td align="center"><img src="docs/screenshots/screen-7.png" width="400" /><br/><b>课外故事</b></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/screenshots/screen-4.png" width="400" /><br/><b>错题回顾</b></td>
-    <td align="center"><img src="docs/screenshots/screen-5.png" width="400" /><br/><b>个人中心</b></td>
-    <td></td>
+    <td align="center"><img src="docs/screenshots/screen-worksheet.jpg" width="450" /><br/><b>打印试卷</b></td>
+    <td align="center"><img src="docs/screenshots/screen-custom.jpg" width="450" /><br/><b>自定义学习</b></td>
   </tr>
 </table>
+
+> 支持手机浏览器「添加到主屏幕」，体验类原生 App。
 
 ---
 
@@ -233,7 +228,7 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 # 按需配置环境变量（见 custom_server.py 顶部说明）
 export PORT=8001
 export AI_API_KEY=sk-xxx               # AI 密钥（若未在后端默认 Key 中配置）
-export AI_BASE_URL="https://aiapi.fonken.net/v1"
+export AI_API_BASE="https://你的AI网关/v1"   # AI 网关地址，请按需填写
 
 python3 custom_server.py
 ```
