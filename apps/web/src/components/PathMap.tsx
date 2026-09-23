@@ -193,6 +193,48 @@ export function PathMap({
     return () => window.removeEventListener("resize", measure);
   }, []);
 
+  // 记录/恢复学习地图的滚动位置：答完一关返回时不用再从上往下滑
+  // 滚动值按书隔离存到 sessionStorage（浏览器进程内有效）
+  const scrollKey = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    return `cstf:pathmap:scroll:${bookId}`;
+  }, [bookId]);
+
+  // 随滚动实时保存
+  useEffect(() => {
+    if (typeof window === "undefined" || !scrollKey) return;
+    let t: ReturnType<typeof setTimeout> | undefined;
+    function onScroll() {
+      if (t) clearTimeout(t);
+      t = setTimeout(() => {
+        try {
+          sessionStorage.setItem(scrollKey, String(window.scrollY));
+        } catch {}
+      }, 200);
+    }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (t) clearTimeout(t);
+    };
+  }, [scrollKey]);
+
+  // 挂载时恢复到上次位置（仅一次，避开用户手动滚动）
+  useEffect(() => {
+    if (typeof window === "undefined" || !scrollKey) return;
+    let saved = 0;
+    try {
+      saved = Number(sessionStorage.getItem(scrollKey) || "0");
+    } catch {}
+    if (saved > 0) {
+      const t = window.setTimeout(() => {
+        window.scrollTo({ top: saved, left: 0 });
+      }, 150);
+      return () => window.clearTimeout(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollKey]);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     const observer = new IntersectionObserver(
