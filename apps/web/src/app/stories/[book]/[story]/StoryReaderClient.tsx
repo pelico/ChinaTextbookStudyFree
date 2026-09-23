@@ -52,16 +52,12 @@ export default function StoryReaderClient({ story, backHref, prevHref, prevTitle
   const [mode, setMode] = useState<PlayMode>("idle");
   const [currentIndex, setCurrentIndex] = useState<number | null>(null);
   const abortRef = useRef(false);
-  const [autoPlay, setAutoPlay] = useState(false); // 自动连播下一个故事
+  const [autoPlay, setAutoPlay] = useState(() =>
+    typeof window !== "undefined" && localStorage.getItem("story_autoplay") === "1"
+  ); // 自动连播下一个故事
   // 同步 mode 到 ref，给一次性 effect（如 URL autoplay）做实时判断用
   const modeRef = useRef<PlayMode>("idle");
   useEffect(() => { modeRef.current = mode; }, [mode]);
-
-  // 从 localStorage 读取连播偏好 + 保存偏好
-  useEffect(() => {
-    const saved = localStorage.getItem("story_autoplay");
-    if (saved === "1") setAutoPlay(true);
-  }, []);
 
   useEffect(() => {
     localStorage.setItem("story_autoplay", autoPlay ? "1" : "0");

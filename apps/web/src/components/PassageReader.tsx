@@ -51,16 +51,15 @@ export function PassageReader({ passage, backHref, prevHref, prevTitle, nextHref
   const router = useRouter();
   const [mode, setMode] = useState<Mode>("idle");
   const [currentIndex, setCurrentIndex] = useState<number | null>(null);
-  const [autoPlay, setAutoPlay] = useState(false); // 自动连播下一篇
+  const [autoPlay, setAutoPlay] = useState<boolean>(
+    // 惰性同步初始化：读取 localStorage，保证「播放开始时 autoPlay 已为真」。
+    // 若放 useEffect 异步 setState，URL autoplay 进入的页面在播放瞬间 autoPlay
+    // 仍是 false，导致连播完一篇就停（只能连播一次）。
+    () => typeof window !== "undefined" && localStorage.getItem("reading_autoplay") === "1",
+  ); // 自动连播下一篇
   // 同步 mode 到 ref，给一次性 effect（如 URL autoplay）做实时判断用，避免 closure trap
   const modeRef = useRef<Mode>("idle");
   useEffect(() => { modeRef.current = mode; }, [mode]);
-
-  // 从 localStorage 读取连播偏好 + 保存偏好
-  useEffect(() => {
-    const saved = localStorage.getItem("reading_autoplay");
-    if (saved === "1") setAutoPlay(true);
-  }, []);
 
   useEffect(() => {
     localStorage.setItem("reading_autoplay", autoPlay ? "1" : "0");
