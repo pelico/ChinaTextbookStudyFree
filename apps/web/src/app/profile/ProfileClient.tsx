@@ -751,11 +751,19 @@ export function ProfileClient() {
             })}
           </div>
 
-          {/* 设为默认 AI Key */}
+          {/* 默认 AI 配置 */}
           {parentUnlocked && (
             <div className="mt-4 pt-4 border-t border-bg-softer">
               <div className="text-xs text-ink-light mb-2 font-bold">默认 AI 配置（服务端存储，跨设备共享）</div>
               <DefaultAIConfigSection />
+            </div>
+          )}
+
+          {/* 资源下载源 */}
+          {parentUnlocked && (
+            <div className="mt-4 pt-4 border-t border-bg-softer">
+              <div className="text-xs text-ink-light mb-2 font-bold">资源下载源（服务端存储，动态生效）</div>
+              <ReleaseUrlSection />
             </div>
           )}
 
@@ -970,6 +978,75 @@ function DefaultAIConfigSection() {
       )}
 
       {msg && <div className="text-xs text-violet-500 mt-1">{msg}</div>}
+    </div>
+  );
+}
+
+// ============================================================
+// 🚚 资源下载源（服务端存储，动态生效，无需重启容器）
+// ============================================================
+
+function ReleaseUrlSection() {
+  const [saved, setSaved] = useState("");
+  const [form, setForm] = useState("");
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    getParentSettings().then(s => {
+      if (!s) return;
+      setSaved(s.release_url || "");
+      setForm(s.release_url || "");
+    });
+  }, []);
+
+  async function handleSave() {
+    const ok = await updateParentSettings({ release_url: form.trim() });
+    if (ok) {
+      setSaved(form.trim());
+      setMsg("已保存，下次资源下载将使用此源");
+      setTimeout(() => setMsg(""), 2500);
+    } else {
+      setMsg("保存失败");
+    }
+  }
+
+  function handleReset() {
+    setForm("");
+  }
+
+  return (
+    <div className="rounded-xl bg-bg-soft p-3 space-y-2">
+      <div>
+        <div className="text-[11px] text-ink-light mb-1">
+          GitHub 资源包下载源（Base URL）
+        </div>
+        <input
+          type="text"
+          value={form}
+          onChange={e => setForm(e.target.value)}
+          placeholder="留空用官方源（或容器 RELEASE_URL）；换加速/其它镜像则填完整 Base URL"
+          className="w-full h-9 px-3 rounded-xl border-2 border-bg-softer text-sm outline-none focus:border-violet-400"
+        />
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={handleSave}
+          className="h-9 px-4 rounded-xl bg-violet-500 text-white text-sm font-bold"
+        >
+          保存
+        </button>
+        <button onClick={handleReset} className="text-xs text-ink-light hover:underline">
+          清空（回默认源）
+        </button>
+      </div>
+      {saved && <div className="text-[11px] text-emerald-600 break-all">当前生效：{saved}</div>}
+      {msg && <div className="text-xs text-violet-500 mt-1">{msg}</div>}
+      <div className="text-[10px] text-ink-light leading-relaxed">
+        用于切换/加速资源包（音频、配图、课本原页）下载。留空即官方 GitHub 源；下载慢或失败时，
+        可在此填入 ghproxy 加速地址后保存，无需重启容器，再点页面上的重试即可生效。
+        例：https://ghproxy.com/https://github.com/pelico/ChinaTextbookStudyFree/releases/download/v1.1.0-assets
+        （也可换 gh-proxy.com / mirror.ghproxy.com 等）
+      </div>
     </div>
   );
 }

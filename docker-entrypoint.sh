@@ -17,11 +17,30 @@
 #   SKIP_DOWNLOAD — 设为 true 则跳过资源下载（纯前端体验）
 # ================================================================
 
-# 默认走 ghproxy 类加速前缀（国内下载明显更快）。若该域名不可用，可通过
-# RELEASE_URL 覆盖回官方源，例如：
-#   -e RELEASE_URL=https://github.com/pelico/ChinaTextbookStudyFree/releases/download/v1.1.0-assets
-# 常见可用镜像域名可参考: ghproxy.com / gh-proxy.com / ghproxy.net / mirror.ghproxy.com
-RELEASE_URL="${RELEASE_URL:-https://ghproxy.com/https://github.com/pelico/ChinaTextbookStudyFree/releases/download/v1.1.0-assets}"
+# 默认下载源：官方 GitHub Release（不带任何代理 / 加速前缀）。
+# 优先级：家长端在「我的」里配置的下载源（运行时动态生效，无需重启/重部署）
+#    > 环境变量 RELEASE_URL > 下方默认官方源。
+# 常见 ghproxy 加速域名可参考: ghproxy.com / gh-proxy.com / ghproxy.net / mirror.ghproxy.com，
+# 例如在「我的」或 RELEASE_URL 里填：
+#   https://ghproxy.com/https://github.com/pelico/ChinaTextbookStudyFree/releases/download/v1.1.0-assets
+DEFAULT_RELEASE_URL="https://github.com/pelico/ChinaTextbookStudyFree/releases/download/v1.1.0-assets"
+RELEASE_URL="${RELEASE_URL:-$DEFAULT_RELEASE_URL}"
+
+# 读取最终生效的资源下载源 Base URL（每次下载前调用，支持运行时动态换源）
+get_release_url() {
+    # 1) 家长端在「我的」里配置的下载源（服务端持久化，动态生效）
+    _api=$(curl -s --max-time 5 "http://127.0.0.1:18081/release-url" 2>/dev/null)
+    if [ -n "$_api" ]; then
+        _configured=$(printf '%s' "$_api" \
+            | python3 -c "import sys,json;print(json.load(sys.stdin).get('release_url','').strip())" 2>/dev/null)
+        if [ -n "$_configured" ]; then
+            echo "$_configured"
+            return
+        fi
+    fi
+    # 2) 环境变量 RELEASE_URL（默认官方源）
+    echo "$RELEASE_URL"
+}
 HTML_ROOT="/usr/share/nginx/html"
 SKIP_DOWNLOAD="${SKIP_DOWNLOAD:-false}"
 STATUS_FILE="$HTML_ROOT/assets-status.json"
@@ -455,7 +474,7 @@ start_background_download() {
         do_download_audio() {
             if [ ! -d "$HTML_ROOT/audio" ] || [ -z "$(ls -A "$HTML_ROOT/audio" 2>/dev/null)" ]; then
                 download_and_serve \
-                    "$RELEASE_URL/audio.tar.gz" \
+                    "$(get_release_url)/audio.tar.gz" \
                     /tmp/audio.tar.gz \
                     "audio" \
                     extract_tar_gz \
@@ -477,7 +496,7 @@ start_background_download() {
         do_download_pages() {
             if [ ! -d "$HTML_ROOT/textbook-pages" ] || [ -z "$(ls -A "$HTML_ROOT/textbook-pages" 2>/dev/null)" ]; then
                 download_and_serve \
-                    "$RELEASE_URL/textbook-pages.zip" \
+                    "$(get_release_url)/textbook-pages.zip" \
                     /tmp/textbook-pages.zip \
                     "pages" \
                     extract_zip \
@@ -499,7 +518,7 @@ start_background_download() {
         do_download_stories() {
             if [ ! -d "$HTML_ROOT/story-images" ] || [ -z "$(ls -A "$HTML_ROOT/story-images" 2>/dev/null)" ]; then
                 download_and_serve \
-                    "$RELEASE_URL/story-images.zip" \
+                    "$(get_release_url)/story-images.zip" \
                     /tmp/story-images.zip \
                     "stories" \
                     extract_zip \

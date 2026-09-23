@@ -166,6 +166,10 @@ def init_db():
     if "folder_path" not in cols_books:
         conn.execute("ALTER TABLE books ADD COLUMN folder_path TEXT")
 
+    cols_ps_parent = {r[1] for r in conn.execute("PRAGMA table_info(parent_settings)")}
+    if "release_url" not in cols_ps_parent:
+        conn.execute("ALTER TABLE parent_settings ADD COLUMN release_url TEXT DEFAULT ''")
+
     conn.execute("""
     CREATE TABLE IF NOT EXISTS page_texts (
         id TEXT PRIMARY KEY,
@@ -190,6 +194,7 @@ def init_db():
         ai_model        TEXT DEFAULT 'gemini-3.1-flash-lite',
         daily_limit_ms  INTEGER DEFAULT 0,
         session_limit_ms INTEGER DEFAULT 0,
+        release_url     TEXT DEFAULT '',
         updated_at      TEXT NOT NULL
     );
     """)
@@ -2331,12 +2336,19 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                     "ai_model": s.get("ai_model", "gemini-3.1-flash-lite"),
                     "daily_limit_ms": s.get("daily_limit_ms", 0),
                     "session_limit_ms": s.get("session_limit_ms", 0),
+                    "release_url": s.get("release_url", ""),
                 })
                 return
 
             # /parent/public-settings — 获取防沉迷参数（无需 token，前端启动时覆盖 localStorage）
             if parts == ["parent", "public-settings"]:
                 self._send_json(get_public_settings_cached())
+                return
+
+            # /release-url — 资源下载源 Base URL（服务端配置，供容器 entrypoint 读取，无需 token）
+            if parts == ["release-url"]:
+                s = get_parent_settings() or {}
+                self._send_json({"release_url": s.get("release_url", "")})
                 return
 
             # /kids — 列出所有学生档案
@@ -2669,7 +2681,8 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                     updates = []
                     params = []
                     for field in ("ai_api_key", "ai_base_url", "ai_model",
-                                  "daily_limit_ms", "session_limit_ms"):
+                                  "daily_limit_ms", "session_limit_ms",
+                                  "release_url"):
                         if field in data:
                             updates.append(f"{field} = ?")
                             params.append(data[field])

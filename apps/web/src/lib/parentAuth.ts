@@ -26,6 +26,7 @@ export async function setupParent(
     ai_model?: string;
     daily_limit_ms?: number;
     session_limit_ms?: number;
+    release_url?: string;
   }
 ): Promise<boolean> {
   const res = await fetch("/api/custom/parent/setup", {
@@ -58,6 +59,7 @@ export async function getParentSettings(): Promise<{
   ai_model: string;
   daily_limit_ms: number;
   session_limit_ms: number;
+  release_url: string;
 } | null> {
   const token = getParentToken();
   if (!token) return null;
@@ -74,6 +76,7 @@ export async function updateParentSettings(settings: {
   ai_model?: string;
   daily_limit_ms?: number;
   session_limit_ms?: number;
+  release_url?: string;
 }): Promise<boolean> {
   const token = getParentToken();
   if (!token) return false;
