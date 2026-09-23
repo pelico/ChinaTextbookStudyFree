@@ -191,16 +191,6 @@ services:
 docker build -t china-study-free:lite --build-arg SKIP_ASSETS=true .
 ```
 
-### 国内构建 / 网络受限环境
-
-构建与运行时若需代理下载 GitHub 资源，可传入代理参数：
-
-```bash
-docker build --build-arg HTTP_PROXY=http://192.168.2.88:10809 -t china-study-free .
-```
-
-> 注意：运行时容器内若设置了 `HTTPS_PROXY`（如公司代理），必须为 **AI 接口域名（如 aiapi.fonken.net）走直连**。本项目已在后端 `custom_server.py` 对 AI 请求强制直连（禁用 `HTTPS_PROXY`），GitHub 资源下载仍走代理，互不影响。
-
 ---
 
 ## 🖥️ 本地开发（源码方式）
