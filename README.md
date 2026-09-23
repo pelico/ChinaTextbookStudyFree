@@ -161,11 +161,15 @@ services:
 
 ### 资源下载慢 / 受限网络
 
-首次启动容器会在后台自动下载音频、配图、课本原页（合计约 1.4GB，来自 GitHub Release）。Web 页面先可访问，资源逐步就绪；下载失败会自动重试 3 次，失败也不影响页面访问。若下载慢或失败，按需处理：
+首次启动容器会在后台自动下载音频、配图、课本原页（合计约 1.4GB）。默认走 **ghproxy 加速镜像**提升国内下载速度，且已支持**断点续传**（中断后重试从断点继续）。Web 页面先可访问，资源逐步就绪；下载失败会自动重试 3 次，失败也不影响页面访问。若下载慢或失败，按需处理：
 
 1. **挂载资源目录（推荐，下载一次永久生效）**：见上例，把三个资源目录挂载到宿主机，资源缓存本地，重启/重建容器不重复下载。
 2. **配置代理**：给容器设置 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量；后端 AI 接口会自动强制直连，代理只作用于资源下载，互不影响。
-3. **换源**：设环境变量 `RELEASE_URL` 指向你本地可达的镜像地址（如内网源）。
+3. **换源**：默认 `RELEASE_URL` 已指向 ghproxy 加速（`https://ghproxy.com/https://github.com/...`）。若该域名不可用，可覆盖为其它镜像或官方源，例如：
+   ```bash
+   -e RELEASE_URL=https://github.com/pelico/ChinaTextbookStudyFree/releases/download/v1.1.0-assets
+   # 也可换 gh-proxy.com / ghproxy.net / mirror.ghproxy.com 等
+   ```
 4. **跳过下载**：只体验纯前端（不需要音频/图片）时设 `SKIP_DOWNLOAD=true`。
 5. **查进度**：浏览器打开 `http://<主机>:3088/assets-status.json` 可查看资源下载状态。
 

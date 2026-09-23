@@ -17,7 +17,11 @@
 #   SKIP_DOWNLOAD — 设为 true 则跳过资源下载（纯前端体验）
 # ================================================================
 
-RELEASE_URL="${RELEASE_URL:-https://github.com/pelico/ChinaTextbookStudyFree/releases/download/v1.1.0-assets}"
+# 默认走 ghproxy 类加速前缀（国内下载明显更快）。若该域名不可用，可通过
+# RELEASE_URL 覆盖回官方源，例如：
+#   -e RELEASE_URL=https://github.com/pelico/ChinaTextbookStudyFree/releases/download/v1.1.0-assets
+# 常见可用镜像域名可参考: ghproxy.com / gh-proxy.com / ghproxy.net / mirror.ghproxy.com
+RELEASE_URL="${RELEASE_URL:-https://ghproxy.com/https://github.com/pelico/ChinaTextbookStudyFree/releases/download/v1.1.0-assets}"
 HTML_ROOT="/usr/share/nginx/html"
 SKIP_DOWNLOAD="${SKIP_DOWNLOAD:-false}"
 STATUS_FILE="$HTML_ROOT/assets-status.json"
@@ -195,11 +199,16 @@ download_with_progress() {
         echo "  [$label] 无法获取文件大小，将不显示进度百分比"
     fi
 
-    # 清理旧文件
-    rm -f "$output"
+    # 若文件已完整（上次下载已写完），直接视为成功，跳过重复下载
+    if [ -n "$total_size" ] && [ "$total_size" -gt 0 ] 2>/dev/null \
+        && [ "$(file_size "$output")" -eq "$total_size" ] 2>/dev/null; then
+        echo "  [$label] 文件已完整存在，跳过下载"
+        return 0
+    fi
 
-    # 后台启动 curl 下载
-    curl -fL --connect-timeout 30 --max-time 3600 \
+    # 断点续传：不删旧文件，curl --continue-at - 从中断处继续
+    # 慢网中断后重试无需从头下载，体验更好
+    curl -fL --connect-timeout 30 --max-time 3600 --continue-at - \
          -o "$output" "$url" > /tmp/curl-${label}.log 2>&1 &
     curl_pid=$!
 
@@ -258,7 +267,7 @@ download_with_progress() {
         fi
         eval "$_error_var=\"$err_msg\""
         echo "  [$label] 下载失败：$err_msg"
-        rm -f "$output"
+        # 保留已下载的部分文件，供下次 --continue-at 断点续传
         return 1
     fi
 }
