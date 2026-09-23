@@ -64,6 +64,17 @@ def _urlopen(req, timeout=120):
     return urllib.request.urlopen(req, timeout=timeout)
 
 
+def _urlopen_ai(req, timeout=120):
+    """AI 出题/生成请求专用：强制直连，不走 HTTP(S)_PROXY。
+
+    部署环境里的 HTTP(S)_PROXY 通常只给「下载 GitHub 语音资源」等用途，
+    指向特定出口；若 AI 服务域名（如 aiapi.fonken.net）也走该代理，会因
+    代理连不上目标而报 Connection refused(111)。因此 AI 一律直连，GitHub
+    下载沿用 _urlopen（保留代理）。
+    """
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
 # ============================================================
 # Database
 # ============================================================
@@ -936,7 +947,7 @@ def call_ai(messages, timeout=120, api_key=None):
     })
 
     try:
-        resp = _urlopen(req, timeout=timeout)
+        resp = _urlopen_ai(req, timeout=timeout)
         # 校验返回 Content-Type，避免上游返回 HTML/纯文本时下游解析炸裂
         ctype = (resp.headers.get("Content-Type") or "").lower()
         if "application/json" not in ctype:
@@ -2568,7 +2579,7 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                     "Accept": "application/json",
                 })
                 try:
-                    resp = _urlopen(req, timeout=180)
+                    resp = _urlopen_ai(req, timeout=180)
                     ctype = (resp.headers.get("Content-Type") or "").lower()
                     if "application/json" not in ctype:
                         sample = resp.read(200).decode("utf-8", errors="replace")
