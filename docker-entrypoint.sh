@@ -98,9 +98,16 @@ human_bytes() {
 }
 
 # 获取文件大小（字节）
+# 必须用 stat 读文件系统元数据（O(1)）。busybox 的 `wc -c < file` 会逐字节
+# 读取整个文件，对于正在下载的大文件（几百 MB）每 3 秒一次会吃满 CPU/IO。
 file_size() {
     if [ -f "$1" ]; then
-        wc -c < "$1" | tr -d ' '
+        # alpine 的 busybox stat 支持 -c %s；失败时回退 du 兜底
+        size=$(stat -c %s "$1" 2>/dev/null)
+        if [ -z "$size" ]; then
+            size=$(du -k "$1" 2>/dev/null | awk '{print $1 * 1024}')
+        fi
+        echo "${size:-0}" | tr -d ' '
     else
         echo 0
     fi
