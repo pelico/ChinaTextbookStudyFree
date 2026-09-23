@@ -2539,7 +2539,7 @@ class CustomHandler(http.server.BaseHTTPRequestHandler):
                 system_msg = data.get("system", "")
                 user_msg = data.get("user", "")
                 base_url = data.get("baseURL", "").strip() or AI_BASE
-                api_key = data.get("apiKey", "").strip() or self._ai_key() or AI_KEY
+                api_key = data.get("apiKey", "").strip() or self._ai_key() or get_default_ai_key() or AI_KEY
                 model = data.get("model", "").strip() or AI_MODEL
                 if not isinstance(system_msg, str) or not isinstance(user_msg, str):
                     self._send_error("system / user 必须是字符串", 400)
