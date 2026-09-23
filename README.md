@@ -127,7 +127,52 @@ docker compose up -d
 
 访问首页即直达默认一年级学习页 `http://<主机>/grade/1/`。
 
-> 资源文件（音频/配图/课本原页，约 1.4GB）体积较大，首次启动/首拉镜像时通过 GitHub Release 下载。如网络受限，见下方「轻量镜像」与「离线资源」说明。
+> 资源文件（音频/配图/课本原页，约 1.4GB）体积较大，首次启动/首拉镜像时通过 GitHub Release 下载。如网络受限，见下方「资源下载慢 / 受限网络」。
+
+### 最小参数：docker run / docker compose
+
+不想克隆整个仓库也可以，直接用官方镜像即可（镜像拉取即含 Web 端，运行时后台自动下载资源）：
+
+```bash
+# ---- docker run（最小参数）----
+mkdir -p data audio textbook-pages story-images          # 先建卷目录
+docker run -d --name china-study-free \
+  -p 3088:80 \
+  -v "$PWD/data:/data" \
+  -v "$PWD/audio:/usr/share/nginx/html/audio" \
+  -v "$PWD/textbook-pages:/usr/share/nginx/html/textbook-pages" \
+  -v "$PWD/story-images:/usr/share/nginx/html/story-images" \
+  ghcr.io/pelico/chinatextbookstudyfree:latest
+```
+
+```yaml
+# ---- docker-compose（最小参数）----
+# 保存为 docker-compose.yml 后运行 docker compose up -d
+services:
+  china-study-free:
+    image: ghcr.io/pelico/chinatextbookstudyfree:latest
+    container_name: china-study-free
+    ports:
+      - "3088:80"
+    restart: unless-stopped
+    volumes:
+      - ./data:/data
+      - ./audio:/usr/share/nginx/html/audio
+      - ./textbook-pages:/usr/share/nginx/html/textbook-pages
+      - ./story-images:/usr/share/nginx/html/story-images
+```
+
+> `/data` 保存学习进度与家长设置，建议挂载；`audio` / `textbook-pages` / `story-images` 挂载后缓存下载好的资源，重启/换容器不重复下载。
+
+### 资源下载慢 / 受限网络
+
+首次启动容器会在后台自动下载音频、配图、课本原页（合计约 1.4GB，来自 GitHub Release）。Web 页面先可访问，资源逐步就绪；下载失败会自动重试 3 次，失败也不影响页面访问。若下载慢或失败，按需处理：
+
+1. **挂载资源目录（推荐，下载一次永久生效）**：见上例，把三个资源目录挂载到宿主机，资源缓存本地，重启/重建容器不重复下载。
+2. **配置代理**：给容器设置 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量；后端 AI 接口会自动强制直连，代理只作用于资源下载，互不影响。
+3. **换源**：设环境变量 `RELEASE_URL` 指向你本地可达的镜像地址（如内网源）。
+4. **跳过下载**：只体验纯前端（不需要音频/图片）时设 `SKIP_DOWNLOAD=true`。
+5. **查进度**：浏览器打开 `http://<主机>:3088/assets-status.json` 可查看资源下载状态。
 
 ### 端口与数据卷
 
