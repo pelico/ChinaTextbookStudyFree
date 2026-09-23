@@ -308,8 +308,15 @@ export function ProfileClient() {
   }
 
   const completedCount = hydrated ? Object.keys(completedLessons).length : 0;
+  // 星数安全取值：completedLessons 的条目可能是本地对象 {stars,accuracy}，
+  // 也可能是服务端 pull 回来的存在点（true，不含 stars）。后者 .stars 为
+  // undefined，必须容错，否则 totalStars 变 NaN → “获得星星 NaN”。
   const totalStars = hydrated
-    ? Object.values(completedLessons).reduce((acc, r) => acc + r.stars, 0)
+    ? Object.values(completedLessons).reduce(
+        (acc, r) =>
+          acc + (r && typeof r === "object" ? Number(r.stars) || 0 : 0),
+        0,
+      )
     : 0;
   const mistakesCount = hydrated ? mistakes.length : 0;
 

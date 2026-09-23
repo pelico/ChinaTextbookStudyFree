@@ -2119,6 +2119,25 @@ export async function initServerSync() {
               sanitized.streak = local.streak;
               queueDelta({ type: "state", key: "streak", value: local.streak });
             }
+            // completedLessons：服务端 progress_sets 只记存在点(true)，本地存的是
+            // 富对象 {stars,accuracy}。整体覆盖会把本地星数细节冲成 true →
+            // profile“获得星星”变 NaN、路径星星丢失。改并集合并：服务端有而本地
+            // 没有的补 true；本地已有对象细节的保留对象；本地有而服务端没有的保留本地。
+            const localCL = (local as any).completedLessons || {};
+            const serverCL =
+              progress.completedLessons && typeof progress.completedLessons === "object"
+                ? (progress.completedLessons as Record<string, unknown>)
+                : {};
+            const mergedCL: Record<string, any> = {};
+            for (const id of Object.keys(serverCL)) {
+              const detail = (localCL as any)[id];
+              mergedCL[id] =
+                detail && typeof detail === "object" ? detail : true;
+            }
+            for (const id of Object.keys(localCL)) {
+              if (!(id in serverCL)) mergedCL[id] = (localCL as any)[id];
+            }
+            sanitized.completedLessons = mergedCL;
             useProgressStore.setState(sanitized);
           }
         }
