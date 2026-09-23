@@ -1053,11 +1053,8 @@ function ReleaseUrlSection() {
       </div>
       {saved && <div className="text-[11px] text-emerald-600 break-all">当前生效：{saved}</div>}
       {msg && <div className="text-xs text-violet-500 mt-1">{msg}</div>}
-      <div className="text-[10px] text-ink-light leading-relaxed">
-        用于切换/加速资源包（音频、配图、课本原页）下载。留空即官方 GitHub 源；下载慢或失败时，
-        可在此填入 ghproxy 加速地址后保存，无需重启容器，再点页面上的重试即可生效。
-        例：https://ghproxy.com/https://github.com/pelico/ChinaTextbookStudyFree/releases/download/v1.1.0-assets
-        （也可换 gh-proxy.com / mirror.ghproxy.com 等）
+      <div className="text-[11px] text-ink-light leading-relaxed break-all">
+        资源下载慢或失败时，可将 Base URL 换成加速镜像后保存。留空即官方源。
       </div>
     </div>
   );
