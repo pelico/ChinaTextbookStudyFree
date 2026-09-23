@@ -426,12 +426,12 @@ class MainActivity : AppCompatActivity() {
 
         webContainer.addView(webView)
 
-        // 每次创建 WebView 时清除旧的缓存和历史
+        // 每次创建 WebView 时清除旧的页面缓存和历史（保留 localStorage，
+        // 否则 csf-active-kid 等已选学习者偏好每次冷启动都被清空、反复弹选择器）。
         webView.clearCache(true)
         webView.clearHistory()
-        // 清除 Service Worker 缓存
+        // 清除表单自动填充数据
         webView.clearFormData()
-        android.webkit.WebStorage.getInstance().deleteAllData()
 
         WebView.setWebContentsDebuggingEnabled(true)
 
