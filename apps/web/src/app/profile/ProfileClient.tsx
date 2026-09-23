@@ -754,8 +754,8 @@ export function ProfileClient() {
           {/* 设为默认 AI Key */}
           {parentUnlocked && (
             <div className="mt-4 pt-4 border-t border-bg-softer">
-              <div className="text-xs text-ink-light mb-2 font-bold">默认 AI Key（服务端存储，跨设备共享）</div>
-              <DefaultAIKeySection />
+              <div className="text-xs text-ink-light mb-2 font-bold">默认 AI 配置（服务端存储，跨设备共享）</div>
+              <DefaultAIConfigSection />
             </div>
           )}
 
@@ -855,54 +855,120 @@ function KidsManager({ onKidsChanged }: { onKidsChanged: () => void }) {
 
 
 // ============================================================
-// 🔑 默认 AI Key（服务端存储）
+// 🔑 默认 AI 配置（服务端存储）
 // ============================================================
 
-function DefaultAIKeySection() {
-  const [keySet, setKeySet] = useState(false);
-  const [input, setInput] = useState("");
+type AIConfigForm = { base: string; key: string; model: string };
+
+function DefaultAIConfigSection() {
+  const [configured, setConfigured] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [saved, setSaved] = useState<AIConfigForm>({ base: "", key: "", model: "" });
+  const [form, setForm] = useState<AIConfigForm>({ base: "", key: "", model: "" });
   const [msg, setMsg] = useState("");
 
   useEffect(() => {
     getParentSettings().then(s => {
-      if (s) setKeySet(s.ai_key_set);
+      if (!s) return;
+      const base = s.ai_base_url || "";
+      const model = s.ai_model || "gemini-3.1-flash-lite";
+      setConfigured(!!s.ai_key_set);
+      setSaved({ base, key: "", model });
+      setForm({ base, key: "", model });
     });
   }, []);
 
+  async function handleSave() {
+    const payload: {
+      ai_api_key?: string;
+      ai_base_url?: string;
+      ai_model?: string;
+    } = {};
+    if (form.key.trim()) payload.ai_api_key = form.key.trim();
+    if (form.base.trim()) payload.ai_base_url = form.base.trim();
+    if (form.model.trim()) payload.ai_model = form.model.trim();
+    const ok = await updateParentSettings(payload);
+    if (ok) {
+      setConfigured(true);
+      setSaved({ base: form.base.trim(), key: "", model: form.model.trim() });
+      setEditing(false);
+      setMsg("已保存");
+      setTimeout(() => setMsg(""), 2000);
+    } else {
+      setMsg("保存失败");
+    }
+  }
+
+  const showForm = !(configured && !editing);
+
   return (
-    <div className="rounded-xl bg-bg-soft p-3">
-      {keySet ? (
+    <div className="rounded-xl bg-bg-soft p-3 space-y-2">
+      {!showForm && (
         <div className="flex items-center justify-between">
-          <span className="text-xs text-emerald-600 font-bold">✓ 服务端已配置默认 Key</span>
+          <span className="text-xs text-emerald-600 font-bold">✓ 服务端已配置默认 AI</span>
           <button
-            onClick={() => { setKeySet(false); setInput(""); }}
+            onClick={() => {
+              setEditing(true);
+              setForm({ base: saved.base, key: "", model: saved.model });
+            }}
             className="text-xs text-violet-500 hover:underline"
           >
             修改
           </button>
         </div>
-      ) : (
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            placeholder="粘贴 API Key（如 sk-xxx）"
-            className="flex-1 h-9 px-3 rounded-xl border-2 border-bg-softer text-sm outline-none focus:border-violet-400"
-          />
-          <button
-            onClick={async () => {
-              if (!input.trim()) { setMsg("请输入 Key"); return; }
-              const ok = await updateParentSettings({ ai_api_key: input.trim() });
-              if (ok) { setKeySet(true); setInput(""); setMsg("已保存"); setTimeout(() => setMsg(""), 2000); }
-              else { setMsg("保存失败"); }
-            }}
-            className="h-9 px-4 rounded-xl bg-violet-500 text-white text-sm font-bold"
-          >
-            保存
-          </button>
+      )}
+
+      {showForm && (
+        <div className="space-y-2">
+          <div>
+            <div className="text-[11px] text-ink-light mb-1">API Base URL</div>
+            <input
+              type="text"
+              value={form.base}
+              onChange={e => setForm({ ...form, base: e.target.value })}
+              placeholder="https://你的AI网关/v1（可留空，用环境变量 AI_API_BASE）"
+              className="w-full h-9 px-3 rounded-xl border-2 border-bg-softer text-sm outline-none focus:border-violet-400"
+            />
+          </div>
+          <div>
+            <div className="text-[11px] text-ink-light mb-1">API Key</div>
+            <input
+              type="text"
+              value={form.key}
+              onChange={e => setForm({ ...form, key: e.target.value })}
+              placeholder="粘贴 API Key（如 sk-xxx）"
+              className="w-full h-9 px-3 rounded-xl border-2 border-bg-softer text-sm outline-none focus:border-violet-400"
+            />
+          </div>
+          <div>
+            <div className="text-[11px] text-ink-light mb-1">Model</div>
+            <input
+              type="text"
+              value={form.model}
+              onChange={e => setForm({ ...form, model: e.target.value })}
+              placeholder="gemini-3.1-flash-lite"
+              className="w-full h-9 px-3 rounded-xl border-2 border-bg-softer text-sm outline-none focus:border-violet-400"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleSave}
+              className="h-9 px-4 rounded-xl bg-violet-500 text-white text-sm font-bold"
+            >
+              保存
+            </button>
+            {configured && (
+              <button
+                onClick={() => setEditing(false)}
+                className="text-xs text-ink-light hover:underline"
+              >
+                取消
+              </button>
+            )}
+          </div>
         </div>
       )}
+
       {msg && <div className="text-xs text-violet-500 mt-1">{msg}</div>}
     </div>
   );
