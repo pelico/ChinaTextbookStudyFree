@@ -40,16 +40,19 @@ export default async function BookPage({ params }: { params: Promise<{ book: str
 
   return (
     <AppShell>
-    <main className="min-h-screen bg-bg-soft lg:bg-transparent">
+    <main
+      className="min-h-screen bg-bg-soft lg:bg-transparent"
+      style={{ "--cstf-top-bar-h": "53px" } as CSSProperties}
+    >
       {/* 访问即成为「当前教材」（首页据此直达本页） */}
       <ActiveBookSync bookId={bookId} grade={book.grade} />
 
       {/* 移动端顶栏：当前教材徽章（可换书） + stats
-          --cstf-top-bar-h 暴露白条真实高度，供下方 PathMap sticky banner
-          吸附于白条正下方（避免被白条盖住）。 */}
+          --cstf-top-bar-h 需设在 main（白条与 PathMap 蓝条的共同祖先）上，
+          供下方 PathMap sticky banner 吸附于白条正下方（避免被白条盖住）。
+          若设在白条 div 上，蓝条（兄弟节点）读不到而失效。 */}
       <div
         className="lg:hidden bg-white border-b border-bg-softer sticky top-0 z-30"
-        style={{ "--cstf-top-bar-h": "53px" } as CSSProperties}
       >
         <div className="max-w-md mx-auto px-4 py-2 flex items-center justify-between gap-2">
           <CurrentBookBadge book={book} gradeBooks={gradeBooks} />
