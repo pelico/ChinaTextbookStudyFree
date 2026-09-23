@@ -32,10 +32,26 @@ export function getThemeMode(): ThemeMode {
   return window.localStorage.getItem(THEME_MODE_KEY) === "dark" ? "dark" : "light";
 }
 
+/**
+ * 同步把免费二态的亮/暗应用到 <html>（.theme-dark + colorScheme）。
+ *
+ * 不依赖 React effect 调度：`setThemeMode` 写入 localStorage 后立即调用本函数，
+ * 保证「切一下立即生效」，彻底消除“点了要刷新才生效”。
+ * 与 ThemeProvider 的 effect 幂等（都只 toggle 这个类 + colorScheme），重跑无害。
+ */
+function applyFreeDarkDom(mode: ThemeMode) {
+  if (typeof window === "undefined") return;
+  const root = document.documentElement;
+  root.classList.toggle("theme-dark", mode === "dark");
+  root.style.colorScheme = mode === "dark" ? "dark" : "light";
+}
+
 export function setThemeMode(mode: ThemeMode) {
   if (typeof window === "undefined") return;
   if (mode === "dark") window.localStorage.setItem(THEME_MODE_KEY, "dark");
   else window.localStorage.removeItem(THEME_MODE_KEY);
+  // 同步即时生效，不等 React
+  applyFreeDarkDom(mode);
   emit();
 }
 
