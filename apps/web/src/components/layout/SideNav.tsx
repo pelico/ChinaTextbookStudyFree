@@ -89,9 +89,10 @@ export function SideNav({ leftSlot }: SideNavProps = {}) {
     return null;
   }, [pathname]);
   const selectedGrade = useProgressStore(s => s.selectedGrade);
-  // 学习 tab 有「当前教材」时直接软跳转该教材，避免经空壳首页( / )二次跳转造成的白屏闪一次
+  // 学习 tab：有「当前教材」直接软跳该教材；否则直达所选年级（默认 1），
+  // 避免经根页( / ) → 年级页的一次多余跳转造成连续网址变化/白屏。
   const activeBookId = useProgressStore(s => s.activeBookId);
-  const learnHref = activeBookId ? `/book/${activeBookId}/` : "/";
+  const learnHref = activeBookId ? `/book/${activeBookId}/` : `/grade/${selectedGrade ?? 1}/`;
 
   return (
     <nav className="flex flex-col gap-2 w-full h-full" aria-label="主导航">

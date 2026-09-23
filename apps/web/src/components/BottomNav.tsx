@@ -127,6 +127,7 @@ export function BottomNav() {
 
   const mistakes = useProgressStore(s => s.mistakesBank);
   const activeBookId = useProgressStore(s => s.activeBookId);
+  const selectedGrade = useProgressStore(s => s.selectedGrade);
   const gems = useProgressStore(s => s.gems);
   const ownedCosmetics = useProgressStore(s => s.ownedCosmetics);
   const claimableQuestCount = useProgressStore(s => s.claimableQuestCount);
@@ -155,8 +156,9 @@ export function BottomNav() {
   // 否则固定底栏会盖住这些页面底部的「检查 / 继续」按钮。
   if (isImmersivePath(pathname)) return null;
 
-  // 学习 tab 有「当前教材」时直接软跳转该教材，避免经空壳首页( / )二次跳转造成的白屏闪一次
-  const learnHref = activeBookId ? `/book/${activeBookId}/` : "/";
+  // 学习 tab：有「当前教材」直接软跳该教材；否则直达所选年级（默认 1），
+  // 避免经根页( / ) → 年级页的一次多余跳转造成连续网址变化/白屏。
+  const learnHref = activeBookId ? `/book/${activeBookId}/` : `/grade/${selectedGrade ?? 1}/`;
 
   function getBadge(item: NavItem): { count?: number; dot?: boolean } | null {
     if (item.matchPrefix === "/review" && reviewBadge > 0) return { count: reviewBadge };
